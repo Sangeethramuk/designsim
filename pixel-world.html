@@ -881,8 +881,8 @@ function initChatPanel(){
 }
 
 function initLLMSettings(){
-  window._llmBaseUrl='https://api.example.com';
-  window._llmApiKey='REDACTED';
+  window._llmBaseUrl=null;
+  window._llmApiKey=null;
   updateLLMBtn();
   document.getElementById('llm-settings-btn').addEventListener('click',()=>{
     document.getElementById('llm-base-url').value=window._llmBaseUrl||'';
