@@ -624,7 +624,7 @@ class GameScene extends Phaser.Scene{
     }
 
     // --- Zone Labels ---
-    const labelStyle={fontSize:'6px',fontFamily:'monospace',color:'#ffffff',stroke:'#000000',strokeThickness:2,resolution:2};
+    const labelStyle={fontSize:'14px',fontFamily:'monospace',color:'#ffffff',stroke:'#000000',strokeThickness:3,resolution:4};
     [{t:'RESEARCH LIBRARY',x:6,y:0,c:ZP.lib.accent},{t:'DESIGN STUDIO',x:20,y:0,c:ZP.stu.accent},
      {t:'CRITIQUE ROOM',x:6,y:8,c:ZP.cri.accent},{t:'SYNTHESIS HUB',x:20,y:8,c:ZP.hub.accent}
     ].forEach(l=>{
@@ -637,8 +637,8 @@ class GameScene extends Phaser.Scene{
       const spr=this.add.sprite(a.tx*TILE+TILE/2,a.ty*TILE+TILE/2,a.id+'_'+a.facing+'_0').setDepth(a.ty*TILE);
       spr.setInteractive({useHandCursor:true});
 
-      const label=this.add.text(spr.x,spr.y-11,a.name,{
-        fontSize:'6px',fontFamily:'monospace',color:hex(a.zc),stroke:'#111111',strokeThickness:2,resolution:2
+      const label=this.add.text(spr.x,spr.y-18,a.name,{
+        fontSize:'14px',fontFamily:'monospace',color:hex(a.zc),stroke:'#111111',strokeThickness:3,resolution:4
       }).setOrigin(0.5).setDepth(a.ty*TILE+1);
 
       const agentData={
@@ -695,11 +695,11 @@ class GameScene extends Phaser.Scene{
     this.dayTime=0.4;this.daySpeed=0.006;
 
     // HUD
-    this.add.rectangle(4,4,150,52,0x0a0a2e,0.7).setOrigin(0,0).setDepth(300000).setScrollFactor(0);
-    this.hudZone=this.add.text(8,6,'',{fontSize:'7px',fontFamily:'monospace',color:'#f0d890',resolution:2}).setDepth(300001).setScrollFactor(0);
-    this.hudCoord=this.add.text(8,16,'',{fontSize:'7px',fontFamily:'monospace',color:'#c0c0c0',resolution:2}).setDepth(300001).setScrollFactor(0);
-    this.hudTime=this.add.text(8,26,'',{fontSize:'7px',fontFamily:'monospace',color:'#a0a0a0',resolution:2}).setDepth(300001).setScrollFactor(0);
-    this.hudZoom=this.add.text(8,36,'',{fontSize:'7px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0);
+    this.add.rectangle(8,8,280,95,0x0a0a2e,0.7).setOrigin(0,0).setDepth(300000).setScrollFactor(0);
+    this.hudZone=this.add.text(16,12,'',{fontSize:'16px',fontFamily:'monospace',color:'#f0d890',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.hudCoord=this.add.text(16,32,'',{fontSize:'16px',fontFamily:'monospace',color:'#c0c0c0',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.hudTime=this.add.text(16,52,'',{fontSize:'16px',fontFamily:'monospace',color:'#a0a0a0',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.hudZoom=this.add.text(16,72,'',{fontSize:'16px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0);
     
     // Zoom controls
     this.currentZoom=ZOOM;
@@ -708,17 +708,17 @@ class GameScene extends Phaser.Scene{
     this.zoomSpeed=0.25;
     
     // Zoom buttons (bottom-left HUD)
-    const zoomBtnY=MAP_H*TILE-10;
-    const zoomBg=this.add.rectangle(30,zoomBtnY,50,12,0x000000,0.6).setDepth(300000).setScrollFactor(0).setOrigin(0.5);
-    this.zoomInBtn=this.add.text(12,zoomBtnY,'[+]',{fontSize:'8px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
-    this.zoomOutBtn=this.add.text(48,zoomBtnY,'[-]',{fontSize:'8px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
+    const zoomBtnY=MAP_H*TILE-24;
+    const zoomBg=this.add.rectangle(50,zoomBtnY,90,20,0x000000,0.6).setDepth(300000).setScrollFactor(0).setOrigin(0.5);
+    this.zoomInBtn=this.add.text(24,zoomBtnY,'[+]',{fontSize:'18px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
+    this.zoomOutBtn=this.add.text(76,zoomBtnY,'[-]',{fontSize:'18px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
     
     this.zoomInBtn.on('pointerdown',()=>{this._internalClick=true;this.setZoom(this.currentZoom+this.zoomSpeed);});
     this.zoomOutBtn.on('pointerdown',()=>{this._internalClick=true;this.setZoom(this.currentZoom-this.zoomSpeed);});
 
     // Instruction
-    const iBg=this.add.rectangle(this.scale.width/(ZOOM*2),MAP_H*TILE-10,200,12,0x000000,0.6).setDepth(300000).setScrollFactor(0);
-    const iTx=this.add.text(this.scale.width/(ZOOM*2),MAP_H*TILE-10,'WASD: move | Scroll/+/-: zoom | R: reset | Click: agents',{fontSize:'5px',fontFamily:'monospace',color:'#b0b0b0',resolution:2}).setOrigin(0.5).setDepth(300001).setScrollFactor(0);
+    const iBg=this.add.rectangle(this.scale.width/(ZOOM*2),MAP_H*TILE-24,450,28,0x000000,0.6).setDepth(300000).setScrollFactor(0);
+    const iTx=this.add.text(this.scale.width/(ZOOM*2),MAP_H*TILE-24,'WASD: move | Scroll/+/-: zoom | R: reset | Click: agents',{fontSize:'12px',fontFamily:'monospace',color:'#b0b0b0',resolution:4}).setOrigin(0.5).setDepth(300001).setScrollFactor(0);
     this.time.delayedCall(6000,()=>{this.tweens.add({targets:[iBg,iTx],alpha:0,duration:1000});});
 
     this.activePopover=null;
@@ -728,7 +728,7 @@ class GameScene extends Phaser.Scene{
   // --- Popover ---
   showPopover(agent){
     this.dismissPopover();
-    const pw=140,ph=52;
+    const pw=200,ph=70;
     const cam=this.cameras.main;
     const wv=cam.worldView;
 
@@ -757,8 +757,71 @@ class GameScene extends Phaser.Scene{
     }
 
     // Name
-    container.add(this.add.text(-pw/2+18,-ph/2+3,agent.name,{
-      fontSize:'7px',fontFamily:'monospace',color:hex(agent.zc),resolution:2
+    container.add(this.add.text(-pw/2+26,-ph/2+5,agent.name,{
+      fontSize:'16px',fontFamily:'monospace',color:hex(agent.zc),resolution:4
+    }));
+
+    // Role
+    container.add(this.add.text(-pw/2+26,-ph/2+22,agent.role,{
+      fontSize:'12px',fontFamily:'monospace',color:'#a0a0a0',resolution:4
+    }));
+
+    // Separator
+    container.add(this.add.rectangle(0,-ph/2+32,pw-12,2,agent.zc,0.4));
+
+    // Description
+    container.add(this.add.text(-pw/2+8,-ph/2+38,agent.desc,{
+      fontSize:'12px',fontFamily:'monospace',color:'#d0d0d0',resolution:4,
+      wordWrap:{width:pw-16},lineSpacing:2
+    }));
+
+    // Zone badge (bottom-right)
+    container.add(this.add.text(pw/2-8,ph/2-6,agent.zone,{
+      fontSize:'10px',fontFamily:'monospace',color:hex(agent.zc),resolution:4
+    }).setOrigin(1,1));
+
+    // Expand button (bottom-left)
+    const expandBtn=this.add.text(-pw/2+8,ph/2-6,'[+]',{
+      fontSize:'12px',fontFamily:'monospace',color:'#808080',resolution:4
+    }).setOrigin(0,1).setInteractive({useHandCursor:true});
+    container.add(expandBtn);
+
+    // Edit button (bottom-center)
+    const editBtn=this.add.text(0,ph/2-6,'[Edit]',{
+      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
+    }).setOrigin(0.5,1).setInteractive({useHandCursor:true});
+    container.add(editBtn);
+
+    // Detail panel (initially hidden)
+    const detailH=55;
+    const detailY=ph/2+detailH/2+6;
+    const detailContainer=this.add.container(0,detailY).setVisible(false).setDepth(250001);
+    
+    const detailBg=this.add.rectangle(0,0,pw,detailH,0x0a0a1e,0.95).setStrokeStyle(2,agent.zc,0.5);
+    detailContainer.add(detailBg);
+
+    // Brain badge
+    const brainShort=agent.brain.replace('litellm/','');
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+4,'Brain: '+brainShort,{
+      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
+    }));
+
+    // Tools
+    const toolsStr=agent.tools.length?agent.tools.join(', '):'none';
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+18,'Tools: '+toolsStr,{
+      fontSize:'12px',fontFamily:'monospace',color:'#50a878',resolution:4
+    }));
+
+    // MCP
+    const mcpStr=agent.mcp.length?agent.mcp.join(', '):'none';
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+32,'MCP: '+mcpStr,{
+      fontSize:'12px',fontFamily:'monospace',color:'#d4a03c',resolution:4
+    }));
+
+    // Skills
+    const skillsStr=agent.skills.length?agent.skills.join(', '):'none';
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+46,'Skills: '+skillsStr,{
+      fontSize:'12px',fontFamily:'monospace',color:'#e84855',resolution:4
     }));
 
     // Role
@@ -776,52 +839,52 @@ class GameScene extends Phaser.Scene{
     }));
 
     // Zone badge (bottom-right)
-    container.add(this.add.text(pw/2-4,ph/2-3,agent.zone,{
-      fontSize:'4px',fontFamily:'monospace',color:hex(agent.zc),resolution:2
+    container.add(this.add.text(pw/2-8,ph/2-6,agent.zone,{
+      fontSize:'10px',fontFamily:'monospace',color:hex(agent.zc),resolution:4
     }).setOrigin(1,1));
 
     // Expand button (bottom-left)
-    const expandBtn=this.add.text(-pw/2+4,ph/2-3,'[+]',{
-      fontSize:'5px',fontFamily:'monospace',color:'#808080',resolution:2
+    const expandBtn=this.add.text(-pw/2+8,ph/2-6,'[+]',{
+      fontSize:'12px',fontFamily:'monospace',color:'#808080',resolution:4
     }).setOrigin(0,1).setInteractive({useHandCursor:true});
     container.add(expandBtn);
 
     // Edit button (bottom-center)
-    const editBtn=this.add.text(0,ph/2-3,'[Edit]',{
-      fontSize:'5px',fontFamily:'monospace',color:'#4a9eea',resolution:2
+    const editBtn=this.add.text(0,ph/2-6,'[Edit]',{
+      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
     }).setOrigin(0.5,1).setInteractive({useHandCursor:true});
     container.add(editBtn);
 
     // Detail panel (initially hidden)
-    const detailH=38;
-    const detailY=ph/2+detailH/2+4;
+    const detailH=55;
+    const detailY=ph/2+detailH/2+6;
     const detailContainer=this.add.container(0,detailY).setVisible(false).setDepth(250001);
     
-    const detailBg=this.add.rectangle(0,0,pw,detailH,0x0a0a1e,0.95).setStrokeStyle(1,agent.zc,0.5);
+    const detailBg=this.add.rectangle(0,0,pw,detailH,0x0a0a1e,0.95).setStrokeStyle(2,agent.zc,0.5);
     detailContainer.add(detailBg);
 
     // Brain badge
     const brainShort=agent.brain.replace('litellm/','');
-    detailContainer.add(this.add.text(-pw/2+4,-detailH/2+2,'Brain: '+brainShort,{
-      fontSize:'5px',fontFamily:'monospace',color:'#4a9eea',resolution:2
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+4,'Brain: '+brainShort,{
+      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
     }));
 
     // Tools
     const toolsStr=agent.tools.length?agent.tools.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+4,-detailH/2+10,'Tools: '+toolsStr,{
-      fontSize:'5px',fontFamily:'monospace',color:'#50a878',resolution:2
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+18,'Tools: '+toolsStr,{
+      fontSize:'12px',fontFamily:'monospace',color:'#50a878',resolution:4
     }));
 
     // MCP
     const mcpStr=agent.mcp.length?agent.mcp.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+4,-detailH/2+18,'MCP: '+mcpStr,{
-      fontSize:'5px',fontFamily:'monospace',color:'#d4a03c',resolution:2
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+32,'MCP: '+mcpStr,{
+      fontSize:'12px',fontFamily:'monospace',color:'#d4a03c',resolution:4
     }));
 
     // Skills
     const skillsStr=agent.skills.length?agent.skills.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+4,-detailH/2+26,'Skills: '+skillsStr,{
-      fontSize:'5px',fontFamily:'monospace',color:'#e84855',resolution:2
+    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+46,'Skills: '+skillsStr,{
+      fontSize:'12px',fontFamily:'monospace',color:'#e84855',resolution:4
     }));
 
     container.add(detailContainer);
