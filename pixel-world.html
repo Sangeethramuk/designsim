@@ -64,6 +64,18 @@
   #chat-mic.listening{background:#3a0a0a;border-color:#f44;color:#f88;}
   #chat-send{background:#0a2a1a;border:1px solid #1a5a3a;color:#4c8;padding:6px 10px;cursor:pointer;font-size:14px;}
   #chat-send:hover{background:#0a3a2a;}
+  /* HTML HUD overlay */
+  #game-hud{position:fixed;top:10px;left:10px;display:flex;gap:10px;align-items:center;background:rgba(10,10,30,0.8);border:1px solid rgba(100,100,180,0.18);border-radius:6px;padding:5px 12px;font-family:monospace;font-size:12px;z-index:1000;pointer-events:none;user-select:none;backdrop-filter:blur(6px);}
+  #game-hud .h-zone{color:#f0d890;font-weight:bold;letter-spacing:0.5px;}
+  #game-hud .h-sep{color:#2a2a5a;}
+  #game-hud .h-coord{color:#8090a8;}
+  #game-hud .h-time{color:#606878;}
+  #game-hud .h-zoom{color:#4a9eea;}
+  #game-zoom-btns{position:fixed;bottom:12px;left:12px;display:flex;gap:4px;z-index:1000;}
+  #game-zoom-btns button{background:rgba(10,10,30,0.8);border:1px solid #252548;color:#4a9eea;width:28px;height:28px;cursor:pointer;font-family:monospace;font-size:16px;border-radius:5px;line-height:1;padding:0;transition:border-color 0.15s,background 0.15s;}
+  #game-zoom-btns button:hover{border-color:#4a9eea;background:rgba(74,158,234,0.15);}
+  #game-hint{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.55);color:#787878;font-family:monospace;font-size:11px;padding:4px 16px;border-radius:4px;z-index:1000;pointer-events:none;transition:opacity 1.4s ease;white-space:nowrap;}
+  #game-hint.hidden{opacity:0;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 </head>
@@ -184,7 +196,7 @@
   </div>
 </div>
 <script>
-const MAP_W=27, MAP_H=15, ZOOM=1;
+const MAP_W=27, MAP_H=15, ZOOM=3;
 const TILE=16; // Keep original 16px tiles
 
 // --- Helpers ---
@@ -952,36 +964,29 @@ class GameScene extends Phaser.Scene{
       if(nearest)openChat(nearest);
     });
 
-    // Day overlay (dimmer for indoor)
-    this.dayOverlay=this.add.rectangle(MAP_W*TILE/2,MAP_H*TILE/2,MAP_W*TILE,MAP_H*TILE,0x0a0a2e,0).setDepth(200000);
+    // Day overlay — large enough to cover camera at any zoom (scrollFactor 0 = screen-space)
+    this.dayOverlay=this.add.rectangle(0,0,4000,4000,0x0a0a2e,0).setDepth(200000).setScrollFactor(0).setOrigin(0);
     this.dayTime=0.4;this.daySpeed=0.006;
 
-    // HUD
-    this.add.rectangle(6,6,200,80,0x0a0a2e,0.7).setOrigin(0,0).setDepth(300000).setScrollFactor(0);
-    this.hudZone=this.add.text(12,10,'',{fontSize:'12px',fontFamily:'monospace',color:'#f0d890',resolution:4}).setDepth(300001).setScrollFactor(0);
-    this.hudCoord=this.add.text(12,26,'',{fontSize:'12px',fontFamily:'monospace',color:'#c0c0c0',resolution:4}).setDepth(300001).setScrollFactor(0);
-    this.hudTime=this.add.text(12,42,'',{fontSize:'12px',fontFamily:'monospace',color:'#a0a0a0',resolution:4}).setDepth(300001).setScrollFactor(0);
-    this.hudZoom=this.add.text(12,58,'',{fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0);
-    
-    // Zoom controls
+    // Zoom controls (state only — buttons are in HTML)
     this.currentZoom=ZOOM;
-    this.minZoom=0.5;
-    this.maxZoom=4;
-    this.zoomSpeed=0.25;
-    
-    // Zoom buttons (bottom-left HUD)
-    const zoomBtnY=MAP_H*TILE-16;
-    const zoomBg=this.add.rectangle(35,zoomBtnY,60,16,0x000000,0.6).setDepth(300000).setScrollFactor(0).setOrigin(0.5);
-    this.zoomInBtn=this.add.text(16,zoomBtnY,'[+]',{fontSize:'14px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
-    this.zoomOutBtn=this.add.text(54,zoomBtnY,'[-]',{fontSize:'14px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
-    
-    this.zoomInBtn.on('pointerdown',()=>{this._internalClick=true;this.setZoom(this.currentZoom+this.zoomSpeed);});
-    this.zoomOutBtn.on('pointerdown',()=>{this._internalClick=true;this.setZoom(this.currentZoom-this.zoomSpeed);});
+    this.minZoom=1;
+    this.maxZoom=6;
+    this.zoomSpeed=0.5;
 
-    // Instruction
-    const iBg=this.add.rectangle(this.scale.width/(ZOOM*2),MAP_H*TILE-24,500,28,0x000000,0.6).setDepth(300000).setScrollFactor(0);
-    const iTx=this.add.text(this.scale.width/(ZOOM*2),MAP_H*TILE-24,'WASD: move | E: chat | Click agent | +/-/scroll: zoom | R: reset',{fontSize:'12px',fontFamily:'monospace',color:'#b0b0b0',resolution:4}).setOrigin(0.5).setDepth(300001).setScrollFactor(0);
-    this.time.delayedCall(8000,()=>{this.tweens.add({targets:[iBg,iTx],alpha:0,duration:1000});});
+    // Wire HTML zoom buttons
+    document.getElementById('btn-zoom-in').addEventListener('click',()=>this.setZoom(this.currentZoom+this.zoomSpeed));
+    document.getElementById('btn-zoom-out').addEventListener('click',()=>this.setZoom(this.currentZoom-this.zoomSpeed));
+    document.getElementById('btn-zoom-reset').addEventListener('click',()=>this.setZoom(ZOOM));
+
+    // Fade hint bar after 7 s
+    setTimeout(()=>{
+      const h=document.getElementById('game-hint');
+      if(h)h.classList.add('hidden');
+    },7000);
+
+    // Init HTML HUD
+    document.getElementById('hud-zoom').textContent=(ZOOM*100)+'%';
 
     this.activePopover=null;
     this._clickedAgent=false;
@@ -1137,6 +1142,8 @@ class GameScene extends Phaser.Scene{
   setZoom(newZoom){
     this.currentZoom=Math.max(this.minZoom,Math.min(this.maxZoom,newZoom));
     this.cameras.main.setZoom(this.currentZoom);
+    const el=document.getElementById('hud-zoom');
+    if(el)el.textContent=(this.currentZoom*100).toFixed(0)+'%';
   }
 
   update(time,delta){
@@ -1220,13 +1227,12 @@ class GameScene extends Phaser.Scene{
       }
     });
 
-    // --- HUD ---
-    this.hudZone.setText(getZone(this.pTX,this.pTY));
-    this.hudCoord.setText('X:'+this.pTX+' Y:'+this.pTY);
+    // --- HUD (HTML) ---
+    document.getElementById('hud-zone').textContent=getZone(this.pTX,this.pTY);
+    document.getElementById('hud-coord').textContent=this.pTX+','+this.pTY;
     const hrs=Math.floor(this.dayTime*24),mins=Math.floor((this.dayTime*24-hrs)*60);
     const h12=hrs%12||12,ap=hrs>=12?'PM':'AM';
-    this.hudTime.setText(h12+':'+String(mins).padStart(2,'0')+' '+ap);
-    this.hudZoom.setText('Zoom: '+(this.currentZoom*100).toFixed(0)+'%');
+    document.getElementById('hud-time').textContent=h12+':'+String(mins).padStart(2,'0')+' '+ap;
   }
 }
 
@@ -1239,7 +1245,7 @@ window._game=new Phaser.Game({
   backgroundColor:'#1a1a2e',
   scene:[GameScene],
   scale:{
-    mode:Phaser.Scale.FIT,
+    mode:Phaser.Scale.EXPAND,
     autoCenter:Phaser.Scale.CENTER_BOTH
   }
 });
@@ -1383,6 +1389,23 @@ function saveAgent(){
   closeEditor();
 }
 </script>
+
+<!-- HUD Overlay -->
+<div id="game-hud">
+  <span class="h-zone" id="hud-zone">Corridor</span>
+  <span class="h-sep">·</span>
+  <span class="h-coord" id="hud-coord">13,6</span>
+  <span class="h-sep">·</span>
+  <span class="h-time" id="hud-time">—</span>
+  <span class="h-sep">·</span>
+  <span class="h-zoom" id="hud-zoom">300%</span>
+</div>
+<div id="game-zoom-btns">
+  <button id="btn-zoom-out" title="Zoom out (−)">−</button>
+  <button id="btn-zoom-reset" title="Reset zoom (R)">⊙</button>
+  <button id="btn-zoom-in" title="Zoom in (+)">+</button>
+</div>
+<div id="game-hint">WASD / arrows · E: chat · click agent · scroll: zoom</div>
 
 <!-- Chat Panel -->
 <div id="chat-panel">
