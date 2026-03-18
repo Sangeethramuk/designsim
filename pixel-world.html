@@ -78,6 +78,20 @@
   #game-zoom-btns button:hover{border-color:#4a9eea;background:rgba(74,158,234,0.15);}
   #game-hint{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.55);color:#787878;font-family:monospace;font-size:11px;padding:4px 16px;border-radius:4px;z-index:1000;pointer-events:none;transition:opacity 1.4s ease;white-space:nowrap;}
   #game-hint.hidden{opacity:0;}
+  #llm-settings-btn{position:fixed;top:10px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#556;width:32px;height:32px;cursor:pointer;font-size:15px;border-radius:6px;z-index:2000;backdrop-filter:blur(6px);transition:border-color 0.15s,color 0.15s;display:flex;align-items:center;justify-content:center;}
+  #llm-settings-btn:hover{border-color:#4a9eea;color:#4a9eea;}
+  #llm-settings-btn.connected{color:#4abc6a;border-color:rgba(74,188,106,0.5);}
+  #llm-settings-modal{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:8000;display:none;align-items:center;justify-content:center;}
+  #llm-settings-modal.active{display:flex;}
+  #llm-settings-panel{background:#0a0a1e;border:1px solid #252548;border-radius:10px;padding:24px;width:340px;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.6);}
+  #llm-settings-panel h3{margin:0 0 20px;color:#fff;font-size:13px;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between;}
+  .llm-close-btn{background:none;border:none;color:#555;cursor:pointer;font-size:18px;line-height:1;padding:0;}.llm-close-btn:hover{color:#aaa;}
+  .llm-field{margin-bottom:14px;}.llm-field label{display:block;font-size:10px;color:#555;margin-bottom:5px;letter-spacing:0.8px;text-transform:uppercase;}
+  .llm-field input{width:100%;background:#060614;border:1px solid #252548;color:#ccc;padding:8px 10px;font-size:12px;font-family:monospace;border-radius:4px;box-sizing:border-box;}.llm-field input:focus{outline:none;border-color:#4a9eea;}
+  #llm-status{font-size:11px;margin:6px 0 10px;min-height:14px;font-family:monospace;}#llm-status.ok{color:#4abc6a;}#llm-status.err{color:#e84855;}
+  #llm-save-btn{background:#0a2a1a;border:1px solid #2a5a3a;color:#4abc6a;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;width:100%;}#llm-save-btn:hover{background:#1a4a2a;}
+  #chat-agent-model{width:100%;background:transparent;border:none;border-top:1px solid #111;color:#4a9eea;font-size:10px;font-family:monospace;padding:3px 4px;cursor:pointer;margin-top:3px;}
+  #chat-agent-model option{background:#0a0a1e;color:#ccc;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 </head>
@@ -233,75 +247,75 @@ const AGENTS=[
   {id:'scout',name:'Scout',role:'Competitive Research',zone:'Research Library',zc:0xd4a03c,
    desc:'Searches real products for design patterns using Refero MCP.',tx:3,ty:4,facing:'down',
    shirt:0x8b4513,hair:0x2a2a2a,idle:'look',
-   brain:'litellm/glm-latest',systemPrompt:'Find and analyze best existing solutions to similar design problems. Extract actionable patterns.',
+   brain:'kimi-latest',systemPrompt:'Find and analyze best existing solutions to similar design problems. Extract actionable patterns.',
    tools:[],mcp:['refero'],skills:['research-competitive']},
   {id:'scholar',name:'Scholar',role:'Best Practices Research',zone:'Research Library',zc:0xd4a03c,
    desc:'Searches web for UX guidelines, accessibility standards, and design system docs.',tx:9,ty:4,facing:'down',
    shirt:0x5c5080,hair:0xd4a017,idle:'look',
-   brain:'litellm/claude-sonnet-4-6',systemPrompt:'Research UX guidelines, accessibility standards, and design system best practices.',
+   brain:'kimi-latest',systemPrompt:'Research UX guidelines, accessibility standards, and design system best practices.',
    tools:['webfetch'],mcp:['deepwiki'],skills:['research-best-practices']},
 
   {id:'palette',name:'Palette',role:'UI Variations Generator',zone:'Design Studio',zc:0xe84855,
    desc:'Creates 5+ distinct visual layout options with design rationale.',tx:16,ty:5,facing:'down',
    shirt:0xe84855,hair:0x5c3a1e,idle:'type',
-   brain:'litellm/claude-opus-4-5',systemPrompt:'Generate 5+ distinct visual layout variations. Each must follow UI laws and serve different user needs.',
+   brain:'kimi-latest',systemPrompt:'Generate 5+ distinct visual layout variations. Each must follow UI laws and serve different user needs.',
    tools:[],mcp:[],skills:['generate-ui']},
   {id:'flow',name:'Flow',role:'UX Flow Architect',zone:'Design Studio',zc:0x4a9eea,
    desc:'Designs interaction patterns, user flows, state machines, and transitions.',tx:18,ty:5,facing:'down',
    shirt:0x4a9eea,hair:0x2a2a2a,idle:'type',
-   brain:'litellm/claude-opus-4-6',systemPrompt:'Design interaction patterns, user flows, state machines. Apply UX laws and handle edge cases.',
+   brain:'kimi-latest',systemPrompt:'Design interaction patterns, user flows, state machines. Apply UX laws and handle edge cases.',
    tools:[],mcp:[],skills:['generate-ux']},
   {id:'blueprint',name:'Blueprint',role:'Figma Specs Generator',zone:'Design Studio',zc:0x4a9eea,
    desc:'Creates detailed YAML design specs for Figma: frames, typography, colors, spacing.',tx:20,ty:5,facing:'down',
    shirt:0x4ac7ea,hair:0x8b4513,idle:'type',
-   brain:'litellm/glm-latest',systemPrompt:'Create detailed YAML design specifications for Figma implementation.',
+   brain:'kimi-latest',systemPrompt:'Create detailed YAML design specifications for Figma implementation.',
    tools:[],mcp:['figma'],skills:['generate-figma-specs']},
   {id:'forge',name:'Forge',role:'Code Generator',zone:'Design Studio',zc:0x4abc6a,
    desc:'Generates production-ready React/TypeScript/Tailwind implementation.',tx:22,ty:5,facing:'down',
    shirt:0x4abc6a,hair:0x5c3a1e,idle:'type',
-   brain:'litellm/claude-sonnet-4-5',systemPrompt:'Generate clean, accessible, production-ready React/TypeScript/Tailwind code.',
+   brain:'kimi-latest',systemPrompt:'Generate clean, accessible, production-ready React/TypeScript/Tailwind code.',
    tools:['bash'],mcp:[],skills:['generate-code']},
 
   {id:'lens',name:'Lens',role:'UX Critique Agent',zone:'Critique Room',zc:0xf0a040,
    desc:'Deep heuristic evaluation using Nielsen\'s 10 usability heuristics and UX laws.',tx:3,ty:11,facing:'down',
    shirt:0xf0a040,hair:0x2a2a2a,idle:'look',
-   brain:'litellm/claude-opus-4-5',systemPrompt:'Perform deep heuristic evaluation using Nielsen\'s 10 heuristics and UX laws.',
+   brain:'kimi-latest',systemPrompt:'Perform deep heuristic evaluation using Nielsen\'s 10 heuristics and UX laws.',
    tools:[],mcp:[],skills:['critique-ux']},
   {id:'eye',name:'Eye',role:'UI Aesthetics Critic',zone:'Critique Room',zc:0xf0a040,
    desc:'Evaluates visual hierarchy, spacing, color usage, typography, and consistency.',tx:6,ty:11,facing:'down',
    shirt:0xc0508c,hair:0xd4a017,idle:'look',
-   brain:'litellm/glm-latest',systemPrompt:'Evaluate visual hierarchy, spacing, color usage, typography, and consistency.',
+   brain:'kimi-latest',systemPrompt:'Evaluate visual hierarchy, spacing, color usage, typography, and consistency.',
    tools:[],mcp:[],skills:['critique-ui']},
   {id:'mirror',name:'Mirror',role:'Persona Simulator',zone:'Critique Room',zc:0xf0a040,
    desc:'Role-plays target users: seniors, first-timers, power users, stressed users.',tx:10,ty:11,facing:'down',
    shirt:0x70a0c0,hair:0x8b4513,idle:'look',
-   brain:'litellm/claude-sonnet-4-6',systemPrompt:'Role-play target users: seniors, first-timers, power users, stressed users.',
+   brain:'kimi-latest',systemPrompt:'Role-play target users: seniors, first-timers, power users, stressed users.',
    tools:[],mcp:[],skills:['critique-persona']},
 
   {id:'council',name:'Council',role:'Review Panel',zone:'Synthesis Hub',zc:0xf0d860,
    desc:'3-persona review panel: Ramesh (user), Priya (senior), Arjun (peer designer).',tx:16,ty:12,facing:'down',
    shirt:0xb8860b,hair:0x2a2a2a,idle:'look',
-   brain:'litellm/claude-opus-4-6',systemPrompt:'Run 3-persona review: Ramesh (user), Priya (senior designer), Arjun (peer designer).',
+   brain:'kimi-latest',systemPrompt:'Run 3-persona review: Ramesh (user), Priya (senior designer), Arjun (peer designer).',
    tools:[],mcp:[],skills:['review-panel']},
   {id:'weaver',name:'Weaver',role:'Design Synthesizer',zone:'Synthesis Hub',zc:0xf0d860,
    desc:'Merges all research, variations, and critiques into a unified final proposal.',tx:19,ty:12,facing:'left',
    shirt:0x80b060,hair:0x5c3a1e,idle:'type',
-   brain:'litellm/claude-opus-4-5',systemPrompt:'Merge all research, variations, and critiques into a unified final proposal.',
+   brain:'kimi-latest',systemPrompt:'Merge all research, variations, and critiques into a unified final proposal.',
    tools:[],mcp:[],skills:['synthesize-design']},
   {id:'gate',name:'Gate',role:'Quality Gate',zone:'Synthesis Hub',zc:0xf0d860,
    desc:'Mandatory quality framework for ALL design discussions and outputs.',tx:22,ty:12,facing:'up',
    shirt:0xc04040,hair:0xd4a017,idle:'look',
-   brain:'litellm/glm-latest',systemPrompt:'Enforce mandatory quality framework: discovery → research → design → critique → validation.',
+   brain:'kimi-latest',systemPrompt:'Enforce mandatory quality framework: discovery → research → design → critique → validation.',
    tools:[],mcp:[],skills:['design-quality-gate']},
   {id:'check',name:'Check',role:'Design Checklist',zone:'Synthesis Hub',zc:0xf0d860,
    desc:'Rapid validation checklist for quick reviews and self-checks.',tx:25,ty:12,facing:'right',
    shirt:0x50a878,hair:0x2a2a2a,idle:'type',
-   brain:'litellm/glm-flash-experimental',systemPrompt:'Run rapid validation checklist for quick reviews and self-checks.',
+   brain:'kimi-latest',systemPrompt:'Run rapid validation checklist for quick reviews and self-checks.',
    tools:[],mcp:[],skills:['design-checklist']},
   {id:'lead',name:'Director',role:'Team Lead',zone:'Corridor',zc:0xffd700,
    desc:'Coordinates all 13 agents, maintains workflow and design quality across phases.',tx:12,ty:6,facing:'right',
    shirt:0x8b6914,hair:0x1a1a1a,idle:'look',
-   brain:'litellm/claude-opus-4-5',
+   brain:'kimi-latest',
    systemPrompt:'You are the Team Lead for the Design Swarm. You oversee all 13 agents and ensure quality design outputs. You know each agent\'s role deeply and can direct work efficiently.',
    tools:[],mcp:[],skills:['design-quality-gate'],noCollide:true},
 ];
@@ -815,7 +829,9 @@ function openChat(agent){
   document.getElementById('chat-agent-dot').style.color=hex(agent.zc);
   document.getElementById('chat-agent-name').textContent=agent.name;
   document.getElementById('chat-agent-role').textContent=agent.role;
-  document.getElementById('chat-agent-brain').textContent=agent.brain||'';
+  const modelSel=document.getElementById('chat-agent-model');
+  modelSel.innerHTML=AVAILABLE_MODELS.map(m=>'<option value="'+m+'"'+(m===agent.brain?' selected':'')+'>'+m+'</option>').join('');
+  modelSel.value=agent.brain||AVAILABLE_MODELS[0];
   const msgs=document.getElementById('chat-messages');
   msgs.innerHTML=window._agentMessages[agent.id]||'';
   if(!window._agentMessages[agent.id]){
@@ -835,8 +851,6 @@ function closeChat(){
 
 function initChatPanel(){
   window._voiceEnabled=false;
-  window._llmBaseUrl=null;
-  window._llmApiKey=null;
   window._agentSessions={};
   window._agentMessages={};
   window._chatHistory=[];
@@ -851,17 +865,8 @@ function initChatPanel(){
     document.getElementById('chat-voice-toggle').style.opacity=window._voiceEnabled?'1':'0.4';
     if(!window._voiceEnabled&&window.speechSynthesis)window.speechSynthesis.cancel();
   });
-  document.getElementById('chat-api-btn').addEventListener('click',()=>{
-    const area=document.getElementById('chat-api-area');
-    area.style.display=area.style.display==='none'?'flex':'none';
-  });
-  document.getElementById('chat-api-save').addEventListener('click',()=>{
-    window._llmBaseUrl=document.getElementById('chat-base-url').value.trim().replace(/\/$/,'')||null;
-    window._llmApiKey=document.getElementById('chat-api-input').value.trim()||null;
-    const connected=!!window._llmBaseUrl;
-    document.getElementById('chat-api-area').style.display='none';
-    document.getElementById('chat-api-btn').style.opacity=connected?'1':'0.5';
-    document.getElementById('chat-api-btn').title=connected?'⚡ '+window._llmBaseUrl:'Configure LLM endpoint';
+  document.getElementById('chat-agent-model').addEventListener('change',e=>{
+    if(window._chatAgent)window._chatAgent.brain=e.target.value;
   });
   document.getElementById('chat-clear').addEventListener('click',()=>{
     if(!window._chatAgent)return;
@@ -873,6 +878,41 @@ function initChatPanel(){
   });
   document.getElementById('chat-voice-toggle').style.opacity='0.4';
   initSpeechRecognition();
+}
+
+function initLLMSettings(){
+  window._llmBaseUrl='https://api.example.com';
+  window._llmApiKey='REDACTED';
+  updateLLMBtn();
+  document.getElementById('llm-settings-btn').addEventListener('click',()=>{
+    document.getElementById('llm-base-url').value=window._llmBaseUrl||'';
+    document.getElementById('llm-api-key').value=window._llmApiKey||'';
+    document.getElementById('llm-status').textContent='';
+    document.getElementById('llm-settings-modal').classList.add('active');
+  });
+  document.getElementById('llm-settings-close').addEventListener('click',()=>{
+    document.getElementById('llm-settings-modal').classList.remove('active');
+  });
+  document.getElementById('llm-settings-modal').addEventListener('click',e=>{
+    if(e.target===document.getElementById('llm-settings-modal'))
+      document.getElementById('llm-settings-modal').classList.remove('active');
+  });
+  document.getElementById('llm-save-btn').addEventListener('click',()=>{
+    window._llmBaseUrl=document.getElementById('llm-base-url').value.trim().replace(/\/$/,'')||null;
+    window._llmApiKey=document.getElementById('llm-api-key').value.trim()||null;
+    const st=document.getElementById('llm-status');
+    st.className='ok';st.textContent='✓ Saved';
+    updateLLMBtn();
+    setTimeout(()=>document.getElementById('llm-settings-modal').classList.remove('active'),600);
+  });
+}
+
+function updateLLMBtn(){
+  const btn=document.getElementById('llm-settings-btn');
+  if(btn){
+    btn.classList.toggle('connected',!!window._llmBaseUrl);
+    btn.title=window._llmBaseUrl?'⚡ '+window._llmBaseUrl:'LLM Settings';
+  }
 }
 
 // --- SCENE ---
@@ -1028,6 +1068,7 @@ class GameScene extends Phaser.Scene{
     this._clickedAgent=false;
     // Init DOM chat panel
     initChatPanel();
+    initLLMSettings();
   }
 
   // --- Popover ---
@@ -1451,31 +1492,39 @@ function saveAgent(){
     <div style="flex:1;min-width:0;">
       <div id="chat-agent-name" style="font-size:14px;font-weight:bold;color:#fff">Agent</div>
       <div id="chat-agent-role" style="font-size:11px;color:#888">Role</div>
-      <div id="chat-agent-brain"></div>
+      <select id="chat-agent-model"><option>kimi-latest</option></select>
     </div>
     <button id="chat-close" title="Close (E)">✕</button>
   </div>
   <div id="chat-messages"></div>
   <div id="chat-controls">
     <button id="chat-voice-toggle" title="Toggle voice output">🔊</button>
-    <button id="chat-api-btn" title="Configure LLM endpoint" style="opacity:0.5">🔑</button>
     <button id="chat-clear" title="Clear session history">🗑</button>
-  </div>
-  <div id="chat-api-area" style="display:none">
-    <div class="chat-setting-row">
-      <span class="chat-setting-label">Base URL</span>
-      <input id="chat-base-url" type="text" placeholder="https://api.example.com"/>
-    </div>
-    <div class="chat-setting-row">
-      <span class="chat-setting-label">API Key</span>
-      <input id="chat-api-input" type="password" placeholder="sk-..."/>
-    </div>
-    <button id="chat-api-save">Save & Connect</button>
   </div>
   <div id="chat-input-area">
     <input id="chat-input" type="text" placeholder="Ask me anything... (Enter to send)"/>
     <button id="chat-mic" title="Voice input (Chrome/Edge only)">🎤</button>
     <button id="chat-send" title="Send">▶</button>
+  </div>
+</div>
+
+<!-- Global LLM Settings Button -->
+<button id="llm-settings-btn" title="LLM Settings">⚙</button>
+
+<!-- Global LLM Settings Modal -->
+<div id="llm-settings-modal">
+  <div id="llm-settings-panel">
+    <h3>⚡ LLM Settings <button class="llm-close-btn" id="llm-settings-close">✕</button></h3>
+    <div class="llm-field">
+      <label>Base URL</label>
+      <input id="llm-base-url" type="text" placeholder="https://api.example.com"/>
+    </div>
+    <div class="llm-field">
+      <label>API Key</label>
+      <input id="llm-api-key" type="password" placeholder="sk-..."/>
+    </div>
+    <div id="llm-status"></div>
+    <button id="llm-save-btn">Save & Connect</button>
   </div>
 </div>
 </body>
