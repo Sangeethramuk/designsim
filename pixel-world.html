@@ -40,6 +40,30 @@
   .model-chip{background:#1a1a2e;border:1px solid #333;padding:4px 8px;border-radius:4px;font-size:10px;color:#a0a0a0;cursor:pointer}
   .model-chip:hover{border-color:#4a9eea;color:#4a9eea}
   .model-chip.selected{border-color:#4a9eea;background:#2a2a4e;color:#4a9eea}
+  /* Chat Panel */
+  #chat-panel{position:fixed;right:-340px;top:0;width:320px;height:100vh;background:#0a0a1e;border-left:2px solid #333;font-family:monospace;display:flex;flex-direction:column;z-index:9999;transition:right 0.3s ease;}
+  #chat-panel.open{right:0;}
+  #chat-header{display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid #333;}
+  #chat-agent-dot{font-size:20px;}
+  #chat-agent-name{font-size:14px;font-weight:bold;color:#fff;}
+  #chat-agent-role{font-size:11px;color:#888;}
+  #chat-close{margin-left:auto;background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:4px 8px;}
+  #chat-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}
+  .msg-user{align-self:flex-end;background:#1a2a3a;color:#adf;padding:6px 10px;border-radius:8px 8px 0 8px;max-width:85%;font-size:12px;}
+  .msg-agent{align-self:flex-start;background:#1a1a2e;padding:6px 10px;border-radius:8px 8px 8px 0;max-width:85%;font-size:12px;border-left:2px solid var(--agent-color,#888);color:#ddd;}
+  .msg-agent .msg-sender{font-size:10px;margin-bottom:3px;opacity:0.7;color:var(--agent-color,#888);}
+  #chat-controls{display:flex;gap:4px;padding:6px 12px;border-top:1px solid #1a1a2e;}
+  #chat-controls button{background:#1a1a2e;border:1px solid #333;color:#888;padding:4px 8px;cursor:pointer;border-radius:4px;font-size:14px;}
+  #chat-controls button:hover{border-color:#4a9eea;color:#aaa;}
+  #chat-api-area{padding:8px 12px;border-top:1px solid #1a1a2e;display:flex;gap:4px;}
+  #chat-api-input{flex:1;background:#0a0a1e;border:1px solid #333;color:#aaa;padding:4px 6px;font-size:11px;font-family:monospace;}
+  #chat-api-save{background:#1a3a2a;border:1px solid #2a5a3a;color:#4bc;padding:4px 8px;cursor:pointer;font-size:11px;}
+  #chat-input-area{display:flex;gap:4px;padding:10px 12px;border-top:1px solid #333;}
+  #chat-input{flex:1;background:#0a0a1e;border:1px solid #444;color:#eee;padding:6px 8px;font-size:12px;font-family:monospace;}
+  #chat-mic{background:#1a1a2e;border:1px solid #444;color:#888;padding:6px 8px;cursor:pointer;font-size:14px;}
+  #chat-mic.listening{background:#3a0a0a;border-color:#f44;color:#f88;}
+  #chat-send{background:#0a2a1a;border:1px solid #1a5a3a;color:#4c8;padding:6px 10px;cursor:pointer;font-size:14px;}
+  #chat-send:hover{background:#0a3a2a;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 </head>
@@ -161,7 +185,7 @@
 </div>
 <script>
 const MAP_W=27, MAP_H=15, ZOOM=1;
-const TILE=16; // Original tile size
+const TILE=16; // Keep original 16px tiles
 
 // --- Helpers ---
 function hex(c){return '#'+(c>>>0).toString(16).padStart(6,'0')}
@@ -205,22 +229,22 @@ const AGENTS=[
    tools:['webfetch'],mcp:['deepwiki'],skills:['research-best-practices']},
 
   {id:'palette',name:'Palette',role:'UI Variations Generator',zone:'Design Studio',zc:0xe84855,
-   desc:'Creates 5+ distinct visual layout options with design rationale.',tx:16,ty:4,facing:'down',
+   desc:'Creates 5+ distinct visual layout options with design rationale.',tx:16,ty:5,facing:'down',
    shirt:0xe84855,hair:0x5c3a1e,idle:'type',
    brain:'litellm/claude-opus-4-5',systemPrompt:'Generate 5+ distinct visual layout variations. Each must follow UI laws and serve different user needs.',
    tools:[],mcp:[],skills:['generate-ui']},
   {id:'flow',name:'Flow',role:'UX Flow Architect',zone:'Design Studio',zc:0x4a9eea,
-   desc:'Designs interaction patterns, user flows, state machines, and transitions.',tx:19,ty:4,facing:'down',
+   desc:'Designs interaction patterns, user flows, state machines, and transitions.',tx:18,ty:5,facing:'down',
    shirt:0x4a9eea,hair:0x2a2a2a,idle:'type',
    brain:'litellm/claude-opus-4-6',systemPrompt:'Design interaction patterns, user flows, state machines. Apply UX laws and handle edge cases.',
    tools:[],mcp:[],skills:['generate-ux']},
   {id:'blueprint',name:'Blueprint',role:'Figma Specs Generator',zone:'Design Studio',zc:0x4a9eea,
-   desc:'Creates detailed YAML design specs for Figma: frames, typography, colors, spacing.',tx:22,ty:4,facing:'down',
+   desc:'Creates detailed YAML design specs for Figma: frames, typography, colors, spacing.',tx:20,ty:5,facing:'down',
    shirt:0x4ac7ea,hair:0x8b4513,idle:'type',
    brain:'litellm/glm-latest',systemPrompt:'Create detailed YAML design specifications for Figma implementation.',
    tools:[],mcp:['figma'],skills:['generate-figma-specs']},
   {id:'forge',name:'Forge',role:'Code Generator',zone:'Design Studio',zc:0x4abc6a,
-   desc:'Generates production-ready React/TypeScript/Tailwind implementation.',tx:25,ty:4,facing:'down',
+   desc:'Generates production-ready React/TypeScript/Tailwind implementation.',tx:22,ty:5,facing:'down',
    shirt:0x4abc6a,hair:0x5c3a1e,idle:'type',
    brain:'litellm/claude-sonnet-4-5',systemPrompt:'Generate clean, accessible, production-ready React/TypeScript/Tailwind code.',
    tools:['bash'],mcp:[],skills:['generate-code']},
@@ -261,7 +285,60 @@ const AGENTS=[
    shirt:0x50a878,hair:0x2a2a2a,idle:'type',
    brain:'litellm/glm-flash-experimental',systemPrompt:'Run rapid validation checklist for quick reviews and self-checks.',
    tools:[],mcp:[],skills:['design-checklist']},
+  {id:'lead',name:'Director',role:'Team Lead',zone:'Corridor',zc:0xffd700,
+   desc:'Coordinates all 13 agents, maintains workflow and design quality across phases.',tx:12,ty:6,facing:'right',
+   shirt:0x8b6914,hair:0x1a1a1a,idle:'look',
+   brain:'litellm/claude-opus-4-5',
+   systemPrompt:'You are the Team Lead for the Design Swarm. You oversee all 13 agents and ensure quality design outputs. You know each agent\'s role deeply and can direct work efficiently.',
+   tools:[],mcp:[],skills:['design-quality-gate'],noCollide:true},
 ];
+
+// --- Agent Thoughts (proximity bubbles) ---
+const AGENT_THOUGHTS={
+  scout:    ["Checking Refero...","Found 3 competitor flows","Analyzing patterns...","Scraping UI screenshots","Mapping competitor nav","Writing steal list"],
+  scholar:  ["Reading WCAG 2.1...","Checking M3 guidelines","Reviewing A11y docs...","Nielsen says...","Best practices: use X","Docs updated today"],
+  palette:  ["Trying card layout...","What if full-bleed?","Testing 5 variants...","Option 3 is strong","Color pass needed","Grid: 4-col or 12?"],
+  flow:     ["Mapping user journey","Edge case found!","State machine draft","Micro-interaction...","Drop-off at step 3","Need empty state"],
+  blueprint:["Writing YAML specs...","Frame: 375\u00D7812","Spacing: 8px grid","Token: --primary-500","Component: Button","Figma ready soon"],
+  forge:    ["Writing TypeScript...","Making accessible...","aria-label needed","Bundle: 42kb","Tests passing \u2713","Tailwind variant done"],
+  lens:     ["Nielsen #3 violated","User control lacking","Feedback loop broken","Heuristic scan done","Error recovery: weak","Visibility: unclear"],
+  eye:      ["Spacing: 3px off","Contrast fails AA","Hierarchy unclear","Icon: too literal","Type scale broken","Color: 4.2:1 ratio"],
+  mirror:   ["As a senior...","First-timer confused","Power user: bored","Stressed user: lost","Mobile thumb reach","Low-vision user: ?"],
+  council:  ["Ramesh: confused","Priya: loves it \u2713","Arjun: more contrast","Panel disagrees on X","Vote: 2-1 approve","Review notes ready"],
+  weaver:   ["Merging feedback...","Pattern emerging...","Conflict: resolved","Final proposal draft","Synthesis: 80% done","Rationale written"],
+  gate:     ["Quality check #3...","Did we test users?","Research done? \u2713","Critique pending \u2717","Validation needed","Gate: PASS \u2713"],
+  check:    ["\u2713 A11y verified","\u2717 Error states left","\u2713 Mobile done","\u2713 Copy reviewed","\u2717 Dark mode pending","\u2713 Specs matched"],
+  lead:     ["All agents: on task","Scout, check X...","Palette \u2192 show opt 3","Sync meeting: 3pm","Critique phase next","Quality gate: open"]
+};
+
+// --- Scripted Agent Responses ---
+const SCRIPTED_RESPONSES={
+  scout:{keywords:{'competitor|competition|refero|research':"I search Refero and competitor apps to find design patterns. There are often 3-5 existing solutions worth studying before designing fresh.",'pattern|flow|navigation|ui':"I've spotted this pattern across multiple apps. The key: study what works in the wild before inventing new solutions.",'help|what|who|do':"I'm Scout. I find existing solutions so we don't reinvent the wheel. Ask me about competitors, flows, or patterns."},default:"I'm analyzing competitor products right now. I check Refero for similar flows and extract the best patterns. What specific problem are you solving?"},
+  scholar:{keywords:{'wcag|accessibility|a11y':"WCAG 2.1 says: perceivable, operable, understandable, robust. For contrast, use at least 4.5:1 for normal text, 3:1 for large text.",'guideline|standard|best practice|principle':"Best practice: follow Material Design 3 or Apple HIG depending on platform. Both emphasize consistency and feedback.",'help|what|who|do':"I'm Scholar. I research UX guidelines, accessibility standards, and design system docs. Ask me about best practices."},default:"I've been reviewing the latest guidelines. The key insight: follow established standards first, then innovate where they fall short."},
+  palette:{keywords:{'color|colour|palette|theme':"For this, I'd try 3 color directions: brand-forward, neutral/clean, and high-contrast. Each serves different user needs.",'layout|grid|variant|option':"I generate 5+ distinct layouts. Key rule: each variation should serve a different user mental model, not just look different.",'help|what|who|do':"I'm Palette. I create visual layout variations. Ask me about color, layout options, or visual direction."},default:"I'm exploring visual options right now. Strong design needs at least 3 distinct directions before choosing. Which aspect needs more variation?"},
+  flow:{keywords:{'flow|journey|step|screen|navigation':"User flows need: entry points, happy path, error states, empty states, and exit. Most designers forget the last 3.",'interaction|micro|animation|transition':"For micro-interactions: feedback (what happened), status (what's happening), results (what changed). Keep it under 300ms.",'help|what|who|do':"I'm Flow. I design interaction patterns and user journeys. Ask me about flows, states, or interactions."},default:"I'm mapping the user journey. Every flow needs a clear entry, defined steps, and graceful error recovery. What's the main task we're designing for?"},
+  blueprint:{keywords:{'spec|figma|frame|spacing|token':"Figma specs: start with 8px grid, define spacing tokens (4,8,12,16,24,32), set type scale (12,14,16,20,24,32), then components.",'yaml|component|design system':"Design specs in YAML: frame dimensions, component tree, token references, interaction states. Handoff is cleaner when specs are structured.",'help|what|who|do':"I'm Blueprint. I create Figma-ready YAML design specs. Ask me about frames, spacing, tokens, or components."},default:"I'm writing the design specifications now. Good specs include: exact dimensions, token references, and component states. What needs to be spec'd?"},
+  forge:{keywords:{'code|react|typescript|component|tailwind':"For this component: use semantic HTML first, then style with Tailwind. Always add aria-label, role, and keyboard navigation.",'accessibility|aria|a11y|keyboard':"Accessibility in code: semantic elements, ARIA only when needed, keyboard focus management, and skip links for navigation.",'help|what|who|do':"I'm Forge. I generate React/TypeScript/Tailwind code from designs. Ask me about components, accessibility, or implementation."},default:"I'm writing clean, accessible code right now. Every component needs proper ARIA attributes, keyboard support, and responsive styles. What needs to be built?"},
+  lens:{keywords:{'heuristic|usability|nielsen|ux issue':"Nielsen's top violations: visibility of status, user control, consistency, and error prevention. Which heuristic is failing?",'error|feedback|help|recovery':"Error prevention beats error messages. Design for the mistake first, then the recovery. Feedback must be immediate and clear.",'help|what|who|do':"I'm Lens. I do deep heuristic UX evaluation using Nielsen's 10 heuristics. Ask me about usability issues or UX critique."},default:"Running heuristic scan now. Most designs fail on: visibility of system status, user control, and consistency. What's the specific UX concern?"},
+  eye:{keywords:{'contrast|color|visual|hierarchy|spacing':"Visual hierarchy rule: size > color > position > shape. If the user's eye doesn't know where to look first, the design is broken.",'typography|font|text|type':"Type scale should follow a ratio (1.25 or 1.333). Body at 16px, limit to 2-3 weights per page, left-align for readability.",'help|what|who|do':"I'm Eye. I critique visual aesthetics: hierarchy, spacing, color, and typography. Ask me about the visual design."},default:"Analyzing visual design now. Common issues: inconsistent spacing (use 8px grid), weak contrast (check 4.5:1), and broken hierarchy. What looks off?"},
+  mirror:{keywords:{'user|persona|senior|beginner|novice':"As a first-time user: this is confusing. The mental model doesn't match. Need progressive disclosure and clearer labels.",'mobile|touch|thumb|small screen':"Mobile thumb zone: bottom third of screen for primary actions. Top corners are hardest to reach. Design for one-handed use.",'help|what|who|do':"I'm Mirror. I simulate target users: seniors, beginners, power users, stressed users. Ask me how a user would experience this."},default:"Simulating user perspectives now. Each persona reveals different pain points: seniors need larger targets, beginners need clear labels, power users need shortcuts."},
+  council:{keywords:{'review|feedback|opinion|critique':"Panel feedback: Ramesh (user) finds it confusing, Priya (senior) wants more contrast, Arjun (peer) questions the pattern choice.",'vote|approve|decision|consensus':"Panel vote process: each reviewer scores independently, then we surface conflicts. Consensus isn't always right — divergence is valuable.",'help|what|who|do':"I'm Council. I run a 3-persona design review panel. Ask me for structured feedback from different perspectives."},default:"Running the review panel now. Three perspectives always surface blind spots. What design decision needs the most scrutiny?"},
+  weaver:{keywords:{'synthesize|merge|combine|final|unified':"Synthesis process: find the pattern across all feedback, resolve conflicts, document tradeoffs, then write the rationale.",'conflict|disagree|different|opinion':"When reviewers disagree: look for the underlying need, not the stated preference. The real issue is usually simpler.",'help|what|who|do':"I'm Weaver. I synthesize all research, variations, and critiques into a final design proposal. Ask me about synthesis or tradeoffs."},default:"Merging all inputs now. Good synthesis finds the thread connecting all feedback, not just the loudest opinion. What needs to be unified?"},
+  gate:{keywords:{'quality|gate|check|validate|ready':"Quality gate criteria: user research done, design critiqued, accessibility checked, specs written, and stakeholders aligned.",'ship|launch|release|done|complete':"Before shipping: have we tested with real users? Is the critique done? Are edge cases handled? Run the checklist first.",'help|what|who|do':"I'm Gate. I enforce the quality framework: discovery → research → design → critique → validation. Ask me if the work is ready."},default:"Running quality check now. Mandatory gates: research evidence, design critique, accessibility audit, and validation testing. Where are we in the process?"},
+  check:{keywords:{'checklist|verify|done|complete|check':"Quick checklist: accessibility \u2713/\u2717, error states \u2713/\u2717, mobile responsive \u2713/\u2717, copy reviewed \u2713/\u2717, dark mode \u2713/\u2717.",'accessibility|a11y|contrast|keyboard':"A11y checklist: contrast 4.5:1+, keyboard nav works, focus visible, alt text on images, form labels present.",'help|what|who|do':"I'm Check. I run rapid validation checklists. Ask me to verify accessibility, responsiveness, or design completeness."},default:"Running validation checklist now. Quick wins: check contrast first, then keyboard nav, then mobile layout. What needs to be verified?"},
+  lead:{keywords:{'team|agent|assign|coordinate|manage':"Current team status: Scout researching, Palette on variations, Flow mapping journey, Lens on critique. Everyone's aligned.",'status|progress|update|done|complete':"Project phases: Research (Scout+Scholar) → Design (Palette+Flow+Blueprint+Forge) → Critique (Lens+Eye+Mirror+Council) → Synthesis (Weaver+Gate+Check).",'help|what|who|do':"I'm Director. I coordinate all 13 agents and maintain design quality. Ask me about team status, workflows, or who to consult."},default:"Coordinating the team now. Design Swarm works in phases: research first, then design, then critique, then synthesis. Which phase do you need?"}
+};
+
+// --- Voice Profiles ---
+const VOICE_PROFILES={
+  scout:{pitch:1.1,rate:1.0},scholar:{pitch:0.9,rate:0.9},
+  palette:{pitch:1.3,rate:1.1},flow:{pitch:1.0,rate:1.0},
+  blueprint:{pitch:0.95,rate:0.95},forge:{pitch:0.85,rate:1.05},
+  lens:{pitch:1.05,rate:0.9},eye:{pitch:1.2,rate:0.95},
+  mirror:{pitch:1.0,rate:0.85},council:{pitch:0.8,rate:0.9},
+  weaver:{pitch:1.1,rate:1.0},gate:{pitch:0.75,rate:0.95},
+  check:{pitch:1.15,rate:1.1},lead:{pitch:0.85,rate:0.9}
+};
 
 // --- Map Builder ---
 function makeStudioMap(){
@@ -291,7 +368,7 @@ function makeStudioMap(){
   set(16,1,T.EASEL); set(19,1,T.EASEL); set(22,1,T.EASEL); set(25,1,T.EASEL);
   set(16,3,T.DRAW_TABLE); set(17,3,T.DRAW_TABLE);
   set(21,3,T.DRAW_TABLE); set(22,3,T.DRAW_TABLE);
-  set(15,5,T.PLANT); set(25,5,T.PLANT);
+  set(15,4,T.PLANT); set(25,4,T.PLANT);
 
   // --- Critique Room furniture ---
   set(2,9,T.REV_BOARD); set(3,9,T.REV_BOARD);
@@ -544,6 +621,17 @@ makeIcon('check',(x)=>{
   px(x,3,6,4,1,0x50a878);px(x,3,8,5,1,0xc0c0c0);
   px(x,3,2,1,1,0x30d070);px(x,3,4,1,1,0x30d070);px(x,3,6,1,1,0x30d070);
 });
+makeIcon('lead',(x)=>{
+  // Gold crown for Team Lead
+  px(x,2,5,8,6,0xffd700);         // Crown body
+  px(x,2,2,2,4,0xffd700);         // Left spike
+  px(x,10,2,2,4,0xffd700);        // Right spike
+  px(x,5,1,2,5,0xffd700);         // Center spike
+  px(x,3,7,2,1,0xe84855);         // Left gem
+  px(x,7,7,2,1,0x4a9eea);         // Center gem
+  px(x,9,7,2,1,0x4abc6a);         // Right gem
+  px(x,2,10,8,1,0xd4a020);        // Crown base shadow
+});
 
 // --- Zone name helper ---
 function getZone(tx,ty){
@@ -589,6 +677,159 @@ function floorForTile(tx,ty){
   return'hallFloor'+((tx*7+ty*13)%2);
 }
 
+// --- TTS (Voice Output) ---
+function speakText(text,agent){
+  if(!window.speechSynthesis)return;
+  window.speechSynthesis.cancel();
+  const utt=new SpeechSynthesisUtterance(text);
+  const profile=VOICE_PROFILES[agent.id]||{pitch:1,rate:1};
+  utt.pitch=profile.pitch;utt.rate=profile.rate;
+  window.speechSynthesis.speak(utt);
+}
+function speakWhisper(text){
+  if(!window.speechSynthesis||!window._voiceEnabled)return;
+  window.speechSynthesis.cancel();
+  const utt=new SpeechSynthesisUtterance(text);
+  utt.pitch=1.0;utt.rate=0.8;utt.volume=0.3;
+  window.speechSynthesis.speak(utt);
+}
+
+// --- STT (Voice Input) ---
+function initSpeechRecognition(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){const m=document.getElementById('chat-mic');if(m)m.style.opacity='0.3';return;}
+  const rec=new SR();
+  rec.continuous=false;rec.interimResults=true;rec.lang='en-US';
+  rec.onresult=e=>{
+    const transcript=Array.from(e.results).map(r=>r[0].transcript).join('');
+    document.getElementById('chat-input').value=transcript;
+    if(e.results[e.results.length-1].isFinal){sendChatMessage();stopMic();}
+  };
+  rec.onend=()=>stopMic();
+  window._speechRec=rec;
+}
+function toggleMic(){
+  if(window._micActive){stopMic();}
+  else{try{window._speechRec?.start();window._micActive=true;document.getElementById('chat-mic').classList.add('listening');}catch(e){stopMic();}}
+}
+function stopMic(){
+  try{window._speechRec?.stop();}catch(e){}
+  window._micActive=false;
+  const m=document.getElementById('chat-mic');if(m)m.classList.remove('listening');
+}
+
+// --- Chat Panel ---
+function appendMessage(type,text,agent){
+  const msgs=document.getElementById('chat-messages');
+  if(!msgs)return;
+  const div=document.createElement('div');
+  div.className=type==='user'?'msg-user':'msg-agent';
+  if(type==='agent'&&agent){
+    div.innerHTML='<div class="msg-sender">'+agent.name+' · '+agent.role+'</div>'+text;
+  }else{
+    div.textContent=text;
+  }
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
+function getScriptedResponse(agent,message){
+  const resp=SCRIPTED_RESPONSES[agent.id];
+  if(!resp)return"I'm "+agent.name+". "+agent.desc;
+  const lower=message.toLowerCase();
+  for(const[pattern,response]of Object.entries(resp.keywords)){
+    if(new RegExp(pattern).test(lower))return response;
+  }
+  return resp.default;
+}
+
+async function getAgentResponse(agent,message,history,apiKey){
+  const agentsContext=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
+  const systemPrompt=agent.systemPrompt+'\n\nYou work with these colleagues:\n'+agentsContext+'\n\nKeep responses to 2-3 sentences. Be direct and expert.';
+  const response=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','content-type':'application/json'},
+    body:JSON.stringify({model:'claude-3-5-haiku-20241022',max_tokens:200,system:systemPrompt,
+      messages:[...history,{role:'user',content:message}]})
+  });
+  const data=await response.json();
+  return data.content?.[0]?.text??'Something went wrong.';
+}
+
+async function sendChatMessage(){
+  const input=document.getElementById('chat-input');
+  const btn=document.getElementById('chat-send');
+  const msg=input.value.trim();
+  if(!msg||!window._chatAgent)return;
+  appendMessage('user',msg);
+  input.value='';
+  if(btn)btn.disabled=true;
+  let response;
+  if(window._claudeApiKey){
+    try{response=await getAgentResponse(window._chatAgent,msg,window._chatHistory||[],window._claudeApiKey);}
+    catch(e){response=getScriptedResponse(window._chatAgent,msg);}
+  }else{
+    response=getScriptedResponse(window._chatAgent,msg);
+  }
+  window._chatHistory=window._chatHistory||[];
+  window._chatHistory.push({role:'user',content:msg},{role:'assistant',content:response});
+  if(window._chatHistory.length>20)window._chatHistory=window._chatHistory.slice(-20);
+  appendMessage('agent',response,window._chatAgent);
+  if(window._voiceEnabled)speakText(response,window._chatAgent);
+  if(btn)btn.disabled=false;
+}
+
+function openChat(agent){
+  window._chatAgent=agent;
+  window._chatHistory=[];
+  const panel=document.getElementById('chat-panel');
+  if(!panel)return;
+  panel.style.setProperty('--agent-color',hex(agent.zc));
+  document.getElementById('chat-agent-dot').style.color=hex(agent.zc);
+  document.getElementById('chat-agent-name').textContent=agent.name;
+  document.getElementById('chat-agent-role').textContent=agent.role;
+  document.getElementById('chat-messages').innerHTML='';
+  appendMessage('agent',"Hi! I'm "+agent.name+". "+agent.desc+" What can I help you with?",agent);
+  panel.classList.add('open');
+}
+
+function closeChat(){
+  const panel=document.getElementById('chat-panel');
+  if(panel)panel.classList.remove('open');
+  window._chatAgent=null;
+  if(window.speechSynthesis)window.speechSynthesis.cancel();
+}
+
+function initChatPanel(){
+  window._voiceEnabled=false;
+  window._claudeApiKey=null;
+  window._chatHistory=[];
+  window._chatAgent=null;
+  window._micActive=false;
+  document.getElementById('chat-close').addEventListener('click',closeChat);
+  document.getElementById('chat-send').addEventListener('click',sendChatMessage);
+  document.getElementById('chat-input').addEventListener('keydown',e=>{if(e.key==='Enter')sendChatMessage();});
+  document.getElementById('chat-mic').addEventListener('click',toggleMic);
+  document.getElementById('chat-voice-toggle').addEventListener('click',()=>{
+    window._voiceEnabled=!window._voiceEnabled;
+    document.getElementById('chat-voice-toggle').style.opacity=window._voiceEnabled?'1':'0.4';
+    if(!window._voiceEnabled&&window.speechSynthesis)window.speechSynthesis.cancel();
+  });
+  document.getElementById('chat-api-btn').addEventListener('click',()=>{
+    const area=document.getElementById('chat-api-area');
+    area.style.display=area.style.display==='none'?'flex':'none';
+  });
+  document.getElementById('chat-api-save').addEventListener('click',()=>{
+    const key=document.getElementById('chat-api-input').value.trim();
+    window._claudeApiKey=key||null;
+    document.getElementById('chat-api-area').style.display='none';
+    document.getElementById('chat-api-btn').style.opacity=window._claudeApiKey?'1':'0.5';
+    document.getElementById('chat-api-btn').title=window._claudeApiKey?'API key set — click to change':'Set API key';
+  });
+  document.getElementById('chat-voice-toggle').style.opacity='0.4';
+  initSpeechRecognition();
+}
+
 // --- SCENE ---
 class GameScene extends Phaser.Scene{
   constructor(){super('GameScene')}
@@ -624,7 +865,7 @@ class GameScene extends Phaser.Scene{
     }
 
     // --- Zone Labels ---
-    const labelStyle={fontSize:'14px',fontFamily:'monospace',color:'#ffffff',stroke:'#000000',strokeThickness:3,resolution:4};
+    const labelStyle={fontSize:'10px',fontFamily:'monospace',color:'#ffffff',resolution:2};
     [{t:'RESEARCH LIBRARY',x:6,y:0,c:ZP.lib.accent},{t:'DESIGN STUDIO',x:20,y:0,c:ZP.stu.accent},
      {t:'CRITIQUE ROOM',x:6,y:8,c:ZP.cri.accent},{t:'SYNTHESIS HUB',x:20,y:8,c:ZP.hub.accent}
     ].forEach(l=>{
@@ -637,8 +878,8 @@ class GameScene extends Phaser.Scene{
       const spr=this.add.sprite(a.tx*TILE+TILE/2,a.ty*TILE+TILE/2,a.id+'_'+a.facing+'_0').setDepth(a.ty*TILE);
       spr.setInteractive({useHandCursor:true});
 
-      const label=this.add.text(spr.x,spr.y-18,a.name,{
-        fontSize:'14px',fontFamily:'monospace',color:hex(a.zc),stroke:'#111111',strokeThickness:3,resolution:4
+      const label=this.add.text(spr.x,spr.y-14,a.name,{
+        fontSize:'11px',fontFamily:'monospace',color:hex(a.zc),resolution:2
       }).setOrigin(0.5).setDepth(a.ty*TILE+1);
 
       const agentData={
@@ -648,10 +889,20 @@ class GameScene extends Phaser.Scene{
         lookDuration:0,typeFrame:0,nextPauseAt:randInt(2000,5000),pauseDuration:0,
       };
 
-      spr.on('pointerdown',()=>{this._clickedAgent=true;this.showPopover(agentData);});
+      spr.on('pointerdown',()=>{this._clickedAgent=true;openChat(agentData);});
       this.agents.push(agentData);
-      // Agent tile is a collider
-      this.colliders.push({x:a.tx,y:a.ty});
+      // Agent tile is a collider (unless noCollide flag set)
+      if(!a.noCollide) this.colliders.push({x:a.tx,y:a.ty});
+    });
+
+    // --- Speech Bubbles (proximity thoughts) ---
+    this.agents.forEach(a=>{
+      const thoughts=AGENT_THOUGHTS[a.id]||['...'];
+      const bub=this.add.container(a.spr.x,a.spr.y-26).setDepth(150000).setAlpha(0);
+      const bg=this.add.rectangle(0,0,86,14,0x0a0a2e,0.92).setStrokeStyle(1,a.zc);
+      const txt=this.add.text(0,0,thoughts[0],{fontSize:'5px',fontFamily:'monospace',color:'#e0e0e0',resolution:2}).setOrigin(0.5);
+      bub.add([bg,txt]);
+      a.bubble=bub;a.bubbleTxt=txt;a.thoughtIdx=0;a.thoughtTimer=0;a.inRange=false;
     });
 
     // --- Player ---
@@ -690,16 +941,27 @@ class GameScene extends Phaser.Scene{
       this._internalClick=false;
     });
 
+    // E key — open/close chat with nearest agent
+    this.input.keyboard.on('keydown-E',()=>{
+      if(window._chatAgent){closeChat();return;}
+      let nearest=null,minDist=3*TILE+1;
+      this.agents.forEach(a=>{
+        const d=Phaser.Math.Distance.Between(this.pTX*TILE+TILE/2,this.pTY*TILE+TILE/2,a.spr.x,a.spr.y);
+        if(d<minDist){minDist=d;nearest=a;}
+      });
+      if(nearest)openChat(nearest);
+    });
+
     // Day overlay (dimmer for indoor)
     this.dayOverlay=this.add.rectangle(MAP_W*TILE/2,MAP_H*TILE/2,MAP_W*TILE,MAP_H*TILE,0x0a0a2e,0).setDepth(200000);
     this.dayTime=0.4;this.daySpeed=0.006;
 
     // HUD
-    this.add.rectangle(8,8,280,95,0x0a0a2e,0.7).setOrigin(0,0).setDepth(300000).setScrollFactor(0);
-    this.hudZone=this.add.text(16,12,'',{fontSize:'16px',fontFamily:'monospace',color:'#f0d890',resolution:4}).setDepth(300001).setScrollFactor(0);
-    this.hudCoord=this.add.text(16,32,'',{fontSize:'16px',fontFamily:'monospace',color:'#c0c0c0',resolution:4}).setDepth(300001).setScrollFactor(0);
-    this.hudTime=this.add.text(16,52,'',{fontSize:'16px',fontFamily:'monospace',color:'#a0a0a0',resolution:4}).setDepth(300001).setScrollFactor(0);
-    this.hudZoom=this.add.text(16,72,'',{fontSize:'16px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.add.rectangle(6,6,200,80,0x0a0a2e,0.7).setOrigin(0,0).setDepth(300000).setScrollFactor(0);
+    this.hudZone=this.add.text(12,10,'',{fontSize:'12px',fontFamily:'monospace',color:'#f0d890',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.hudCoord=this.add.text(12,26,'',{fontSize:'12px',fontFamily:'monospace',color:'#c0c0c0',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.hudTime=this.add.text(12,42,'',{fontSize:'12px',fontFamily:'monospace',color:'#a0a0a0',resolution:4}).setDepth(300001).setScrollFactor(0);
+    this.hudZoom=this.add.text(12,58,'',{fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0);
     
     // Zoom controls
     this.currentZoom=ZOOM;
@@ -708,27 +970,29 @@ class GameScene extends Phaser.Scene{
     this.zoomSpeed=0.25;
     
     // Zoom buttons (bottom-left HUD)
-    const zoomBtnY=MAP_H*TILE-24;
-    const zoomBg=this.add.rectangle(50,zoomBtnY,90,20,0x000000,0.6).setDepth(300000).setScrollFactor(0).setOrigin(0.5);
-    this.zoomInBtn=this.add.text(24,zoomBtnY,'[+]',{fontSize:'18px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
-    this.zoomOutBtn=this.add.text(76,zoomBtnY,'[-]',{fontSize:'18px',fontFamily:'monospace',color:'#4a9eea',resolution:4}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
+    const zoomBtnY=MAP_H*TILE-16;
+    const zoomBg=this.add.rectangle(35,zoomBtnY,60,16,0x000000,0.6).setDepth(300000).setScrollFactor(0).setOrigin(0.5);
+    this.zoomInBtn=this.add.text(16,zoomBtnY,'[+]',{fontSize:'14px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
+    this.zoomOutBtn=this.add.text(54,zoomBtnY,'[-]',{fontSize:'14px',fontFamily:'monospace',color:'#4a9eea',resolution:2}).setDepth(300001).setScrollFactor(0).setOrigin(0.5).setInteractive({useHandCursor:true});
     
     this.zoomInBtn.on('pointerdown',()=>{this._internalClick=true;this.setZoom(this.currentZoom+this.zoomSpeed);});
     this.zoomOutBtn.on('pointerdown',()=>{this._internalClick=true;this.setZoom(this.currentZoom-this.zoomSpeed);});
 
     // Instruction
-    const iBg=this.add.rectangle(this.scale.width/(ZOOM*2),MAP_H*TILE-24,450,28,0x000000,0.6).setDepth(300000).setScrollFactor(0);
-    const iTx=this.add.text(this.scale.width/(ZOOM*2),MAP_H*TILE-24,'WASD: move | Scroll/+/-: zoom | R: reset | Click: agents',{fontSize:'12px',fontFamily:'monospace',color:'#b0b0b0',resolution:4}).setOrigin(0.5).setDepth(300001).setScrollFactor(0);
-    this.time.delayedCall(6000,()=>{this.tweens.add({targets:[iBg,iTx],alpha:0,duration:1000});});
+    const iBg=this.add.rectangle(this.scale.width/(ZOOM*2),MAP_H*TILE-24,500,28,0x000000,0.6).setDepth(300000).setScrollFactor(0);
+    const iTx=this.add.text(this.scale.width/(ZOOM*2),MAP_H*TILE-24,'WASD: move | E: chat | Click agent | +/-/scroll: zoom | R: reset',{fontSize:'12px',fontFamily:'monospace',color:'#b0b0b0',resolution:4}).setOrigin(0.5).setDepth(300001).setScrollFactor(0);
+    this.time.delayedCall(8000,()=>{this.tweens.add({targets:[iBg,iTx],alpha:0,duration:1000});});
 
     this.activePopover=null;
     this._clickedAgent=false;
+    // Init DOM chat panel
+    initChatPanel();
   }
 
   // --- Popover ---
   showPopover(agent){
     this.dismissPopover();
-    const pw=200,ph=70;
+    const pw=160,ph=55;
     const cam=this.cameras.main;
     const wv=cam.worldView;
 
@@ -757,134 +1021,71 @@ class GameScene extends Phaser.Scene{
     }
 
     // Name
-    container.add(this.add.text(-pw/2+26,-ph/2+5,agent.name,{
-      fontSize:'16px',fontFamily:'monospace',color:hex(agent.zc),resolution:4
+    container.add(this.add.text(-pw/2+22,-ph/2+4,agent.name,{
+      fontSize:'13px',fontFamily:'monospace',color:hex(agent.zc),resolution:2
     }));
 
     // Role
-    container.add(this.add.text(-pw/2+26,-ph/2+22,agent.role,{
-      fontSize:'12px',fontFamily:'monospace',color:'#a0a0a0',resolution:4
+    container.add(this.add.text(-pw/2+22,-ph/2+18,agent.role,{
+      fontSize:'10px',fontFamily:'monospace',color:'#a0a0a0',resolution:2
     }));
 
     // Separator
-    container.add(this.add.rectangle(0,-ph/2+32,pw-12,2,agent.zc,0.4));
+    container.add(this.add.rectangle(0,-ph/2+26,pw-10,1,agent.zc,0.4));
 
     // Description
-    container.add(this.add.text(-pw/2+8,-ph/2+38,agent.desc,{
-      fontSize:'12px',fontFamily:'monospace',color:'#d0d0d0',resolution:4,
-      wordWrap:{width:pw-16},lineSpacing:2
+    container.add(this.add.text(-pw/2+6,-ph/2+30,agent.desc,{
+      fontSize:'10px',fontFamily:'monospace',color:'#d0d0d0',resolution:2,
+      wordWrap:{width:pw-12},lineSpacing:1
     }));
 
     // Zone badge (bottom-right)
-    container.add(this.add.text(pw/2-8,ph/2-6,agent.zone,{
-      fontSize:'10px',fontFamily:'monospace',color:hex(agent.zc),resolution:4
+    container.add(this.add.text(pw/2-6,ph/2-4,agent.zone,{
+      fontSize:'9px',fontFamily:'monospace',color:hex(agent.zc),resolution:2
     }).setOrigin(1,1));
 
     // Expand button (bottom-left)
-    const expandBtn=this.add.text(-pw/2+8,ph/2-6,'[+]',{
-      fontSize:'12px',fontFamily:'monospace',color:'#808080',resolution:4
+    const expandBtn=this.add.text(-pw/2+6,ph/2-4,'[+]',{
+      fontSize:'10px',fontFamily:'monospace',color:'#808080',resolution:2
     }).setOrigin(0,1).setInteractive({useHandCursor:true});
     container.add(expandBtn);
 
     // Edit button (bottom-center)
-    const editBtn=this.add.text(0,ph/2-6,'[Edit]',{
-      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
+    const editBtn=this.add.text(0,ph/2-4,'[Edit]',{
+      fontSize:'10px',fontFamily:'monospace',color:'#4a9eea',resolution:2
     }).setOrigin(0.5,1).setInteractive({useHandCursor:true});
     container.add(editBtn);
 
     // Detail panel (initially hidden)
-    const detailH=55;
-    const detailY=ph/2+detailH/2+6;
+    const detailH=48;
+    const detailY=ph/2+detailH/2+4;
     const detailContainer=this.add.container(0,detailY).setVisible(false).setDepth(250001);
     
-    const detailBg=this.add.rectangle(0,0,pw,detailH,0x0a0a1e,0.95).setStrokeStyle(2,agent.zc,0.5);
+    const detailBg=this.add.rectangle(0,0,pw,detailH,0x0a0a1e,0.95).setStrokeStyle(1,agent.zc,0.5);
     detailContainer.add(detailBg);
 
     // Brain badge
     const brainShort=agent.brain.replace('litellm/','');
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+4,'Brain: '+brainShort,{
-      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
+    detailContainer.add(this.add.text(-pw/2+6,-detailH/2+4,'Brain: '+brainShort,{
+      fontSize:'10px',fontFamily:'monospace',color:'#4a9eea',resolution:2
     }));
 
     // Tools
     const toolsStr=agent.tools.length?agent.tools.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+18,'Tools: '+toolsStr,{
-      fontSize:'12px',fontFamily:'monospace',color:'#50a878',resolution:4
+    detailContainer.add(this.add.text(-pw/2+6,-detailH/2+16,'Tools: '+toolsStr,{
+      fontSize:'10px',fontFamily:'monospace',color:'#50a878',resolution:2
     }));
 
     // MCP
     const mcpStr=agent.mcp.length?agent.mcp.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+32,'MCP: '+mcpStr,{
-      fontSize:'12px',fontFamily:'monospace',color:'#d4a03c',resolution:4
+    detailContainer.add(this.add.text(-pw/2+6,-detailH/2+28,'MCP: '+mcpStr,{
+      fontSize:'10px',fontFamily:'monospace',color:'#d4a03c',resolution:2
     }));
 
     // Skills
     const skillsStr=agent.skills.length?agent.skills.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+46,'Skills: '+skillsStr,{
-      fontSize:'12px',fontFamily:'monospace',color:'#e84855',resolution:4
-    }));
-
-    // Role
-    container.add(this.add.text(-pw/2+18,-ph/2+12,agent.role,{
-      fontSize:'5px',fontFamily:'monospace',color:'#a0a0a0',resolution:2
-    }));
-
-    // Separator
-    container.add(this.add.rectangle(0,-ph/2+20,pw-6,1,agent.zc,0.4));
-
-    // Description
-    container.add(this.add.text(-pw/2+4,-ph/2+23,agent.desc,{
-      fontSize:'5px',fontFamily:'monospace',color:'#d0d0d0',resolution:2,
-      wordWrap:{width:pw-8},lineSpacing:1
-    }));
-
-    // Zone badge (bottom-right)
-    container.add(this.add.text(pw/2-8,ph/2-6,agent.zone,{
-      fontSize:'10px',fontFamily:'monospace',color:hex(agent.zc),resolution:4
-    }).setOrigin(1,1));
-
-    // Expand button (bottom-left)
-    const expandBtn=this.add.text(-pw/2+8,ph/2-6,'[+]',{
-      fontSize:'12px',fontFamily:'monospace',color:'#808080',resolution:4
-    }).setOrigin(0,1).setInteractive({useHandCursor:true});
-    container.add(expandBtn);
-
-    // Edit button (bottom-center)
-    const editBtn=this.add.text(0,ph/2-6,'[Edit]',{
-      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
-    }).setOrigin(0.5,1).setInteractive({useHandCursor:true});
-    container.add(editBtn);
-
-    // Detail panel (initially hidden)
-    const detailH=55;
-    const detailY=ph/2+detailH/2+6;
-    const detailContainer=this.add.container(0,detailY).setVisible(false).setDepth(250001);
-    
-    const detailBg=this.add.rectangle(0,0,pw,detailH,0x0a0a1e,0.95).setStrokeStyle(2,agent.zc,0.5);
-    detailContainer.add(detailBg);
-
-    // Brain badge
-    const brainShort=agent.brain.replace('litellm/','');
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+4,'Brain: '+brainShort,{
-      fontSize:'12px',fontFamily:'monospace',color:'#4a9eea',resolution:4
-    }));
-
-    // Tools
-    const toolsStr=agent.tools.length?agent.tools.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+18,'Tools: '+toolsStr,{
-      fontSize:'12px',fontFamily:'monospace',color:'#50a878',resolution:4
-    }));
-
-    // MCP
-    const mcpStr=agent.mcp.length?agent.mcp.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+32,'MCP: '+mcpStr,{
-      fontSize:'12px',fontFamily:'monospace',color:'#d4a03c',resolution:4
-    }));
-
-    // Skills
-    const skillsStr=agent.skills.length?agent.skills.join(', '):'none';
-    detailContainer.add(this.add.text(-pw/2+8,-detailH/2+46,'Skills: '+skillsStr,{
-      fontSize:'12px',fontFamily:'monospace',color:'#e84855',resolution:4
+    detailContainer.add(this.add.text(-pw/2+6,-detailH/2+40,'Skills: '+skillsStr,{
+      fontSize:'10px',fontFamily:'monospace',color:'#e84855',resolution:2
     }));
 
     container.add(detailContainer);
@@ -1000,6 +1201,25 @@ class GameScene extends Phaser.Scene{
     else nA=0.25;
     this.dayOverlay.setFillStyle(0x0a0a2e,nA);
 
+    // --- Proximity Bubbles ---
+    this.agents.forEach(a=>{
+      const dist=Phaser.Math.Distance.Between(this.player.x,this.player.y,a.spr.x,a.spr.y);
+      const inRange=dist<3*TILE;
+      if(inRange!==a.inRange){
+        a.inRange=inRange;
+        this.tweens.add({targets:a.bubble,alpha:inRange?1:0,duration:300});
+        if(inRange)speakWhisper(AGENT_THOUGHTS[a.id][a.thoughtIdx]);
+      }
+      if(inRange){
+        a.thoughtTimer+=delta;
+        if(a.thoughtTimer>5000){
+          a.thoughtIdx=(a.thoughtIdx+1)%AGENT_THOUGHTS[a.id].length;
+          a.bubbleTxt.setText(AGENT_THOUGHTS[a.id][a.thoughtIdx]);
+          a.thoughtTimer=0;
+        }
+      }
+    });
+
     // --- HUD ---
     this.hudZone.setText(getZone(this.pTX,this.pTY));
     this.hudCoord.setText('X:'+this.pTX+' Y:'+this.pTY);
@@ -1016,8 +1236,6 @@ window._game=new Phaser.Game({
   width:MAP_W*TILE,
   height:MAP_H*TILE,
   pixelArt:true,
-  roundPixels:true,
-  antialias:false,
   backgroundColor:'#1a1a2e',
   scene:[GameScene],
   scale:{
@@ -1165,5 +1383,31 @@ function saveAgent(){
   closeEditor();
 }
 </script>
+
+<!-- Chat Panel -->
+<div id="chat-panel">
+  <div id="chat-header">
+    <span id="chat-agent-dot" style="font-size:20px">●</span>
+    <div>
+      <div id="chat-agent-name" style="font-size:14px;font-weight:bold;color:#fff">Agent</div>
+      <div id="chat-agent-role" style="font-size:11px;color:#888">Role</div>
+    </div>
+    <button id="chat-close" title="Close (E)">✕</button>
+  </div>
+  <div id="chat-messages"></div>
+  <div id="chat-controls">
+    <button id="chat-voice-toggle" title="Toggle voice output (🔊 off by default)">🔊</button>
+    <button id="chat-api-btn" title="Set Anthropic API key for AI responses" style="opacity:0.5">🔑</button>
+  </div>
+  <div id="chat-api-area" style="display:none">
+    <input id="chat-api-input" type="password" placeholder="Anthropic API key (optional — enables real AI)"/>
+    <button id="chat-api-save">Save</button>
+  </div>
+  <div id="chat-input-area">
+    <input id="chat-input" type="text" placeholder="Ask me anything... (Enter to send)"/>
+    <button id="chat-mic" title="Voice input (Chrome/Edge only)">🎤</button>
+    <button id="chat-send" title="Send">▶</button>
+  </div>
+</div>
 </body>
 </html>
