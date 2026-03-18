@@ -4,6 +4,7 @@
 *.local
 secrets.json
 credentials.json
+config.local.js
 
 # IDE
 .idea/

@@ -94,6 +94,7 @@
   #chat-agent-model option{background:#0a0a1e;color:#ccc;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
 </head>
 <body>
 <div id="game-container"></div>
@@ -881,14 +882,14 @@ function initChatPanel(){
 }
 
 function initLLMSettings(){
-  window._llmBaseUrl=null;
-  window._llmApiKey=null;
+  loadCredentials();
   updateLLMBtn();
   document.getElementById('llm-settings-btn').addEventListener('click',()=>{
     document.getElementById('llm-base-url').value=window._llmBaseUrl||'';
     document.getElementById('llm-api-key').value=window._llmApiKey||'';
     document.getElementById('llm-status').textContent='';
     document.getElementById('llm-settings-modal').classList.add('active');
+    updateCredentialsStatus();
   });
   document.getElementById('llm-settings-close').addEventListener('click',()=>{
     document.getElementById('llm-settings-modal').classList.remove('active');
@@ -898,13 +899,73 @@ function initLLMSettings(){
       document.getElementById('llm-settings-modal').classList.remove('active');
   });
   document.getElementById('llm-save-btn').addEventListener('click',()=>{
-    window._llmBaseUrl=document.getElementById('llm-base-url').value.trim().replace(/\/$/,'')||null;
-    window._llmApiKey=document.getElementById('llm-api-key').value.trim()||null;
-    const st=document.getElementById('llm-status');
-    st.className='ok';st.textContent='✓ Saved';
+    saveCredentials();
     updateLLMBtn();
     setTimeout(()=>document.getElementById('llm-settings-modal').classList.remove('active'),600);
   });
+  document.getElementById('llm-forget-btn').addEventListener('click',()=>{
+    clearCredentials();
+    document.getElementById('llm-base-url').value='';
+    document.getElementById('llm-api-key').value='';
+    updateCredentialsStatus();
+    updateLLMBtn();
+  });
+}
+
+function loadCredentials(){
+  try{
+    window._llmBaseUrl=localStorage.getItem('llm_base_url')||null;
+    window._llmApiKey=localStorage.getItem('llm_api_key')||null;
+    if(!window._llmBaseUrl && window.LOCAL_CONFIG){
+      window._llmBaseUrl=window.LOCAL_CONFIG.baseUrl||null;
+      window._llmApiKey=window.LOCAL_CONFIG.apiKey||null;
+    }
+  }catch(e){
+    window._llmBaseUrl=null;
+    window._llmApiKey=null;
+  }
+}
+
+function saveCredentials(){
+  window._llmBaseUrl=document.getElementById('llm-base-url').value.trim().replace(/\/$/,'')||null;
+  window._llmApiKey=document.getElementById('llm-api-key').value.trim()||null;
+  try{
+    if(window._llmBaseUrl)localStorage.setItem('llm_base_url',window._llmBaseUrl);
+    else localStorage.removeItem('llm_base_url');
+    if(window._llmApiKey)localStorage.setItem('llm_api_key',window._llmApiKey);
+    else localStorage.removeItem('llm_api_key');
+    const st=document.getElementById('llm-status');
+    st.className='ok';st.textContent='✓ Saved securely';
+    updateCredentialsStatus();
+  }catch(e){
+    const st=document.getElementById('llm-status');
+    st.className='err';st.textContent='⚠ Storage unavailable';
+  }
+}
+
+function clearCredentials(){
+  window._llmBaseUrl=null;
+  window._llmApiKey=null;
+  try{
+    localStorage.removeItem('llm_base_url');
+    localStorage.removeItem('llm_api_key');
+  }catch(e){}
+  const st=document.getElementById('llm-status');
+  st.className='ok';st.textContent='✓ Credentials cleared';
+}
+
+function updateCredentialsStatus(){
+  const st=document.getElementById('llm-status');
+  const hasKey=!!window._llmApiKey;
+  const hasUrl=!!window._llmBaseUrl;
+  if(hasKey&&hasUrl){
+    const maskedKey=window._llmApiKey.length>8?window._llmApiKey.slice(0,4)+'****'+window._llmApiKey.slice(-4):'****';
+    st.className='ok';st.textContent='✓ Connected as '+maskedKey;
+  }else if(hasUrl){
+    st.className='';st.textContent='⚠ API key missing';
+  }else{
+    st.className='';st.textContent='Enter credentials to connect';
+  }
 }
 
 function updateLLMBtn(){
@@ -1517,14 +1578,24 @@ function saveAgent(){
     <h3>⚡ LLM Settings <button class="llm-close-btn" id="llm-settings-close">✕</button></h3>
     <div class="llm-field">
       <label>Base URL</label>
-      <input id="llm-base-url" type="text" placeholder="https://api.example.com"/>
+      <input id="llm-base-url" type="text" placeholder="https://api.openai.com"/>
     </div>
     <div class="llm-field">
       <label>API Key</label>
       <input id="llm-api-key" type="password" placeholder="sk-..."/>
     </div>
     <div id="llm-status"></div>
-    <button id="llm-save-btn">Save & Connect</button>
+    <div style="display:flex;gap:8px;">
+      <button id="llm-save-btn" style="flex:1;">Save & Connect</button>
+      <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
+    </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #252548;">
+      <div style="font-size:9px;color:#555;line-height:1.5;">
+        Credentials stored in browser localStorage only.<br>
+        Never written to files or sent to any server except your configured API.<br>
+        Use config.local.js for file-based config (see README).
+      </div>
+    </div>
   </div>
 </div>
 </body>
