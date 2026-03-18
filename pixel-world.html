@@ -36,10 +36,10 @@
   .chip{background:#2a2a4e;padding:4px 8px;border-radius:12px;font-size:10px;color:#e0e0e0;display:flex;align-items:center;gap:4px}
   .chip-remove{cursor:pointer;color:#e84855;font-weight:bold}
   .chip-add{background:#1a1a2e;border:1px dashed #4a9eea;color:#4a9eea;cursor:pointer;padding:4px 8px;border-radius:12px;font-size:10px}
-  .available-models{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-  .model-chip{background:#1a1a2e;border:1px solid #333;padding:4px 8px;border-radius:4px;font-size:10px;color:#a0a0a0;cursor:pointer}
-  .model-chip:hover{border-color:#4a9eea;color:#4a9eea}
-  .model-chip.selected{border-color:#4a9eea;background:#2a2a4e;color:#4a9eea}
+  #chat-agent-brain{font-size:9px;color:#4a9eea;opacity:0.7;font-family:monospace;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
+  .chat-setting-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+  .chat-setting-label{font-size:10px;color:#555;min-width:52px;flex-shrink:0;}
+  #edit-brain{width:100%;background:#0a0a1e;border:1px solid #333;color:#aaa;padding:4px 6px;font-size:11px;font-family:monospace;cursor:pointer;}
   /* Chat Panel */
   #chat-panel{position:fixed;right:-340px;top:0;width:320px;height:100vh;background:#0a0a1e;border-left:2px solid #333;font-family:monospace;display:flex;flex-direction:column;z-index:9999;transition:right 0.3s ease;}
   #chat-panel.open{right:0;}
@@ -55,9 +55,9 @@
   #chat-controls{display:flex;gap:4px;padding:6px 12px;border-top:1px solid #1a1a2e;}
   #chat-controls button{background:#1a1a2e;border:1px solid #333;color:#888;padding:4px 8px;cursor:pointer;border-radius:4px;font-size:14px;}
   #chat-controls button:hover{border-color:#4a9eea;color:#aaa;}
-  #chat-api-area{padding:8px 12px;border-top:1px solid #1a1a2e;display:flex;gap:4px;}
-  #chat-api-input{flex:1;background:#0a0a1e;border:1px solid #333;color:#aaa;padding:4px 6px;font-size:11px;font-family:monospace;}
-  #chat-api-save{background:#1a3a2a;border:1px solid #2a5a3a;color:#4bc;padding:4px 8px;cursor:pointer;font-size:11px;}
+  #chat-api-area{padding:8px 12px;border-top:1px solid #1a1a2e;display:flex;flex-direction:column;gap:6px;}
+  #chat-api-input,#chat-base-url{flex:1;background:#0a0a1e;border:1px solid #333;color:#aaa;padding:4px 6px;font-size:11px;font-family:monospace;min-width:0;}
+  #chat-api-save{background:#1a3a2a;border:1px solid #2a5a3a;color:#4bc;padding:5px 10px;cursor:pointer;font-size:11px;align-self:flex-end;border-radius:3px;}
   #chat-input-area{display:flex;gap:4px;padding:10px 12px;border-top:1px solid #333;}
   #chat-input{flex:1;background:#0a0a1e;border:1px solid #444;color:#eee;padding:6px 8px;font-size:12px;font-family:monospace;}
   #chat-mic{background:#1a1a2e;border:1px solid #444;color:#888;padding:6px 8px;cursor:pointer;font-size:14px;}
@@ -71,6 +71,8 @@
   #game-hud .h-coord{color:#8090a8;}
   #game-hud .h-time{color:#606878;}
   #game-hud .h-zoom{color:#4a9eea;}
+  #agent-labels{position:fixed;top:0;left:0;pointer-events:none;z-index:4000;}
+  .agent-label{position:absolute;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:10px;font-weight:700;padding:1px 5px 2px;border-radius:8px;background:rgba(8,8,22,0.72);border:1px solid rgba(255,255,255,0.08);white-space:nowrap;transform:translateX(-50%);letter-spacing:0.03em;}
   #game-zoom-btns{position:fixed;bottom:12px;left:12px;display:flex;gap:4px;z-index:1000;}
   #game-zoom-btns button{background:rgba(10,10,30,0.8);border:1px solid #252548;color:#4a9eea;width:28px;height:28px;cursor:pointer;font-family:monospace;font-size:16px;border-radius:5px;line-height:1;padding:0;transition:border-color 0.15s,background 0.15s;}
   #game-zoom-btns button:hover{border-color:#4a9eea;background:rgba(74,158,234,0.15);}
@@ -165,9 +167,8 @@
     <div class="editor-section">
       <div class="editor-section-title">Brain & System</div>
       <div class="editor-row">
-        <label>Brain (LiteLLM Model)</label>
-        <input type="text" id="edit-brain" placeholder="litellm/glm-latest">
-        <div class="available-models" id="available-models"></div>
+        <label>Brain (Model)</label>
+        <select id="edit-brain"></select>
       </div>
       <div class="editor-row">
         <label>System Prompt</label>
@@ -196,7 +197,7 @@
   </div>
 </div>
 <script>
-const MAP_W=27, MAP_H=15, ZOOM=3;
+const MAP_W=27, MAP_H=15, ZOOM=1;
 const TILE=16; // Keep original 16px tiles
 
 // --- Helpers ---
@@ -743,6 +744,8 @@ function appendMessage(type,text,agent){
   }
   msgs.appendChild(div);
   msgs.scrollTop=msgs.scrollHeight;
+  // Persist rendered messages per agent
+  if(window._chatAgent)window._agentMessages[window._chatAgent.id]=msgs.innerHTML;
 }
 
 function getScriptedResponse(agent,message){
@@ -755,17 +758,28 @@ function getScriptedResponse(agent,message){
   return resp.default;
 }
 
-async function getAgentResponse(agent,message,history,apiKey){
+async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   const agentsContext=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
-  const systemPrompt=agent.systemPrompt+'\n\nYou work with these colleagues:\n'+agentsContext+'\n\nKeep responses to 2-3 sentences. Be direct and expert.';
-  const response=await fetch('https://api.anthropic.com/v1/messages',{
+  const selfCtx='Your tools: '+((agent.tools||[]).join(', ')||'none')+
+    '. MCPs: '+((agent.mcp||[]).join(', ')||'none')+
+    '. Skills: '+((agent.skills||[]).join(', ')||'none')+'.';
+  const systemPrompt=agent.systemPrompt+'\n\n'+selfCtx+
+    '\n\nYour colleagues:\n'+agentsContext+
+    '\n\nKeep responses to 2-3 sentences. Be direct and expert.';
+  const model=(agent.brain||'kimi-latest').replace('litellm/','');
+  const headers={'content-type':'application/json'};
+  if(apiKey)headers['authorization']='Bearer '+apiKey;
+  const resp=await fetch(baseUrl+'/v1/chat/completions',{
     method:'POST',
-    headers:{'x-api-key':apiKey,'anthropic-version':'2023-06-01','content-type':'application/json'},
-    body:JSON.stringify({model:'claude-3-5-haiku-20241022',max_tokens:200,system:systemPrompt,
-      messages:[...history,{role:'user',content:message}]})
+    headers,
+    body:JSON.stringify({
+      model,max_tokens:300,
+      messages:[{role:'system',content:systemPrompt},...history,{role:'user',content:message}]
+    })
   });
-  const data=await response.json();
-  return data.content?.[0]?.text??'Something went wrong.';
+  const data=await resp.json();
+  if(data.error)throw new Error(data.error.message||'API error');
+  return data.choices?.[0]?.message?.content??'No response.';
 }
 
 async function sendChatMessage(){
@@ -777,15 +791,16 @@ async function sendChatMessage(){
   input.value='';
   if(btn)btn.disabled=true;
   let response;
-  if(window._claudeApiKey){
-    try{response=await getAgentResponse(window._chatAgent,msg,window._chatHistory||[],window._claudeApiKey);}
-    catch(e){response=getScriptedResponse(window._chatAgent,msg);}
+  if(window._llmBaseUrl){
+    try{response=await getAgentResponse(window._chatAgent,msg,window._chatHistory||[],window._llmBaseUrl,window._llmApiKey);}
+    catch(e){response=getScriptedResponse(window._chatAgent,msg)+' [LLM error: '+e.message+']';}
   }else{
     response=getScriptedResponse(window._chatAgent,msg);
   }
   window._chatHistory=window._chatHistory||[];
   window._chatHistory.push({role:'user',content:msg},{role:'assistant',content:response});
-  if(window._chatHistory.length>20)window._chatHistory=window._chatHistory.slice(-20);
+  if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
+  window._agentSessions[window._chatAgent.id]=window._chatHistory;
   appendMessage('agent',response,window._chatAgent);
   if(window._voiceEnabled)speakText(response,window._chatAgent);
   if(btn)btn.disabled=false;
@@ -793,15 +808,21 @@ async function sendChatMessage(){
 
 function openChat(agent){
   window._chatAgent=agent;
-  window._chatHistory=[];
+  window._chatHistory=window._agentSessions[agent.id]||[];
   const panel=document.getElementById('chat-panel');
   if(!panel)return;
   panel.style.setProperty('--agent-color',hex(agent.zc));
   document.getElementById('chat-agent-dot').style.color=hex(agent.zc);
   document.getElementById('chat-agent-name').textContent=agent.name;
   document.getElementById('chat-agent-role').textContent=agent.role;
-  document.getElementById('chat-messages').innerHTML='';
-  appendMessage('agent',"Hi! I'm "+agent.name+". "+agent.desc+" What can I help you with?",agent);
+  document.getElementById('chat-agent-brain').textContent=agent.brain||'';
+  const msgs=document.getElementById('chat-messages');
+  msgs.innerHTML=window._agentMessages[agent.id]||'';
+  if(!window._agentMessages[agent.id]){
+    appendMessage('agent',"Hi! I'm "+agent.name+". "+agent.desc+" What can I help you with?",agent);
+  }else{
+    msgs.scrollTop=msgs.scrollHeight;
+  }
   panel.classList.add('open');
 }
 
@@ -814,7 +835,10 @@ function closeChat(){
 
 function initChatPanel(){
   window._voiceEnabled=false;
-  window._claudeApiKey=null;
+  window._llmBaseUrl=null;
+  window._llmApiKey=null;
+  window._agentSessions={};
+  window._agentMessages={};
   window._chatHistory=[];
   window._chatAgent=null;
   window._micActive=false;
@@ -832,11 +856,20 @@ function initChatPanel(){
     area.style.display=area.style.display==='none'?'flex':'none';
   });
   document.getElementById('chat-api-save').addEventListener('click',()=>{
-    const key=document.getElementById('chat-api-input').value.trim();
-    window._claudeApiKey=key||null;
+    window._llmBaseUrl=document.getElementById('chat-base-url').value.trim().replace(/\/$/,'')||null;
+    window._llmApiKey=document.getElementById('chat-api-input').value.trim()||null;
+    const connected=!!window._llmBaseUrl;
     document.getElementById('chat-api-area').style.display='none';
-    document.getElementById('chat-api-btn').style.opacity=window._claudeApiKey?'1':'0.5';
-    document.getElementById('chat-api-btn').title=window._claudeApiKey?'API key set — click to change':'Set API key';
+    document.getElementById('chat-api-btn').style.opacity=connected?'1':'0.5';
+    document.getElementById('chat-api-btn').title=connected?'⚡ '+window._llmBaseUrl:'Configure LLM endpoint';
+  });
+  document.getElementById('chat-clear').addEventListener('click',()=>{
+    if(!window._chatAgent)return;
+    delete window._agentSessions[window._chatAgent.id];
+    delete window._agentMessages[window._chatAgent.id];
+    window._chatHistory=[];
+    document.getElementById('chat-messages').innerHTML='';
+    appendMessage('agent',"Hi! I'm "+window._chatAgent.name+". "+window._chatAgent.desc+" What can I help you with?",window._chatAgent);
   });
   document.getElementById('chat-voice-toggle').style.opacity='0.4';
   initSpeechRecognition();
@@ -890,12 +923,15 @@ class GameScene extends Phaser.Scene{
       const spr=this.add.sprite(a.tx*TILE+TILE/2,a.ty*TILE+TILE/2,a.id+'_'+a.facing+'_0').setDepth(a.ty*TILE);
       spr.setInteractive({useHandCursor:true});
 
-      const label=this.add.text(spr.x,spr.y-14,a.name,{
-        fontSize:'11px',fontFamily:'monospace',color:hex(a.zc),resolution:2
-      }).setOrigin(0.5).setDepth(a.ty*TILE+1);
+      const labelEl=document.createElement('div');
+      labelEl.className='agent-label';
+      labelEl.textContent=a.name;
+      labelEl.style.color=hex(a.zc);
+      const labelYOff=(a.id==='flow'||a.id==='forge')?12:0;
+      document.getElementById('agent-labels').appendChild(labelEl);
 
       const agentData={
-        ...a,spr,label,
+        ...a,spr,labelEl,labelYOff,
         idleTimer:0,idleState:'idle',
         lookDir:a.facing,nextIdleAt:randInt(2000,5000),
         lookDuration:0,typeFrame:0,nextPauseAt:randInt(2000,5000),pauseDuration:0,
@@ -1233,6 +1269,19 @@ class GameScene extends Phaser.Scene{
     const hrs=Math.floor(this.dayTime*24),mins=Math.floor((this.dayTime*24-hrs)*60);
     const h12=hrs%12||12,ap=hrs>=12?'PM':'AM';
     document.getElementById('hud-time').textContent=h12+':'+String(mins).padStart(2,'0')+' '+ap;
+
+    // --- Agent Labels (HTML overlay, crisp text) ---
+    const cam=this.cameras.main;
+    const cvs=this.game.canvas;
+    const rect=cvs.getBoundingClientRect();
+    const scaleX=rect.width/cvs.width;
+    const scaleY=rect.height/cvs.height;
+    this.agents.forEach(a=>{
+      const sx=(a.spr.x-cam.scrollX)*cam.zoom*scaleX+rect.left;
+      const sy=(a.spr.y-cam.scrollY)*cam.zoom*scaleY+rect.top-16*cam.zoom*scaleY+(a.labelYOff||0);
+      a.labelEl.style.left=sx.toFixed(0)+'px';
+      a.labelEl.style.top=sy.toFixed(0)+'px';
+    });
   }
 }
 
@@ -1256,7 +1305,7 @@ let currentEditScene=null;
 const AVAILABLE_TOOLS=['webfetch','bash','read','write','edit','glob','grep'];
 const AVAILABLE_MCP=['deepwiki','figma','refero'];
 const AVAILABLE_SKILLS=['research-competitive','research-best-practices','generate-ui','generate-ux','generate-figma-specs','generate-code','critique-ux','critique-ui','critique-persona','review-panel','synthesize-design','design-quality-gate','design-checklist'];
-const AVAILABLE_MODELS=['litellm/glm-latest','litellm/glm-flash-experimental','litellm/claude-opus-4-5','litellm/claude-opus-4-6','litellm/claude-sonnet-4-5','litellm/claude-sonnet-4-6','litellm/open-large','litellm/open-fast'];
+const AVAILABLE_MODELS=['kimi-latest','litellm/glm-latest','litellm/glm-flash-experimental','litellm/claude-opus-4-5','litellm/claude-opus-4-6','litellm/claude-sonnet-4-5','litellm/claude-sonnet-4-6','litellm/open-large','litellm/open-fast'];
 
 function openEditor(agent,scene){
   currentEditAgent=agent;
@@ -1277,13 +1326,14 @@ function openEditor(agent,scene){
   document.getElementById('edit-tx').value=agent.tx;
   document.getElementById('edit-ty').value=agent.ty;
   document.getElementById('edit-idle').value=agent.idle;
-  document.getElementById('edit-brain').value=agent.brain||'litellm/glm-latest';
+  const brainSel=document.getElementById('edit-brain');
+  brainSel.innerHTML=AVAILABLE_MODELS.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
+  brainSel.value=agent.brain||AVAILABLE_MODELS[0];
   document.getElementById('edit-systemPrompt').value=agent.systemPrompt||'';
-  
+
   renderChips('edit-tools-list',agent.tools||[],AVAILABLE_TOOLS,removeTool);
   renderChips('edit-mcp-list',agent.mcp||[],AVAILABLE_MCP,removeMcp);
   renderChips('edit-skills-list',agent.skills||[],AVAILABLE_SKILLS,removeSkill);
-  renderModelChips();
   
   document.addEventListener('keydown',handleEsc);
 }
@@ -1311,18 +1361,6 @@ function renderChips(containerId,items,available,onRemove){
   });
 }
 
-function renderModelChips(){
-  const container=document.getElementById('available-models');
-  const current=document.getElementById('edit-brain').value;
-  container.innerHTML='';
-  AVAILABLE_MODELS.forEach(m=>{
-    const chip=document.createElement('span');
-    chip.className='model-chip'+(m===current?' selected':'');
-    chip.textContent=m.replace('litellm/','');
-    chip.onclick=()=>{document.getElementById('edit-brain').value=m;renderModelChips();};
-    container.appendChild(chip);
-  });
-}
 
 function addTool(){addChip('edit-tools-list','edit-tools','tools',AVAILABLE_TOOLS);}
 function addMcp(){addChip('edit-mcp-list','edit-mcp','mcp',AVAILABLE_MCP);}
@@ -1363,11 +1401,9 @@ function saveAgent(){
   currentEditAgent.spr.y=currentEditAgent.ty*TILE+TILE/2;
   currentEditAgent.spr.setDepth(currentEditAgent.ty*TILE);
   
-  // Update label position
-  currentEditAgent.label.x=currentEditAgent.spr.x;
-  currentEditAgent.label.y=currentEditAgent.spr.y-11;
-  currentEditAgent.label.setText(currentEditAgent.name);
-  currentEditAgent.label.setColor(hex(currentEditAgent.zc));
+  // Update label (HTML)
+  currentEditAgent.labelEl.textContent=currentEditAgent.name;
+  currentEditAgent.labelEl.style.color=hex(currentEditAgent.zc);
   
   // Update collider
   const colliderIndex=currentEditScene.colliders.findIndex(c=>c.x===currentEditAgent.tx&&c.y===currentEditAgent.ty);
@@ -1391,6 +1427,7 @@ function saveAgent(){
 </script>
 
 <!-- HUD Overlay -->
+<div id="agent-labels"></div>
 <div id="game-hud">
   <span class="h-zone" id="hud-zone">Corridor</span>
   <span class="h-sep">·</span>
@@ -1398,7 +1435,7 @@ function saveAgent(){
   <span class="h-sep">·</span>
   <span class="h-time" id="hud-time">—</span>
   <span class="h-sep">·</span>
-  <span class="h-zoom" id="hud-zoom">300%</span>
+  <span class="h-zoom" id="hud-zoom">100%</span>
 </div>
 <div id="game-zoom-btns">
   <button id="btn-zoom-out" title="Zoom out (−)">−</button>
@@ -1411,20 +1448,29 @@ function saveAgent(){
 <div id="chat-panel">
   <div id="chat-header">
     <span id="chat-agent-dot" style="font-size:20px">●</span>
-    <div>
+    <div style="flex:1;min-width:0;">
       <div id="chat-agent-name" style="font-size:14px;font-weight:bold;color:#fff">Agent</div>
       <div id="chat-agent-role" style="font-size:11px;color:#888">Role</div>
+      <div id="chat-agent-brain"></div>
     </div>
     <button id="chat-close" title="Close (E)">✕</button>
   </div>
   <div id="chat-messages"></div>
   <div id="chat-controls">
-    <button id="chat-voice-toggle" title="Toggle voice output (🔊 off by default)">🔊</button>
-    <button id="chat-api-btn" title="Set Anthropic API key for AI responses" style="opacity:0.5">🔑</button>
+    <button id="chat-voice-toggle" title="Toggle voice output">🔊</button>
+    <button id="chat-api-btn" title="Configure LLM endpoint" style="opacity:0.5">🔑</button>
+    <button id="chat-clear" title="Clear session history">🗑</button>
   </div>
   <div id="chat-api-area" style="display:none">
-    <input id="chat-api-input" type="password" placeholder="Anthropic API key (optional — enables real AI)"/>
-    <button id="chat-api-save">Save</button>
+    <div class="chat-setting-row">
+      <span class="chat-setting-label">Base URL</span>
+      <input id="chat-base-url" type="text" placeholder="https://api.example.com"/>
+    </div>
+    <div class="chat-setting-row">
+      <span class="chat-setting-label">API Key</span>
+      <input id="chat-api-input" type="password" placeholder="sk-..."/>
+    </div>
+    <button id="chat-api-save">Save & Connect</button>
   </div>
   <div id="chat-input-area">
     <input id="chat-input" type="text" placeholder="Ask me anything... (Enter to send)"/>
