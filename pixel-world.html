@@ -122,7 +122,23 @@
   #chat-artifact-relay{background:#0a1a2a;border-color:#1a3a5a;color:#4a9eea;}
   #chat-artifact-relay:hover{background:#102030;border-color:#4a9eea;}
   @keyframes blink-cursor{0%,100%{opacity:1}50%{opacity:0}}
+  .artifact-streaming{white-space:pre-wrap;word-break:break-word;}
   .artifact-streaming::after{content:'▋';animation:blink-cursor 0.6s infinite;color:#4a9eea;font-size:10px;}
+  /* Phase 6 — Rich artifact rendering */
+  #chat-artifact-content code[class*="language-"],#chat-artifact-content pre[class*="language-"]{font-size:10px;background:transparent;margin:0;padding:0;border:none;text-shadow:none;}
+  #chat-artifact-content pre[class*="language-"]{padding:0;margin:0;overflow-x:auto;}
+  .artifact-yaml-card{font-size:10px;font-family:monospace;line-height:1.6;}
+  .yaml-row{display:block;}
+  .yaml-key{color:#7ec8e3;}
+  .yaml-val{color:#c0d8a8;}
+  .yaml-comment{color:#555;font-style:italic;}
+  .artifact-md{font-size:10px;font-family:monospace;line-height:1.6;color:#c0c8d8;}
+  .md-h2{color:#e0d080;font-weight:bold;margin:6px 0 2px;font-size:11px;border-bottom:1px solid #252548;padding-bottom:2px;}
+  .md-h3{color:#a0c8e0;font-weight:bold;margin:4px 0 2px;}
+  .md-p{margin:2px 0;color:#9098a8;}
+  .md-list{margin:2px 0 2px 12px;padding:0;}
+  .md-list li{margin:1px 0;color:#9098a8;}
+  .artifact-mermaid svg{max-width:100%;height:auto;}
   /* Phase 4 — Relay Modal */
   #relay-modal{position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:8600;display:none;align-items:center;justify-content:center;}
   #relay-modal.active{display:flex;}
@@ -169,6 +185,11 @@
   #board-hud-btn:hover{border-color:#4a9eea;color:#4a9eea;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
+<!-- Phase 6: Prism.js syntax highlighting -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script>if(window.Prism&&Prism.plugins&&Prism.plugins.autoloader)Prism.plugins.autoloader.languages_path='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/';</script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
 </head>
 <body>
@@ -437,7 +458,7 @@ const AGENT_FORMAT_MAP={
   scout:'End your response with:\n## Competitor Analysis\n- **[App/Product]**: [pattern or insight]\n(minimum 3 entries)',
   scholar:'End your response with:\n## References\n1. **[Standard/Guideline]**: [specific rule or requirement]\n(minimum 3 numbered entries)',
   palette:'Structure each visual option as:\n## Option [N]: [Name]\n**Layout:** ...\n**Color:** ...\n**Rationale:** ...\n(repeat for each option, minimum 3)',
-  flow:'Include a user flow section:\n## User Flow\n1. [Entry point]\n2. [Step]\n→ [Branch/error path]\n(include at least one error/edge path)',
+  flow:'Include a user flow section:\n## User Flow\n1. [Entry point]\n2. [Step]\n→ [Branch/error path]\n(include at least one error/edge path)\n\nIf the flow is simple, also include a fenced Mermaid diagram:\n```mermaid\ngraph TD\nA[Start] --> B[Step]\n```',
   blueprint:'Output the full spec as a fenced YAML block:\n```yaml\nframe:\n  name: ...\n  width: ...\ncomponents:\n  - name: ...\n    type: ...\n```',
   forge:'Output implementation as a fenced TSX block:\n```tsx\n// Component code here\n```\nInclude aria attributes and Tailwind classes.',
   lens:'Structure critique as:\n## Heuristic Violations\n1. **[Nielsen Heuristic]**: [specific violation]\n   **Severity:** [1–4] **Fix:** [suggestion]\n(minimum 3 violations)',
@@ -1117,6 +1138,96 @@ function storeArtifact(agent,rawText){
   return true;
 }
 
+// Phase 6 helpers -------------------------------------------------------
+function applyInlineMarkup(el,text){
+  text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/).forEach(part=>{
+    const bold=part.match(/^\*\*([^*]+)\*\*$/);
+    const italic=part.match(/^\*([^*]+)\*$/);
+    if(bold){const s=document.createElement('strong');s.textContent=bold[1];el.appendChild(s);}
+    else if(italic){const s=document.createElement('em');s.textContent=italic[1];el.appendChild(s);}
+    else el.appendChild(document.createTextNode(part));
+  });
+}
+
+function mdToHtml(content){
+  const wrapper=document.createElement('div');
+  wrapper.className='artifact-md';
+  let listEl=null,listType=null;
+  content.split('\n').forEach(line=>{
+    const h2=line.match(/^##\s+(.*)/),h3=line.match(/^###\s+(.*)/);
+    const bullet=line.match(/^\s*[-*•]\s+(.*)/),numbered=line.match(/^\s*\d+[.)]\s+(.*)/);
+    const closeList=()=>{if(listEl){wrapper.appendChild(listEl);listEl=null;listType=null;}};
+    if(h3){closeList();const el=document.createElement('div');el.className='md-h3';el.textContent=h3[1];wrapper.appendChild(el);return;}
+    if(h2){closeList();const el=document.createElement('div');el.className='md-h2';el.textContent=h2[1];wrapper.appendChild(el);return;}
+    if(bullet||numbered){
+      const t=bullet?'ul':'ol';
+      if(!listEl||listType!==t){closeList();listEl=document.createElement(t);listEl.className='md-list';listType=t;}
+      const li=document.createElement('li');applyInlineMarkup(li,(bullet||numbered)[1]);listEl.appendChild(li);return;
+    }
+    closeList();
+    if(!line.trim()){wrapper.appendChild(document.createElement('br'));return;}
+    const p=document.createElement('div');p.className='md-p';applyInlineMarkup(p,line);wrapper.appendChild(p);
+  });
+  if(listEl)wrapper.appendChild(listEl);
+  return wrapper;
+}
+
+function yamlToCard(content){
+  const wrapper=document.createElement('div');
+  wrapper.className='artifact-yaml-card';
+  content.split('\n').forEach(line=>{
+    const row=document.createElement('div');row.className='yaml-row';
+    const m=line.match(/^(\s*)([\w][\w\s.-]*)(:)(.*)$/);
+    if(m){
+      row.appendChild(document.createTextNode(m[1]));
+      const k=document.createElement('span');k.className='yaml-key';k.textContent=m[2]+m[3];row.appendChild(k);
+      const v=document.createElement('span');v.className='yaml-val';v.textContent=m[4];row.appendChild(v);
+    }else{
+      const comment=line.trim().startsWith('#');
+      if(comment){const s=document.createElement('span');s.className='yaml-comment';s.textContent=line;row.appendChild(s);}
+      else row.textContent=line||'\u00a0';
+    }
+    wrapper.appendChild(row);
+  });
+  return wrapper;
+}
+
+function renderMermaidInto(container,content){
+  const doRender=()=>{
+    const id='maid-'+Date.now();
+    window.mermaid.render(id,content).then(({svg})=>{
+      const parser=new DOMParser();
+      const doc=parser.parseFromString(svg,'image/svg+xml');
+      const svgEl=doc.documentElement;
+      const wrap=document.createElement('div');wrap.className='artifact-mermaid';
+      wrap.appendChild(svgEl);container.innerHTML='';container.appendChild(wrap);
+    }).catch(e=>{container.textContent='[Diagram error]\n\n'+content;});
+  };
+  if(window.mermaid){doRender();return;}
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js';
+  s.onload=()=>{window.mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'strict'});doRender();};
+  document.head.appendChild(s);
+}
+
+function renderArtifactContent(art){
+  const el=document.getElementById('chat-artifact-content');
+  if(!el||!art)return;
+  el.innerHTML='';el.className='';
+  if(art.lang==='mermaid'){renderMermaidInto(el,art.content);return;}
+  if(art.type==='code'){
+    const pre=document.createElement('pre');pre.style.cssText='margin:0;padding:0;background:transparent;';
+    const code=document.createElement('code');code.className='language-'+(art.lang||'text');
+    code.textContent=art.content;pre.appendChild(code);el.appendChild(pre);
+    if(window.Prism)Prism.highlightElement(code);
+    return;
+  }
+  if(art.type==='yaml'){el.appendChild(yamlToCard(art.content));return;}
+  if(art.type==='list'||art.lang==='md'||art.type==='text'){el.appendChild(mdToHtml(art.content));return;}
+  el.textContent=art.content;
+}
+// -----------------------------------------------------------------------
+
 function renderArtifactPanel(){
   const agent=window._chatAgent;
   const area=document.getElementById('chat-artifact-area');
@@ -1124,29 +1235,26 @@ function renderArtifactPanel(){
   if(!agent||!window._agentArtifacts[agent.id]){area.style.display='none';return;}
   const art=window._agentArtifacts[agent.id];
   area.style.display='';
-  const badge=document.getElementById('chat-artifact-type-badge');
-  badge.textContent=art.lang||art.type;
-  document.getElementById('chat-artifact-content').textContent=art.content;
-  document.getElementById('chat-artifact-content').className='';
+  document.getElementById('chat-artifact-type-badge').textContent=art.lang||art.type;
+  renderArtifactContent(art);
 }
 
 function streamArtifactContent(content){
   const area=document.getElementById('chat-artifact-area');
-  const pre=document.getElementById('chat-artifact-content');
-  if(!area||!pre)return;
+  const el=document.getElementById('chat-artifact-content');
+  if(!area||!el)return;
   area.style.display='';
-  pre.textContent='';
-  pre.className='artifact-streaming';
-  let i=0;
-  const CHUNK=16;
+  el.innerHTML='';el.className='artifact-streaming';
+  let i=0;const CHUNK=16;
   function tick(){
     if(i<content.length){
-      pre.textContent=content.slice(0,i+CHUNK);
-      i+=CHUNK;
-      requestAnimationFrame(tick);
+      el.textContent=content.slice(0,i+CHUNK);
+      i+=CHUNK;requestAnimationFrame(tick);
     }else{
-      pre.textContent=content;
-      pre.className='';
+      // Streaming done — switch to rich rendering
+      const art=window._chatAgent&&window._agentArtifacts&&window._agentArtifacts[window._chatAgent.id];
+      if(art)renderArtifactContent(art);
+      else{el.textContent=content;el.className='';}
     }
   }
   requestAnimationFrame(tick);
@@ -2123,7 +2231,7 @@ function saveAgent(){
       <button id="chat-artifact-toggle">▾</button>
     </div>
     <div id="chat-artifact-body">
-      <pre id="chat-artifact-content"></pre>
+      <div id="chat-artifact-content"></div>
       <div id="chat-artifact-actions">
         <button id="chat-artifact-copy">Copy</button>
         <button id="chat-artifact-relay">Relay →</button>
