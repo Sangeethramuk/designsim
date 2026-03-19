@@ -936,11 +936,9 @@ function appendMessage(type,text,agent){
   }
   msgs.appendChild(div);
   msgs.scrollTop=msgs.scrollHeight;
-  // Persist rendered messages per agent
+  // Cache rendered messages per agent (in-memory only; restored via rebuildAgentMessages on reload)
   if(window._chatAgent){
     window._agentMessages[window._chatAgent.id]=msgs.innerHTML;
-    const _aid=window._chatAgent.id;const _html=msgs.innerHTML;
-    window._sbReady&&window._sbReady.then(user=>user&&sbSaveMessages(_aid,_html));
   }
 }
 
@@ -2093,10 +2091,6 @@ function sbAppendRelayEntry(entry){
   if(!window._sbClient||!window._sbUser)return;
   window._sbClient.from('relay_log').insert({user_id:window._sbUser.id,from_id:entry.from||null,from_name:entry.fromName||null,to_id:entry.to||null,preview:entry.preview||null,timestamp:entry.timestamp||Date.now()}).catch(()=>{});
 }
-function sbSaveMessages(agentId,html){
-  if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('messages').upsert({user_id:window._sbUser.id,agent_id:agentId,html:html,updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).catch(()=>{});
-}
 function sbSaveBrief(text){
   if(!window._sbClient||!window._sbUser)return;
   window._sbClient.from('briefs').upsert({user_id:window._sbUser.id,content:text||null,updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
@@ -2108,15 +2102,38 @@ function sbLoadAll(){
     window._sbClient.from('sessions').select('*').eq('user_id',uid),
     window._sbClient.from('artifacts').select('*').eq('user_id',uid),
     window._sbClient.from('relay_log').select('*').eq('user_id',uid).order('id',{ascending:true}),
-    window._sbClient.from('messages').select('*').eq('user_id',uid),
     window._sbClient.from('briefs').select('*').eq('user_id',uid).maybeSingle()
-  ]).then(([{data:sessions},{data:artifacts},{data:relays},{data:messages},{data:brief}])=>{
+  ]).then(([{data:sessions},{data:artifacts},{data:relays},{data:brief}])=>{
     if(sessions)sessions.forEach(s=>{window._agentSessions[s.agent_id]=s.messages;});
     if(artifacts)artifacts.forEach(a=>{window._agentArtifacts[a.agent_id]={type:a.type,lang:a.lang,content:a.content,agentName:a.agent_name,timestamp:a.timestamp,agentId:a.agent_id};});
     if(relays)relays.forEach(r=>{window._relayLog.push({from:r.from_id,fromName:r.from_name,to:r.to_id,preview:r.preview,timestamp:r.timestamp});});
-    if(messages)messages.forEach(m=>{window._agentMessages[m.agent_id]=m.html;});
     if(brief&&brief.content){window._projectBrief=brief.content;if(typeof updateBriefHUD==='function')updateBriefHUD();}
+    rebuildAgentMessages(); // rebuild chat HTML safely from sessions (replaces innerHTML restore)
   }).catch(()=>{});
+}
+// Rebuild per-agent chat HTML from session data using safe DOM methods (no innerHTML from DB)
+function rebuildAgentMessages(){
+  Object.keys(window._agentSessions).forEach(agentId=>{
+    const agentData=AGENTS.find(a=>a.id===agentId);
+    const messages=window._agentSessions[agentId]||[];
+    const temp=document.createElement('div');
+    messages.forEach(msg=>{
+      if(msg.role==='system')return;
+      const div=document.createElement('div');
+      div.className=msg.role==='user'?'msg-user':'msg-agent';
+      if(msg.role==='assistant'&&agentData){
+        const sender=document.createElement('div');
+        sender.className='msg-sender';
+        sender.textContent=agentData.name+' · '+agentData.role;
+        div.appendChild(sender);
+        div.appendChild(document.createTextNode(msg.content));
+      }else{
+        div.textContent=msg.content;
+      }
+      temp.appendChild(div);
+    });
+    if(temp.children.length>0)window._agentMessages[agentId]=temp.innerHTML;
+  });
 }
 function sbClearAllData(){
   if(!window._sbClient||!window._sbUser)return Promise.resolve();
@@ -2125,7 +2142,6 @@ function sbClearAllData(){
     window._sbClient.from('sessions').delete().eq('user_id',uid),
     window._sbClient.from('artifacts').delete().eq('user_id',uid),
     window._sbClient.from('relay_log').delete().eq('user_id',uid),
-    window._sbClient.from('messages').delete().eq('user_id',uid),
     window._sbClient.from('briefs').delete().eq('user_id',uid)
   ]).catch(()=>{});
 }
@@ -2766,19 +2782,22 @@ function saveAgent(){
 <div id="llm-settings-modal">
   <div id="llm-settings-panel">
     <h3>⚡ LLM Settings <button class="llm-close-btn" id="llm-settings-close">✕</button></h3>
-    <div class="llm-field">
-      <label>Base URL</label>
-      <input id="llm-base-url" type="text" placeholder="https://api.openai.com"/>
-    </div>
-    <div class="llm-field">
-      <label>API Key</label>
-      <input id="llm-api-key" type="password" placeholder="sk-..."/>
-    </div>
-    <div id="llm-status"></div>
-    <div style="display:flex;gap:8px;">
-      <button id="llm-save-btn" style="flex:1;">Save & Connect</button>
-      <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
-    </div>
+    <details id="llm-advanced-details">
+      <summary style="cursor:pointer;color:#888;font-size:11px;margin-bottom:8px;user-select:none;">▸ Advanced (Direct LLM — for local/dev use only)</summary>
+      <div class="llm-field">
+        <label>Base URL</label>
+        <input id="llm-base-url" type="text" placeholder="https://api.openai.com"/>
+      </div>
+      <div class="llm-field">
+        <label>API Key</label>
+        <input id="llm-api-key" type="password" placeholder="sk-..."/>
+      </div>
+      <div id="llm-status"></div>
+      <div style="display:flex;gap:8px;">
+        <button id="llm-save-btn" style="flex:1;">Save & Connect</button>
+        <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
+      </div>
+    </details>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #252548;">
       <button id="llm-clear-data-btn" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#555;padding:7px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;margin-bottom:10px;">Clear Session Data</button>
       <div style="font-size:9px;color:#555;line-height:1.5;">
