@@ -141,6 +141,32 @@
   #relay-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   @keyframes relay-flash{0%,100%{opacity:1}20%,60%{opacity:0.2}40%,80%{opacity:1}}
   .relay-flashing{animation:relay-flash 0.6s ease;}
+  /* Phase 5 — Project Board */
+  #board-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:9000;display:none;flex-direction:column;align-items:center;justify-content:flex-start;padding:24px 16px;overflow-y:auto;}
+  #board-overlay.active{display:flex;}
+  #board-panel{width:100%;max-width:860px;}
+  #board-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;}
+  #board-title{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;letter-spacing:0.5px;}
+  #board-brief-text{font-size:11px;color:#666;margin-top:4px;max-width:540px;line-height:1.5;}
+  #board-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;}
+  #board-export-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:7px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
+  #board-export-btn:hover{background:#102030;border-color:#4a9eea;}
+  #board-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;}
+  .board-card{background:#0a0a1e;border:1px solid #1e1e3a;border-radius:8px;padding:12px;cursor:pointer;transition:border-color 0.15s,background 0.15s;display:flex;flex-direction:column;gap:4px;}
+  .board-card:hover{border-color:#4a9eea;background:#0d0d28;}
+  .board-card-header{display:flex;align-items:center;gap:6px;}
+  .board-card-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .board-card-name{font-family:monospace;font-size:12px;font-weight:bold;color:#ccc;flex:1;}
+  .board-card-role{font-size:10px;color:#555;font-family:monospace;}
+  .board-card-zone{font-size:9px;color:#3a3a6a;font-family:monospace;}
+  .board-card-preview{font-size:9px;color:#4a6a7a;font-family:monospace;margin-top:4px;line-height:1.4;max-height:48px;overflow:hidden;}
+  .board-status{font-size:8px;padding:2px 6px;border-radius:8px;font-family:monospace;font-weight:bold;margin-top:auto;align-self:flex-start;}
+  .board-status-idle{background:#111122;color:#333355;border:1px solid #222244;}
+  .board-status-output{background:#0a2a1a;color:#3a8a5a;border:1px solid #1a4a2a;}
+  .board-status-chatting{background:#1a1a0a;color:#8a8a3a;border:1px solid #3a3a1a;}
+  /* Board HUD button */
+  #board-hud-btn{position:fixed;bottom:10px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#8090c8;font-family:monospace;font-size:12px;padding:5px 10px;cursor:pointer;border-radius:4px;z-index:1000;backdrop-filter:blur(4px);}
+  #board-hud-btn:hover{border-color:#4a9eea;color:#4a9eea;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
@@ -1283,6 +1309,140 @@ function initRelayModal(){
   modal.addEventListener('click',e=>{if(e.target===modal)closeRelayModal();});
 }
 
+// --- Phase 5: Project Board ---
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderBoardGrid(){
+  const grid=document.getElementById('board-grid');
+  if(!grid)return;
+  grid.innerHTML='';
+  AGENTS.forEach(a=>{
+    const card=document.createElement('div');
+    card.className='board-card';
+    // Header: dot + name
+    const header=document.createElement('div');
+    header.className='board-card-header';
+    const dot=document.createElement('span');
+    dot.className='board-card-dot';
+    dot.style.background='#'+a.zc.toString(16).padStart(6,'0');
+    const nameEl=document.createElement('span');
+    nameEl.className='board-card-name';
+    nameEl.textContent=a.name;
+    header.appendChild(dot);header.appendChild(nameEl);
+    // Role + Zone
+    const roleEl=document.createElement('div');
+    roleEl.className='board-card-role';
+    roleEl.textContent=a.role;
+    const zoneEl=document.createElement('div');
+    zoneEl.className='board-card-zone';
+    zoneEl.textContent=a.zone;
+    // Artifact preview
+    const art=window._agentArtifacts&&window._agentArtifacts[a.id];
+    const preview=document.createElement('div');
+    preview.className='board-card-preview';
+    if(art)preview.textContent=art.content.slice(0,120);
+    // Status badge
+    const badge=document.createElement('span');
+    badge.className='board-status';
+    const isChatting=window._chatAgent&&window._chatAgent.id===a.id;
+    if(isChatting){badge.className+=' board-status-chatting';badge.textContent='chatting';}
+    else if(art){badge.className+=' board-status-output';badge.textContent='has output';}
+    else{badge.className+=' board-status-idle';badge.textContent='idle';}
+    card.appendChild(header);card.appendChild(roleEl);card.appendChild(zoneEl);
+    if(art)card.appendChild(preview);
+    card.appendChild(badge);
+    card.addEventListener('click',()=>{
+      closeBoard();
+      // Find agent data from scene and open chat
+      const scene=window._game&&window._game.scene.getScene('GameScene');
+      const agentData=scene&&scene.agents&&scene.agents.find(ag=>ag.id===a.id);
+      if(agentData)openChat(agentData);
+    });
+    grid.appendChild(card);
+  });
+}
+
+function exportDossier(){
+  const lines=[];
+  lines.push('# Design Swarm Dossier');
+  lines.push('');
+  lines.push('## Project Brief');
+  lines.push(window._projectBrief||'*(no brief set)*');
+  lines.push('');
+  lines.push('## Agent Artifacts');
+  lines.push('');
+  const arts=window._agentArtifacts||{};
+  let hasAny=false;
+  AGENTS.forEach(a=>{
+    const art=arts[a.id];
+    if(!art)return;
+    hasAny=true;
+    lines.push('### '+a.name+' ('+a.role+')');
+    lines.push('*Type: '+art.type+(art.lang&&art.lang!==art.type?' / '+art.lang:'')+'*');
+    lines.push('');
+    lines.push(art.content);
+    lines.push('');
+  });
+  if(!hasAny)lines.push('*(no artifacts yet)*\n');
+  lines.push('## Relay Log');
+  lines.push('');
+  const log=window._relayLog||[];
+  if(log.length){
+    log.forEach(r=>{
+      const ts=new Date(r.timestamp).toLocaleTimeString();
+      lines.push('- **'+r.fromName+' → '+r.to+'** at '+ts+': '+r.preview);
+    });
+  }else{
+    lines.push('*(no relays yet)*');
+  }
+  const md=lines.join('\n');
+  navigator.clipboard.writeText(md).then(()=>{
+    showToast('Dossier copied to clipboard');
+  }).catch(()=>{
+    const ta=document.createElement('textarea');
+    ta.value=md;ta.style.cssText='position:fixed;opacity:0;';
+    document.body.appendChild(ta);ta.select();document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Dossier copied to clipboard');
+  });
+}
+
+function openBoard(){
+  window._boardOpen=true;
+  // Update brief display
+  const briefEl=document.getElementById('board-brief-text');
+  if(briefEl)briefEl.textContent=window._projectBrief||'No brief set. Press Tab again or click the brief in the HUD to add one.';
+  renderBoardGrid();
+  document.getElementById('board-overlay').classList.add('active');
+}
+
+function closeBoard(){
+  window._boardOpen=false;
+  document.getElementById('board-overlay').classList.remove('active');
+}
+
+function initBoard(){
+  window._boardOpen=false;
+  document.getElementById('board-close-btn').addEventListener('click',closeBoard);
+  document.getElementById('board-export-btn').addEventListener('click',exportDossier);
+  document.getElementById('board-hud-btn').addEventListener('click',()=>{
+    window._boardOpen?closeBoard():openBoard();
+  });
+  document.getElementById('board-overlay').addEventListener('click',e=>{
+    if(e.target===document.getElementById('board-overlay'))closeBoard();
+  });
+  // Tab key toggle
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Tab'){
+      e.preventDefault();
+      window._boardOpen?closeBoard():openBoard();
+    }
+    if(e.key==='Escape'&&window._boardOpen)closeBoard();
+  },true);
+}
+
 // --- Phase 2: Project Brief ---
 function loadBrief(){
   try{window._projectBrief=localStorage.getItem('project_brief')||null;}
@@ -1511,6 +1671,7 @@ class GameScene extends Phaser.Scene{
     initLLMSettings();
     window._briefModalShown=false;
     initBrief();
+    initBoard();
   }
 
   // --- Popover ---
@@ -1935,6 +2096,7 @@ function saveAgent(){
   <button id="btn-zoom-reset" title="Reset zoom (R)">⊙</button>
   <button id="btn-zoom-in" title="Zoom in (+)">+</button>
 </div>
+<button id="board-hud-btn" title="Project Board (Tab)">⊞ Board</button>
 <div id="game-hint">WASD / arrows · E: chat · click agent · scroll: zoom</div>
 
 <!-- Chat Panel -->
@@ -2002,6 +2164,23 @@ function saveAgent(){
         Use config.local.js for file-based config (see README).
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Phase 5: Project Board -->
+<div id="board-overlay">
+  <div id="board-panel">
+    <div id="board-header">
+      <div>
+        <div id="board-title">Design Swarm — Project Board</div>
+        <div id="board-brief-text"></div>
+      </div>
+      <div id="board-actions">
+        <button id="board-export-btn">Export Dossier</button>
+        <button class="llm-close-btn" id="board-close-btn">✕</button>
+      </div>
+    </div>
+    <div id="board-grid"></div>
   </div>
 </div>
 
