@@ -208,8 +208,18 @@
   /* Board HUD button */
   #board-hud-btn{position:fixed;bottom:10px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#8090c8;font-family:monospace;font-size:12px;padding:5px 10px;cursor:pointer;border-radius:4px;z-index:1000;backdrop-filter:blur(4px);}
   #board-hud-btn:hover{border-color:#4a9eea;color:#4a9eea;}
+  /* Phase 10: Supabase settings section */
+  .sb-section-title{font-size:10px;letter-spacing:1.5px;color:#4acea0;text-transform:uppercase;font-family:monospace;margin:14px 0 8px;border-top:1px solid #0d1e30;padding-top:12px;}
+  #sb-url,#sb-anon-key{width:100%;background:#060c16;border:1px solid #0d1e30;color:#c0c8d8;padding:7px 10px;font-family:monospace;font-size:11px;border-radius:4px;margin-bottom:6px;box-sizing:border-box;}
+  #sb-url:focus,#sb-anon-key:focus{outline:none;border-color:#4acea0;}
+  #sb-save-btn{background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;padding:6px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
+  #sb-save-btn:hover{background:#0d2818;border-color:#4acea0;}
+  #sb-status{font-size:10px;font-family:monospace;margin-top:6px;min-height:14px;}
+  #sb-status.ok{color:#4acea0;}#sb-status.err{color:#e05050;}#sb-status.pending{color:#c09030;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
+<!-- Phase 10: Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <!-- Phase 6: Prism.js syntax highlighting -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
@@ -1084,6 +1094,13 @@ function initLLMSettings(){
     document.getElementById('llm-settings-modal').classList.remove('active');
     showToast('Session data cleared');
   });
+  // Supabase config wiring
+  document.getElementById('llm-settings-btn').addEventListener('click',()=>{
+    document.getElementById('sb-url').value=localStorage.getItem('sb_url')||'';
+    document.getElementById('sb-anon-key').value=localStorage.getItem('sb_anon_key')||'';
+    updateSbStatus();
+  },true);
+  document.getElementById('sb-save-btn').addEventListener('click',saveSupabaseConfig);
 }
 
 function loadCredentials(){
@@ -1148,6 +1165,50 @@ function updateLLMBtn(){
     btn.classList.toggle('connected',!!window._llmBaseUrl);
     btn.title=window._llmBaseUrl?'⚡ '+window._llmBaseUrl:'LLM Settings';
   }
+}
+
+// --- Phase 10: Supabase Config ---
+window._sbClient=null;
+
+function loadSupabaseConfig(){
+  try{
+    const url=localStorage.getItem('sb_url')||null;
+    const key=localStorage.getItem('sb_anon_key')||null;
+    return {url,key};
+  }catch(e){return {url:null,key:null};}
+}
+
+function saveSupabaseConfig(){
+  const url=document.getElementById('sb-url').value.trim().replace(/\/$/,'')||null;
+  const key=document.getElementById('sb-anon-key').value.trim()||null;
+  try{
+    if(url)localStorage.setItem('sb_url',url);else localStorage.removeItem('sb_url');
+    if(key)localStorage.setItem('sb_anon_key',key);else localStorage.removeItem('sb_anon_key');
+  }catch(e){}
+  initSupabase();
+  updateSbStatus(true);
+}
+
+function initSupabase(){
+  const {url,key}=loadSupabaseConfig();
+  if(!url||!key){window._sbClient=null;return;}
+  try{
+    window._sbClient=window.supabase.createClient(url,key);
+  }catch(e){window._sbClient=null;}
+}
+
+function updateSbStatus(justSaved){
+  const el=document.getElementById('sb-status');
+  if(!el)return;
+  const {url,key}=loadSupabaseConfig();
+  if(!url||!key){el.className='';el.textContent='Not configured';return;}
+  if(justSaved){el.className='pending';el.textContent='⏳ Connecting…';}
+  if(!window._sbClient){el.className='err';el.textContent='⚠ Client init failed';return;}
+  window._sbClient.from('sessions').select('count',{count:'exact',head:true})
+    .then(({error})=>{
+      if(error){el.className='err';el.textContent='⚠ '+error.message;}
+      else{el.className='ok';el.textContent='✓ Connected to Supabase';}
+    }).catch(e=>{el.className='err';el.textContent='⚠ '+e.message;});
 }
 
 // --- Phase 3: Artifact Detection & Panel ---
@@ -2010,6 +2071,7 @@ class GameScene extends Phaser.Scene{
     // Init DOM chat panel
     initChatPanel();
     initLLMSettings();
+    initSupabase();
     window._briefModalShown=false;
     initBrief();
     initBoard();
@@ -2507,6 +2569,16 @@ function saveAgent(){
         Never written to files or sent to any server except your configured API.<br>
         Use config.local.js for file-based config (see README).
       </div>
+    </div>
+    <!-- Phase 10: Supabase config -->
+    <div class="sb-section-title">☁ Supabase (Cloud Sync)</div>
+    <input id="sb-url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false">
+    <input id="sb-anon-key" placeholder="anon / public key" autocomplete="off" spellcheck="false">
+    <button id="sb-save-btn">Save &amp; Connect</button>
+    <div id="sb-status"></div>
+    <div style="font-size:9px;color:#555;line-height:1.5;margin-top:6px;">
+      Enter your Supabase project URL and anon key to enable cloud sync.<br>
+      All data is scoped to your user account via Row Level Security.
     </div>
   </div>
 </div>
