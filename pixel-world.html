@@ -53,6 +53,16 @@
   .msg-user{align-self:flex-end;background:#1a2a3a;color:#adf;padding:6px 10px;border-radius:8px 8px 0 8px;max-width:85%;font-size:12px;}
   .msg-agent{align-self:flex-start;background:#1a1a2e;padding:6px 10px;border-radius:8px 8px 8px 0;max-width:85%;font-size:12px;border-left:2px solid var(--agent-color,#888);color:#ddd;}
   .msg-agent .msg-sender{font-size:10px;margin-bottom:3px;opacity:0.7;color:var(--agent-color,#888);}
+  .msg-body{line-height:1.6;white-space:pre-wrap;word-break:break-word;}
+  .msg-body strong{color:#e8edf5;font-weight:700;}
+  .msg-body em{color:#b0c0e0;font-style:italic;}
+  .msg-body code{background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:0.88em;color:#4acea0;}
+  .msg-body .md-h2{font-weight:700;color:#e8edf5;font-size:1.05em;margin:8px 0 3px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:3px;}
+  .msg-body .md-h3{font-weight:600;color:#c0c8d8;margin:6px 0 2px;}
+  .msg-body .md-li{padding-left:12px;margin:2px 0;}
+  .msg-body .md-li::before{content:'▸ ';color:#4a9eea;}
+  .msg-body .md-ol{padding-left:4px;margin:2px 0;}
+  .msg-body .md-ol .md-num{color:#4a9eea;font-weight:600;margin-right:4px;}
   #chat-controls{display:flex;gap:4px;padding:6px 12px;border-top:1px solid #1a1a2e;}
   #chat-controls button{background:#1a1a2e;border:1px solid #333;color:#888;padding:4px 8px;cursor:pointer;border-radius:4px;font-size:14px;}
   #chat-controls button:hover{border-color:#4a9eea;color:#aaa;}
@@ -927,6 +937,27 @@ function stopMic(){
 }
 
 // --- Chat Panel ---
+function renderMarkdown(text){
+  // 1. Escape HTML to prevent XSS
+  let s=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // 2. Headings
+  s=s.replace(/^### (.+)$/gm,'<div class="md-h3">$1</div>');
+  s=s.replace(/^## (.+)$/gm,'<div class="md-h2">$1</div>');
+  // 3. Bold / italic
+  s=s.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+  s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,'<em>$1</em>');
+  // 4. Inline code
+  s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  // 5. Numbered list  1. item
+  s=s.replace(/^(\d+)\. (.+)$/gm,'<div class="md-ol"><span class="md-num">$1.</span>$2</div>');
+  // 6. Bullet list  - item or * item
+  s=s.replace(/^[-*•] (.+)$/gm,'<div class="md-li">$1</div>');
+  // 7. Line breaks
+  s=s.replace(/\n/g,'<br>');
+  return s;
+}
+
 function appendMessage(type,text,agent){
   const msgs=document.getElementById('chat-messages');
   if(!msgs)return;
@@ -937,7 +968,10 @@ function appendMessage(type,text,agent){
     sender.className='msg-sender';
     sender.textContent=agent.name+' · '+agent.role;
     div.appendChild(sender);
-    div.appendChild(document.createTextNode(text));
+    const body=document.createElement('div');
+    body.className='msg-body';
+    body.innerHTML=renderMarkdown(text);
+    div.appendChild(body);
   }else{
     div.textContent=text;
   }
@@ -2158,7 +2192,10 @@ function rebuildAgentMessages(){
         sender.className='msg-sender';
         sender.textContent=agentData.name+' · '+agentData.role;
         div.appendChild(sender);
-        div.appendChild(document.createTextNode(msg.content));
+        const body=document.createElement('div');
+        body.className='msg-body';
+        body.innerHTML=renderMarkdown(msg.content);
+        div.appendChild(body);
       }else{
         div.textContent=msg.content;
       }
