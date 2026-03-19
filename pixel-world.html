@@ -1167,8 +1167,10 @@ function updateLLMBtn(){
   }
 }
 
-// --- Phase 10: Supabase Config ---
+// --- Phase 10: Supabase Config + Anonymous Auth ---
 window._sbClient=null;
+window._sbUser=null;
+window._sbReady=Promise.resolve(null); // resolves to user or null
 
 function loadSupabaseConfig(){
   try{
@@ -1191,10 +1193,28 @@ function saveSupabaseConfig(){
 
 function initSupabase(){
   const {url,key}=loadSupabaseConfig();
-  if(!url||!key){window._sbClient=null;return;}
+  if(!url||!key){window._sbClient=null;window._sbReady=Promise.resolve(null);return;}
   try{
     window._sbClient=window.supabase.createClient(url,key);
-  }catch(e){window._sbClient=null;}
+    window._sbReady=initAnonAuth();
+  }catch(e){window._sbClient=null;window._sbReady=Promise.resolve(null);}
+}
+
+// Phase 10b: Silent anonymous auth — no UI, no blocking
+function initAnonAuth(){
+  if(!window._sbClient)return Promise.resolve(null);
+  return window._sbClient.auth.getSession().then(({data:{session}})=>{
+    if(session&&session.user){
+      window._sbUser=session.user;
+      return session.user;
+    }
+    // No existing session — sign in anonymously (silently)
+    return window._sbClient.auth.signInAnonymously().then(({data,error})=>{
+      if(error){console.warn('[Supabase] anon auth failed:',error.message);return null;}
+      window._sbUser=data.user;
+      return data.user;
+    });
+  }).catch(e=>{console.warn('[Supabase] auth error:',e.message);return null;});
 }
 
 function updateSbStatus(justSaved){
@@ -1204,11 +1224,11 @@ function updateSbStatus(justSaved){
   if(!url||!key){el.className='';el.textContent='Not configured';return;}
   if(justSaved){el.className='pending';el.textContent='⏳ Connecting…';}
   if(!window._sbClient){el.className='err';el.textContent='⚠ Client init failed';return;}
-  window._sbClient.from('sessions').select('count',{count:'exact',head:true})
-    .then(({error})=>{
-      if(error){el.className='err';el.textContent='⚠ '+error.message;}
-      else{el.className='ok';el.textContent='✓ Connected to Supabase';}
-    }).catch(e=>{el.className='err';el.textContent='⚠ '+e.message;});
+  window._sbReady.then(user=>{
+    if(!user){el.className='err';el.textContent='⚠ Auth failed — check anon sign-ins are enabled';return;}
+    el.className='ok';
+    el.textContent='✓ Connected · anon user '+user.id.slice(0,8)+'…';
+  }).catch(()=>{el.className='err';el.textContent='⚠ Connection error';});
 }
 
 // --- Phase 3: Artifact Detection & Panel ---
