@@ -188,8 +188,10 @@
   #board-title{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;letter-spacing:0.5px;}
   #board-brief-text{font-size:11px;color:#666;margin-top:4px;max-width:540px;line-height:1.5;}
   #board-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;}
-  #board-export-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:7px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
-  #board-export-btn:hover{background:#102030;border-color:#4a9eea;}
+  .board-action-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:7px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
+  .board-action-btn:hover{background:#102030;border-color:#4a9eea;}
+  #board-download-btn{background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;}
+  #board-download-btn:hover{background:#0d2818;border-color:#4acea0;}
   #board-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;}
   .board-card{background:#0a0a1e;border:1px solid #1e1e3a;border-radius:8px;padding:12px;cursor:pointer;transition:border-color 0.15s,background 0.15s;display:flex;flex-direction:column;gap:4px;}
   .board-card:hover{border-color:#4a9eea;background:#0d0d28;}
@@ -1562,6 +1564,62 @@ function exportDossier(){
   });
 }
 
+function generateDossierHTML(){
+  const now=new Date();
+  const dateStr=now.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  const fileDateStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  const brief=window._projectBrief||'';
+  const arts=window._agentArtifacts||{};
+  const log=window._relayLog||[];
+  let agentSections='';let hasAny=false;
+  AGENTS.forEach(a=>{
+    const art=arts[a.id];if(!art)return;hasAny=true;
+    const typeLabel=escHtml(art.type+(art.lang&&art.lang!==art.type?' / '+art.lang:''));
+    let contentHtml='';
+    if(art.type==='code'){
+      const lang=escHtml(art.lang||'text');
+      contentHtml='<pre><code class="lang-'+lang+'">'+escHtml(art.content)+'</code></pre>';
+    }else if(art.type==='yaml'){
+      const rows=art.content.split('\n').filter(l=>l.trim()).map(l=>{
+        const ci=l.indexOf(':');
+        if(ci>0){const k=escHtml(l.slice(0,ci).trim());const v=escHtml(l.slice(ci+1).trim());return'<tr><td class="yk">'+k+'</td><td class="yv">'+v+'</td></tr>';}
+        return'<tr><td colspan="2">'+escHtml(l)+'</td></tr>';
+      }).join('');
+      contentHtml='<table class="ytbl">'+rows+'</table>';
+    }else if(art.type==='list'){
+      const items=art.content.split('\n').filter(l=>l.trim()).map(l=>'<li>'+escHtml(l.replace(/^[\d+.\-*\s]+/,'').trim())+'</li>').join('');
+      contentHtml='<ul>'+items+'</ul>';
+    }else{
+      contentHtml='<div class="mc">'+escHtml(art.content).replace(/\n/g,'<br>')+'</div>';
+    }
+    agentSections+='<div class="as"><div class="ah"><span class="ad" style="background:'+escHtml(a.color)+'"></span><span class="an">'+escHtml(a.name)+'</span><span class="ar">'+escHtml(a.role)+'</span><span class="at">'+typeLabel+'</span></div><div class="ac">'+contentHtml+'</div></div>';
+  });
+  if(!hasAny)agentSections='<p class="empty">No artifacts generated yet.</p>';
+  let relayHtml='';
+  if(log.length){
+    relayHtml=log.map(r=>{
+      const ts=new Date(r.timestamp).toLocaleTimeString();
+      const toName=AGENTS.find(a=>a.id===r.to)?.name||r.to;
+      return'<div class="re"><span class="rf">'+escHtml(r.fromName)+'</span><span class="ra">→</span><span class="rt">'+escHtml(toName)+'</span><span class="rtm">'+escHtml(ts)+'</span><span class="rp">'+escHtml(r.preview||'')+'</span></div>';
+    }).join('');
+  }else{relayHtml='<p class="empty">No relays recorded.</p>';}
+  const prismCss='code{color:#ccc;font-family:Consolas,Monaco,monospace;}pre{background:#060c16;border:1px solid #0d1e30;border-radius:6px;padding:14px;overflow-x:auto;}.lang-tsx .kw,.lang-ts .kw,.lang-js .kw{color:#cc99cd;}.lang-tsx .str,.lang-ts .str,.lang-js .str{color:#7ec699;}';
+  return'<!DOCTYPE html>\n<html lang="en">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Design Swarm Dossier \u2014 '+escHtml(dateStr)+'</title>\n<style>\n*{box-sizing:border-box;margin:0;padding:0;}body{background:#0a0a14;color:#c0c8d8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.6;padding:40px 24px;}.wrap{max-width:900px;margin:0 auto;}header{border-bottom:2px solid #1a2a4a;padding-bottom:24px;margin-bottom:32px;}.logo{font-size:10px;letter-spacing:2px;color:#4a9eea;font-family:monospace;text-transform:uppercase;margin-bottom:8px;}h1{font-size:26px;font-weight:700;color:#e8edf5;}.dt{font-size:12px;color:#506080;margin-top:6px;}.brief-box{background:#0d1220;border:1px solid #1a2a4a;border-radius:8px;padding:20px 24px;margin-bottom:32px;}.bl{font-size:10px;letter-spacing:1.5px;color:#4a9eea;text-transform:uppercase;margin-bottom:8px;font-family:monospace;}.bt{font-size:15px;color:#c0c8d8;white-space:pre-wrap;line-height:1.7;}.st{font-size:11px;letter-spacing:1.5px;color:#506080;text-transform:uppercase;font-family:monospace;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #1a2030;}.as{background:#0d1220;border:1px solid #1a2a4a;border-radius:8px;padding:18px 20px;margin-bottom:14px;}.ah{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;}.ad{width:8px;height:8px;border-radius:50%;flex-shrink:0;}.an{font-weight:700;color:#e8edf5;font-size:14px;}.ar{color:#4a9eea;font-size:11px;font-family:monospace;}.at{margin-left:auto;background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:2px 8px;border-radius:3px;font-size:10px;font-family:monospace;letter-spacing:.5px;}.ac pre code{font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.6;}.ytbl{width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;}.yk{color:#4a9eea;padding:3px 12px 3px 0;width:40%;vertical-align:top;}.yv{color:#c0c8d8;padding:3px 0;vertical-align:top;}.ytbl tr:not(:last-child) td{border-bottom:1px solid #0d1e30;}ul{padding-left:20px;}ul li{color:#c0c8d8;padding:2px 0;font-size:13px;}.mc{font-size:13px;line-height:1.7;white-space:pre-wrap;}.relay-box{background:#0d1220;border:1px solid #1a2a4a;border-radius:8px;padding:18px 20px;margin-bottom:32px;}.re{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #0d1e30;font-size:12px;flex-wrap:wrap;}.re:last-child{border-bottom:none;}.rf{color:#e8edf5;font-weight:600;}.ra{color:#4a9eea;font-size:14px;}.rt{color:#e8edf5;font-weight:600;}.rtm{color:#506080;font-family:monospace;font-size:11px;margin-left:auto;}.rp{color:#708090;font-size:11px;width:100%;padding-left:24px;font-style:italic;}.empty{color:#506080;font-style:italic;font-size:13px;}footer{text-align:center;padding:32px 0 16px;color:#303848;font-size:11px;font-family:monospace;letter-spacing:1px;border-top:1px solid #0d1020;margin-top:40px;}\n'+prismCss+'\n</style>\n</head>\n<body>\n<div class="wrap">\n<header>\n<div class="logo">Design Swarm Studio</div>\n<h1>Project Dossier</h1>\n<div class="dt">Generated '+escHtml(dateStr)+'</div>\n</header>\n<div class="brief-box"><div class="bl">Project Brief</div><div class="bt">'+(brief?escHtml(brief):'<span style="color:#506080;font-style:italic">No brief set</span>')+'</div></div>\n<div class="st">Agent Artifacts</div>\n'+agentSections+'\n<div class="st" style="margin-top:32px;">Relay Timeline</div>\n<div class="relay-box">'+relayHtml+'</div>\n<footer>GENERATED BY DESIGN SWARM STUDIO &middot; '+escHtml(dateStr)+'</footer>\n</div>\n</body>\n</html>';
+}
+
+function downloadDossier(){
+  const html=generateDossierHTML();
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const d=new Date();
+  a.download='dossier-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'.html';
+  a.href=url;a.style.display='none';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  showToast('Dossier downloaded');
+}
+
 function openBoard(){
   window._boardOpen=true;
   // Update brief display
@@ -1579,7 +1637,8 @@ function closeBoard(){
 function initBoard(){
   window._boardOpen=false;
   document.getElementById('board-close-btn').addEventListener('click',closeBoard);
-  document.getElementById('board-export-btn').addEventListener('click',exportDossier);
+  document.getElementById('board-copy-btn').addEventListener('click',exportDossier);
+  document.getElementById('board-download-btn').addEventListener('click',downloadDossier);
   document.getElementById('board-hud-btn').addEventListener('click',()=>{
     window._boardOpen?closeBoard():openBoard();
   });
@@ -2461,7 +2520,8 @@ function saveAgent(){
         <div id="board-brief-text"></div>
       </div>
       <div id="board-actions">
-        <button id="board-export-btn">Export Dossier</button>
+        <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
+        <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
       </div>
     </div>
