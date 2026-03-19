@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Floor — AI Design Studio</title>
+<meta name="description" content="14 specialized AI design agents in one pixel-art studio. Research, design, critique, and ship — together.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#0a0a14;--bg2:#0d0d1e;--bg3:#10102a;--border:#1a2a4a;--blue:#4a9eea;--green:#4acea0;--text:#c0c8d8;--dim:#506080;--white:#e8edf5;}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;}
+
+/* Scanlines */
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px);pointer-events:none;z-index:9998;}
+
+/* NAV */
+nav{display:flex;align-items:center;justify-content:space-between;padding:20px 48px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(10,10,20,0.92);backdrop-filter:blur(14px);z-index:100;}
+.nav-logo{font-family:'Press Start 2P',monospace;font-size:11px;color:var(--white);letter-spacing:1px;text-shadow:0 0 20px rgba(74,158,234,0.3);}
+.nav-logo em{color:var(--blue);font-style:normal;}
+.nav-right{display:flex;align-items:center;gap:12px;}
+.nav-badge{font-size:10px;font-family:monospace;color:var(--dim);border:1px solid var(--border);padding:4px 10px;border-radius:2px;}
+.nav-cta{background:var(--blue);border:none;color:#fff;padding:9px 20px;font-size:11px;font-weight:600;cursor:pointer;border-radius:3px;font-family:'Inter',sans-serif;transition:all 0.2s;}
+.nav-cta:hover{background:#5aaef8;box-shadow:0 0 16px rgba(74,158,234,0.4);}
+
+/* HERO */
+.hero{min-height:calc(100vh - 65px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 24px 60px;position:relative;overflow:hidden;}
+.hero-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(74,158,234,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(74,158,234,0.05) 1px,transparent 1px);background-size:32px 32px;}
+.hero-glow{position:absolute;width:700px;height:700px;background:radial-gradient(circle,rgba(74,158,234,0.07) 0%,transparent 65%);border-radius:50%;pointer-events:none;}
+.hero-badge{position:relative;z-index:1;display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(74,158,234,0.35);background:rgba(74,158,234,0.07);color:var(--blue);font-size:9px;font-family:'Press Start 2P',monospace;padding:7px 14px;border-radius:2px;margin-bottom:36px;letter-spacing:1px;}
+.badge-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 8px var(--green);}50%{opacity:0.6;box-shadow:0 0 3px var(--green);}}
+
+.hero-title{position:relative;z-index:1;font-family:'Press Start 2P',monospace;font-size:clamp(22px,4.5vw,52px);color:var(--white);line-height:1.45;margin-bottom:14px;text-shadow:0 0 60px rgba(74,158,234,0.25);}
+.hero-title .accent{color:var(--blue);}
+.cursor-blink{display:inline-block;width:clamp(10px,2vw,20px);height:clamp(22px,4vw,50px);background:var(--blue);vertical-align:bottom;margin-left:6px;animation:blink 1s step-end infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+
+.hero-sub{position:relative;z-index:1;font-size:clamp(14px,1.8vw,17px);color:var(--dim);max-width:520px;line-height:1.8;margin-bottom:48px;}
+
+.cta-group{position:relative;z-index:1;display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center;}
+.btn-google{display:flex;align-items:center;gap:10px;background:#fff;border:none;color:#1a1a2e;padding:14px 28px;font-size:13px;font-weight:700;cursor:pointer;border-radius:4px;font-family:'Inter',sans-serif;transition:all 0.2s;box-shadow:0 2px 12px rgba(0,0,0,0.3);}
+.btn-google:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(0,0,0,0.4),0 0 0 2px rgba(74,158,234,0.3);}
+.btn-ghost{color:var(--dim);font-size:13px;font-family:'Inter',sans-serif;background:none;border:none;cursor:pointer;padding:14px;transition:color 0.2s;text-decoration:none;}
+.btn-ghost:hover{color:var(--text);}
+
+/* PREVIEW FRAME */
+.preview-wrap{position:relative;z-index:1;margin-top:64px;width:100%;max-width:960px;}
+.preview-hint{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--dim);letter-spacing:2px;margin-bottom:14px;text-align:center;}
+.preview-frame{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg2);box-shadow:0 32px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(74,158,234,0.08),inset 0 1px 0 rgba(255,255,255,0.03);}
+.preview-bar{background:#090914;border-bottom:1px solid var(--border);padding:11px 16px;display:flex;align-items:center;gap:6px;}
+.dot{width:9px;height:9px;border-radius:50%;}
+.dot-r{background:#e05050;} .dot-y{background:#e0c030;} .dot-g{background:#4acea0;}
+.preview-url{margin-left:10px;font-size:10px;color:var(--dim);font-family:monospace;}
+.preview-body{padding:20px;display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
+
+/* Agent mini cards in preview */
+.ag{background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:10px 6px;display:flex;flex-direction:column;align-items:center;gap:5px;transition:all 0.2s;cursor:default;}
+.ag:hover{border-color:var(--c,var(--blue));box-shadow:0 0 12px rgba(0,0,0,0.4);}
+.ag-dot{width:8px;height:8px;border-radius:50%;background:var(--c,var(--blue));box-shadow:0 0 6px var(--c,var(--blue));}
+.ag-name{font-family:'Press Start 2P',monospace;font-size:5.5px;color:var(--white);text-align:center;line-height:1.5;}
+.ag-role{font-size:8px;color:var(--dim);text-align:center;line-height:1.3;}
+
+/* DIVIDER */
+.divider{border:none;border-top:1px solid var(--border);margin:0;}
+
+/* SECTIONS */
+.section{padding:88px 48px;max-width:1100px;margin:0 auto;}
+.label{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--blue);letter-spacing:3px;margin-bottom:14px;}
+.section-title{font-family:'Press Start 2P',monospace;font-size:clamp(14px,2vw,22px);color:var(--white);line-height:1.65;margin-bottom:16px;}
+.section-body{font-size:15px;color:var(--dim);line-height:1.85;max-width:580px;}
+
+/* STEPS */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:40px;margin-top:52px;}
+.step-num{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--blue);opacity:0.4;margin-bottom:12px;}
+.step-title{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--white);line-height:1.7;margin-bottom:10px;}
+.step-body{font-size:13px;color:var(--dim);line-height:1.8;}
+.step-line{width:2px;height:0;background:var(--blue);margin-bottom:12px;animation:grow 0.6s ease forwards;}
+@keyframes grow{to{height:24px;}}
+
+/* ZONES */
+.zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:52px;}
+.zone{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:22px 18px;position:relative;overflow:hidden;transition:transform 0.2s,border-color 0.2s;}
+.zone:hover{transform:translateY(-3px);border-color:rgba(74,158,234,0.35);}
+.zone::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--zc,var(--blue));}
+.zone-icon{font-size:20px;margin-bottom:12px;}
+.zone-name{font-family:'Press Start 2P',monospace;font-size:7px;color:var(--white);letter-spacing:0.5px;margin-bottom:8px;line-height:1.6;}
+.zone-desc{font-size:11.5px;color:var(--dim);line-height:1.7;margin-bottom:14px;}
+.zone-tags{display:flex;flex-wrap:wrap;gap:5px;}
+.tag{font-size:10px;font-family:monospace;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);color:var(--dim);padding:3px 8px;border-radius:2px;}
+
+/* BIG CTA */
+.cta-section{text-align:center;padding:100px 24px;position:relative;overflow:hidden;}
+.cta-section::before{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:600px;height:300px;background:radial-gradient(ellipse,rgba(74,158,234,0.06) 0%,transparent 65%);}
+.cta-title{font-family:'Press Start 2P',monospace;font-size:clamp(16px,3vw,30px);color:var(--white);line-height:1.6;margin-bottom:14px;position:relative;z-index:1;}
+.cta-sub{font-size:15px;color:var(--dim);margin-bottom:44px;position:relative;z-index:1;}
+.btn-cta-big{display:inline-flex;align-items:center;gap:12px;background:#fff;border:none;color:#1a1a2e;padding:18px 40px;font-size:14px;font-weight:700;cursor:pointer;border-radius:4px;font-family:'Inter',sans-serif;transition:all 0.2s;box-shadow:0 4px 20px rgba(0,0,0,0.4);position:relative;z-index:1;}
+.btn-cta-big:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 0 2px rgba(74,158,234,0.4);}
+
+/* PIXEL DECO */
+.pixel-deco{position:absolute;image-rendering:pixelated;opacity:0.15;pointer-events:none;}
+
+/* FOOTER */
+footer{border-top:1px solid var(--border);padding:24px 48px;display:flex;align-items:center;justify-content:space-between;}
+.footer-logo{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--dim);}
+.footer-copy{font-size:11px;color:var(--dim);}
+
+/* LOADING OVERLAY */
+#loading-overlay{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:9500;gap:20px;}
+.px-spinner{display:grid;grid-template-columns:repeat(3,10px);gap:3px;}
+.px-spinner div{width:10px;height:10px;background:var(--blue);border-radius:1px;animation:ppulse 1.2s ease-in-out infinite;}
+.px-spinner div:nth-child(1){animation-delay:0s;} .px-spinner div:nth-child(2){animation-delay:.1s;} .px-spinner div:nth-child(3){animation-delay:.2s;}
+.px-spinner div:nth-child(4){animation-delay:.1s;} .px-spinner div:nth-child(5){animation-delay:.2s;} .px-spinner div:nth-child(6){animation-delay:.3s;}
+.px-spinner div:nth-child(7){animation-delay:.2s;} .px-spinner div:nth-child(8){animation-delay:.3s;} .px-spinner div:nth-child(9){animation-delay:.4s;}
+@keyframes ppulse{0%,100%{opacity:0.15;transform:scale(0.8);}50%{opacity:1;transform:scale(1);}}
+.loading-text{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--dim);letter-spacing:3px;}
+
+@media(max-width:700px){
+  nav{padding:16px 20px;}
+  .section{padding:60px 20px;}
+  .preview-body{grid-template-columns:repeat(4,1fr);}
+  footer{flex-direction:column;gap:10px;text-align:center;}
+}
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="px-spinner">
+    <div></div><div></div><div></div>
+    <div></div><div></div><div></div>
+    <div></div><div></div><div></div>
+  </div>
+  <div class="loading-text">ENTERING STUDIO…</div>
+</div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">DESIGN<em>FLOOR</em></div>
+  <div class="nav-right">
+    <span class="nav-badge">14 AI AGENTS</span>
+    <button class="nav-cta" id="nav-cta">Sign In with Google</button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-glow"></div>
+
+  <div class="hero-badge"><span class="badge-dot"></span>AI DESIGN STUDIO · EARLY ACCESS</div>
+
+  <h1 class="hero-title">
+    YOUR DESIGN<br>TEAM IS<br><span class="accent">ALREADY HERE</span><span class="cursor-blink"></span>
+  </h1>
+  <p class="hero-sub">
+    14 specialized AI agents live in one pixel-art studio. Walk up, chat, and ship — research, design, critique, and synthesize together.
+  </p>
+  <div class="cta-group">
+    <button class="btn-google" id="hero-cta">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Get Started Free
+    </button>
+    <a href="#how-it-works" class="btn-ghost">See how it works ↓</a>
+  </div>
+
+  <!-- Studio preview -->
+  <div class="preview-wrap">
+    <div class="preview-hint">▸ LIVE PREVIEW · DESIGN FLOOR STUDIO</div>
+    <div class="preview-frame">
+      <div class="preview-bar">
+        <div class="dot dot-r"></div>
+        <div class="dot dot-y"></div>
+        <div class="dot dot-g"></div>
+        <span class="preview-url">designfloor.sangeethkumar.com/pixel-world.html</span>
+      </div>
+      <div class="preview-body" id="agent-grid"></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how-it-works">
+  <div class="label">▸ WORKFLOW</div>
+  <h2 class="section-title">FROM BRIEF TO<br>SHIPPED DESIGN</h2>
+  <p class="section-body">Walk through a pixel-art studio and chat with 14 AI specialists. Each plays a distinct role in your design process.</p>
+  <div class="steps">
+    <div>
+      <div class="step-num">01</div>
+      <div class="step-title">SET YOUR<br>PROJECT BRIEF</div>
+      <div class="step-body">Drop a brief at the start. Every agent reads it and tailors output to your specific problem.</div>
+    </div>
+    <div>
+      <div class="step-num">02</div>
+      <div class="step-title">WALK UP<br>& CHAT</div>
+      <div class="step-body">Move your pixel character around. Walk near an agent to chat. Research, generate, critique — in any order.</div>
+    </div>
+    <div>
+      <div class="step-num">03</div>
+      <div class="step-title">RELAY<br>ARTIFACTS</div>
+      <div class="step-body">Pass outputs between agents. Scout's research feeds Palette. Forge builds what Blueprint specced.</div>
+    </div>
+    <div>
+      <div class="step-num">04</div>
+      <div class="step-title">EXPORT THE<br>DOSSIER</div>
+      <div class="step-body">Hit Tab for the project board. Export brief, artifacts, and relay chain as a polished HTML file.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- ZONES -->
+<section class="section">
+  <div class="label">▸ THE STUDIO</div>
+  <h2 class="section-title">FIVE ZONES.<br>14 SPECIALISTS.</h2>
+  <p class="section-body">Each zone is built for a distinct phase of the design process.</p>
+  <div class="zones">
+    <div class="zone" style="--zc:#4acea0">
+      <div class="zone-icon">📚</div>
+      <div class="zone-name">RESEARCH<br>LIBRARY</div>
+      <div class="zone-desc">Dig up competitor patterns, best practices, and real-world precedents before you design a single pixel.</div>
+      <div class="zone-tags"><span class="tag">Scout</span><span class="tag">Scholar</span></div>
+    </div>
+    <div class="zone" style="--zc:#4a9eea">
+      <div class="zone-icon">🎨</div>
+      <div class="zone-name">DESIGN<br>STUDIO</div>
+      <div class="zone-desc">Generate UI variations, map UX flows, produce Figma specs, and get production-ready code.</div>
+      <div class="zone-tags"><span class="tag">Palette</span><span class="tag">Flow</span><span class="tag">Blueprint</span><span class="tag">Forge</span></div>
+    </div>
+    <div class="zone" style="--zc:#c070e0">
+      <div class="zone-icon">🔍</div>
+      <div class="zone-name">CRITIQUE<br>ROOM</div>
+      <div class="zone-desc">Put designs through rigorous UX critique, aesthetic review, and persona simulation.</div>
+      <div class="zone-tags"><span class="tag">Lens</span><span class="tag">Eye</span><span class="tag">Mirror</span></div>
+    </div>
+    <div class="zone" style="--zc:#e0c030">
+      <div class="zone-icon">⚡</div>
+      <div class="zone-name">SYNTHESIS<br>HUB</div>
+      <div class="zone-desc">Pull everything together — review panels, synthesizers, quality gates, and final checklists.</div>
+      <div class="zone-tags"><span class="tag">Council</span><span class="tag">Weaver</span><span class="tag">Gate</span><span class="tag">Check</span></div>
+    </div>
+    <div class="zone" style="--zc:#f0a030">
+      <div class="zone-icon">🎯</div>
+      <div class="zone-name">CORRIDOR</div>
+      <div class="zone-desc">The Director roams the studio. Ask for direction, prioritization, or high-level strategy at any time.</div>
+      <div class="zone-tags"><span class="tag">Director</span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- BIG CTA -->
+<section class="cta-section">
+  <div class="label" style="text-align:center">▸ READY TO DESIGN?</div>
+  <h2 class="cta-title">ENTER THE<br>DESIGN FLOOR</h2>
+  <p class="cta-sub">Sign in with Google and walk into your studio. Free to use.</p>
+  <button class="btn-cta-big" id="cta-bottom">
+    <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    Enter with Google
+  </button>
+</section>
+
+<footer>
+  <div class="footer-logo">DESIGN FLOOR</div>
+  <div class="footer-copy">Built for designers who think in systems.</div>
+</footer>
+
+<script>
+const SUPABASE_URL='https://ofidqxlnqvjpflicopcz.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9maWRxeGxucXZqcGZsaWNvcGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MjI5OTgsImV4cCI6MjA4OTQ5ODk5OH0.fAKq1PFe9AZUjFm9kxqz_t3YNLnvxqSNk4EbiMMPjxE';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+// Already signed in? Go straight to studio
+(async()=>{
+  const{data:{session}}=await sb.auth.getSession();
+  if(session?.user) window.location.replace('/pixel-world.html');
+})();
+
+// Agent preview data
+const AGENTS=[
+  {name:'Scout',role:'Research',c:'#4acea0'},{name:'Scholar',role:'Best Practices',c:'#c8a84b'},
+  {name:'Palette',role:'UI Variations',c:'#e0507f'},{name:'Flow',role:'UX Flows',c:'#4a9eea'},
+  {name:'Blueprint',role:'Figma Specs',c:'#8060e8'},{name:'Forge',role:'Code Gen',c:'#e06030'},
+  {name:'Lens',role:'UX Critique',c:'#30c870'},{name:'Eye',role:'Aesthetics',c:'#e0c030'},
+  {name:'Mirror',role:'Persona',c:'#c070e0'},{name:'Council',role:'Review',c:'#4080d0'},
+  {name:'Weaver',role:'Synthesizer',c:'#50d0c0'},{name:'Gate',role:'Quality',c:'#e05050'},
+  {name:'Check',role:'Checklist',c:'#60c060'},{name:'Director',role:'Team Lead',c:'#f0a030'},
+];
+const grid=document.getElementById('agent-grid');
+AGENTS.forEach(a=>{
+  const d=document.createElement('div');
+  d.className='ag';
+  d.style.setProperty('--c',a.c);
+  d.innerHTML=`<div class="ag-dot" style="background:${a.c};box-shadow:0 0 7px ${a.c}40"></div><div class="ag-name">${a.name.toUpperCase()}</div><div class="ag-role">${a.role}</div>`;
+  grid.appendChild(d);
+});
+
+// Google sign-in
+async function signIn(){
+  document.getElementById('loading-overlay').style.display='flex';
+  const{error}=await sb.auth.signInWithOAuth({
+    provider:'google',
+    options:{redirectTo:window.location.origin+'/pixel-world.html'}
+  });
+  if(error){
+    document.getElementById('loading-overlay').style.display='none';
+    alert('Sign-in failed: '+error.message);
+  }
+}
+document.getElementById('hero-cta').addEventListener('click',signIn);
+document.getElementById('cta-bottom').addEventListener('click',signIn);
+document.getElementById('nav-cta').addEventListener('click',signIn);
+</script>
+</body>
+</html>

@@ -1305,13 +1305,14 @@ function initAnonAuth(){
       window._sbUser=session.user;
       return session.user;
     }
-    // No existing session — sign in anonymously (silently)
-    return window._sbClient.auth.signInAnonymously().then(({data,error})=>{
-      if(error){console.warn('[Supabase] anon auth failed:',error.message);return null;}
-      window._sbUser=data.user;
-      return data.user;
-    });
-  }).catch(e=>{console.warn('[Supabase] auth error:',e.message);return null;});
+    // No session — not signed in via Google. Redirect to landing page.
+    window.location.replace('/');
+    return new Promise(()=>{}); // never resolves — page is navigating away
+  }).catch(e=>{
+    console.warn('[Supabase] auth error:',e.message);
+    window.location.replace('/');
+    return new Promise(()=>{});
+  });
 }
 
 function updateSbStatus(justSaved){
