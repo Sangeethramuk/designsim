@@ -106,6 +106,23 @@
   #brief-save-btn:hover{background:#1a4a2a;}
   #brief-skip-btn{background:#1a1a2e;border:1px solid #333;color:#666;padding:9px 12px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
   #brief-skip-btn:hover{color:#aaa;border-color:#555;}
+  /* Phase 3 — Artifact Panel */
+  #chat-artifact-area{border-top:1px solid #111;background:#050510;flex-shrink:0;}
+  #chat-artifact-header{display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;user-select:none;}
+  #chat-artifact-header:hover{background:#0a0a18;}
+  #chat-artifact-label{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.8px;flex:1;}
+  #chat-artifact-type-badge{font-size:9px;padding:1px 6px;border-radius:8px;background:#1a1a2e;color:#4a9eea;border:1px solid #252548;}
+  #chat-artifact-toggle{background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0;line-height:1;}
+  #chat-artifact-body{padding:0 10px 8px;}
+  #chat-artifact-content{background:#030308;border:1px solid #151528;border-radius:4px;padding:8px;font-size:10px;font-family:monospace;color:#8ab8d0;overflow-x:auto;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;margin-bottom:6px;display:block;}
+  #chat-artifact-actions{display:flex;gap:6px;}
+  #chat-artifact-copy,#chat-artifact-relay{font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer;font-family:monospace;border:1px solid;}
+  #chat-artifact-copy{background:#1a1a2e;border-color:#333;color:#888;}
+  #chat-artifact-copy:hover{color:#ccc;border-color:#555;}
+  #chat-artifact-relay{background:#0a1a2a;border-color:#1a3a5a;color:#4a9eea;}
+  #chat-artifact-relay:hover{background:#102030;border-color:#4a9eea;}
+  @keyframes blink-cursor{0%,100%{opacity:1}50%{opacity:0}}
+  .artifact-streaming::after{content:'▋';animation:blink-cursor 0.6s infinite;color:#4a9eea;font-size:10px;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
@@ -856,6 +873,11 @@ async function sendChatMessage(){
   if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
   window._agentSessions[window._chatAgent.id]=window._chatHistory;
   appendMessage('agent',response,window._chatAgent);
+  if(storeArtifact(window._chatAgent,response)){
+    const art=window._agentArtifacts[window._chatAgent.id];
+    document.getElementById('chat-artifact-type-badge').textContent=art.lang||art.type;
+    streamArtifactContent(art.content);
+  }
   if(window._voiceEnabled)speakText(response,window._chatAgent);
   if(btn)btn.disabled=false;
 }
@@ -880,11 +902,14 @@ function openChat(agent){
     msgs.scrollTop=msgs.scrollHeight;
   }
   panel.classList.add('open');
+  renderArtifactPanel();
 }
 
 function closeChat(){
   const panel=document.getElementById('chat-panel');
   if(panel)panel.classList.remove('open');
+  const artArea=document.getElementById('chat-artifact-area');
+  if(artArea)artArea.style.display='none';
   window._chatAgent=null;
   if(window.speechSynthesis)window.speechSynthesis.cancel();
 }
@@ -918,6 +943,7 @@ function initChatPanel(){
   });
   document.getElementById('chat-voice-toggle').style.opacity='0.4';
   initSpeechRecognition();
+  initArtifactPanel();
 }
 
 function initLLMSettings(){
@@ -1013,6 +1039,110 @@ function updateLLMBtn(){
     btn.classList.toggle('connected',!!window._llmBaseUrl);
     btn.title=window._llmBaseUrl?'⚡ '+window._llmBaseUrl:'LLM Settings';
   }
+}
+
+// --- Phase 3: Artifact Detection & Panel ---
+function detectArtifact(text){
+  // 1. Fenced code block
+  const codeMatch=text.match(/```(\w*)\n([\s\S]*?)```/);
+  if(codeMatch){
+    const lang=codeMatch[1]||'code';
+    return{type:lang==='yaml'||lang==='yml'?'yaml':'code',lang,content:codeMatch[2].trim()};
+  }
+  // 2. YAML-like structure (≥3 key: value lines)
+  const lines=text.split('\n');
+  const yamlLines=lines.filter(l=>/^\s*[\w][\w\s-]*:\s*.+/.test(l));
+  if(yamlLines.length>=3&&yamlLines.length>=lines.length*0.35)
+    return{type:'yaml',lang:'yaml',content:text.trim()};
+  // 3. Numbered/bulleted list (≥4 items)
+  const listLines=lines.filter(l=>/^(\s*[-*•]|\s*\d+[.)]\s)/.test(l));
+  if(listLines.length>=4)return{type:'list',lang:'',content:text.trim()};
+  // 4. Markdown heading structure
+  if(/^##\s/.test(text))return{type:'text',lang:'md',content:text.trim()};
+  return null;
+}
+
+function storeArtifact(agent,rawText){
+  const det=detectArtifact(rawText);
+  if(!det)return false;
+  window._agentArtifacts[agent.id]={
+    type:det.type,lang:det.lang,content:det.content,
+    timestamp:Date.now(),agentId:agent.id,agentName:agent.name
+  };
+  return true;
+}
+
+function renderArtifactPanel(){
+  const agent=window._chatAgent;
+  const area=document.getElementById('chat-artifact-area');
+  if(!area)return;
+  if(!agent||!window._agentArtifacts[agent.id]){area.style.display='none';return;}
+  const art=window._agentArtifacts[agent.id];
+  area.style.display='';
+  const badge=document.getElementById('chat-artifact-type-badge');
+  badge.textContent=art.lang||art.type;
+  document.getElementById('chat-artifact-content').textContent=art.content;
+  document.getElementById('chat-artifact-content').className='';
+}
+
+function streamArtifactContent(content){
+  const area=document.getElementById('chat-artifact-area');
+  const pre=document.getElementById('chat-artifact-content');
+  if(!area||!pre)return;
+  area.style.display='';
+  pre.textContent='';
+  pre.className='artifact-streaming';
+  let i=0;
+  const CHUNK=16;
+  function tick(){
+    if(i<content.length){
+      pre.textContent=content.slice(0,i+CHUNK);
+      i+=CHUNK;
+      requestAnimationFrame(tick);
+    }else{
+      pre.textContent=content;
+      pre.className='';
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+function initArtifactPanel(){
+  window._agentArtifacts={};
+  let collapsed=false;
+  const toggle=document.getElementById('chat-artifact-toggle');
+  const body=document.getElementById('chat-artifact-body');
+  if(toggle&&body){
+    toggle.addEventListener('click',()=>{
+      collapsed=!collapsed;
+      body.style.display=collapsed?'none':'';
+      toggle.textContent=collapsed?'▸':'▾';
+    });
+    document.getElementById('chat-artifact-header').addEventListener('click',e=>{
+      if(e.target===toggle)return;
+      collapsed=!collapsed;
+      body.style.display=collapsed?'none':'';
+      toggle.textContent=collapsed?'▸':'▾';
+    });
+  }
+  document.getElementById('chat-artifact-copy').addEventListener('click',()=>{
+    const art=window._chatAgent&&window._agentArtifacts[window._chatAgent.id];
+    if(!art)return;
+    const btn=document.getElementById('chat-artifact-copy');
+    navigator.clipboard.writeText(art.content).then(()=>{
+      btn.textContent='Copied!';setTimeout(()=>{btn.textContent='Copy';},1500);
+    }).catch(()=>{
+      const ta=document.createElement('textarea');
+      ta.value=art.content;ta.style.cssText='position:fixed;opacity:0;';
+      document.body.appendChild(ta);ta.select();document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent='Copied!';setTimeout(()=>{btn.textContent='Copy';},1500);
+    });
+  });
+  // Relay button wired in Phase 4
+  document.getElementById('chat-artifact-relay').addEventListener('click',()=>{
+    if(typeof openRelayModal==='function')openRelayModal();
+  });
 }
 
 // --- Phase 2: Project Brief ---
@@ -1684,6 +1814,21 @@ function saveAgent(){
   <div id="chat-controls">
     <button id="chat-voice-toggle" title="Toggle voice output">🔊</button>
     <button id="chat-clear" title="Clear session history">🗑</button>
+  </div>
+  <!-- Phase 3: Artifact Panel -->
+  <div id="chat-artifact-area" style="display:none">
+    <div id="chat-artifact-header">
+      <span id="chat-artifact-label">Output</span>
+      <span id="chat-artifact-type-badge"></span>
+      <button id="chat-artifact-toggle">▾</button>
+    </div>
+    <div id="chat-artifact-body">
+      <pre id="chat-artifact-content"></pre>
+      <div id="chat-artifact-actions">
+        <button id="chat-artifact-copy">Copy</button>
+        <button id="chat-artifact-relay">Relay →</button>
+      </div>
+    </div>
   </div>
   <div id="chat-input-area">
     <input id="chat-input" type="text" placeholder="Ask me anything... (Enter to send)"/>
