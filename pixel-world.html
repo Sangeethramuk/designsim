@@ -1150,6 +1150,8 @@ function initChatPanel(){
   window._agentSessions={};
   window._agentMessages={};
   window._memories=[];
+  window._swarmRunning=false;
+  window._swarmAbort=false;
   window._chatHistory=[];
   window._chatAgent=null;
   window._micActive=false;
@@ -2015,6 +2017,7 @@ function initBoard(){
     }
     if(e.key==='Escape'&&window._boardOpen)closeBoard();
   },true);
+  updateSwarmBtn();
 }
 
 // --- Phase 8: Collaboration Feed ---
@@ -2303,6 +2306,87 @@ async function openNewProject(){
   updateBriefHUD();
   showToast('Project archived to memory ◈');
   setTimeout(()=>openBriefModal(),600);
+}
+
+// --- Phase 13: Swarm Mode ---
+async function runSwarmAgent(agent){
+  const msg=window._projectBrief
+    ?'Based on the project brief, generate your specialist output now.'
+    :'Introduce yourself and describe how you would approach a typical design project.';
+  const history=window._agentSessions[agent.id]||[];
+  let response;
+  try{
+    if(window._sbClient&&loadProxyConfig()){
+      response=await getProxyResponse(agent,msg,history);
+    }else if(window._llmBaseUrl){
+      response=await getAgentResponse(agent,msg,history,window._llmBaseUrl,window._llmApiKey);
+    }else{
+      response=getScriptedResponse(agent,msg);
+    }
+  }catch(e){
+    response=getScriptedResponse(agent,msg)+' [Swarm error: '+e.message+']';
+  }
+  const newHistory=[...history,{role:'user',content:msg},{role:'assistant',content:response}];
+  if(newHistory.length>30)newHistory.splice(0,newHistory.length-30);
+  window._agentSessions[agent.id]=newHistory;
+  window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(agent.id,newHistory.slice()));
+  storeArtifact(agent,response);
+  if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
+  // Live-update open chat panel if it's this agent
+  if(window._chatAgent&&window._chatAgent.id===agent.id){
+    appendMessage('agent',response,agent);
+    const art=window._agentArtifacts[agent.id];
+    if(art){
+      const badge=document.getElementById('chat-artifact-type-badge');
+      if(badge)badge.textContent=art.lang||art.type;
+      streamArtifactContent(art.content);
+    }
+  }
+  return response;
+}
+async function runSwarm(){
+  if(!window._projectBrief){showToast('Set a project brief first');return;}
+  if(window._swarmRunning){window._swarmAbort=true;return;}
+  window._swarmRunning=true;
+  window._swarmAbort=false;
+  updateSwarmBtn();
+  const waves=[
+    AGENTS.filter(a=>['scout','scholar'].includes(a.id)),
+    AGENTS.filter(a=>['palette','flow','blueprint','forge'].includes(a.id)),
+    AGENTS.filter(a=>['lens','eye','mirror'].includes(a.id)),
+    AGENTS.filter(a=>['council','weaver','gate','check','lead'].includes(a.id))
+  ];
+  let done=0;
+  const prog=document.getElementById('swarm-progress');
+  if(prog)prog.style.display='inline';
+  for(const wave of waves){
+    if(window._swarmAbort)break;
+    await Promise.all(wave.map(async agent=>{
+      await runSwarmAgent(agent);
+      done++;
+      if(prog)prog.textContent=done+'/14';
+    }));
+    await new Promise(r=>setTimeout(r,300));
+  }
+  window._swarmRunning=false;
+  if(prog)prog.style.display='none';
+  updateSwarmBtn();
+  rebuildAgentMessages();
+  showToast(window._swarmAbort?'Swarm stopped':'✦ Swarm complete — '+done+' agents ran');
+  if(!window._swarmAbort){setTimeout(()=>{if(!window._boardOpen)openBoard();},800);}
+}
+function updateSwarmBtn(){
+  const btn=document.getElementById('swarm-run-btn');
+  if(!btn)return;
+  if(window._swarmRunning){
+    btn.textContent='◼ Stop';
+    btn.style.color='#e88888';
+    btn.style.borderColor='rgba(232,136,136,0.4)';
+  }else{
+    btn.textContent='▶ Run Swarm';
+    btn.style.color='#4acea0';
+    btn.style.borderColor='rgba(74,206,160,0.35)';
+  }
 }
 
 // --- SCENE ---
@@ -2892,6 +2976,7 @@ function saveAgent(){
   <button id="btn-zoom-in" title="Zoom in (+)">+</button>
 </div>
 <button id="board-hud-btn" title="Project Board (Tab)">⊞ Board</button>
+<span id="swarm-progress" style="display:none;position:fixed;bottom:10px;right:80px;z-index:8001;font-size:10px;color:#4acea0;font-family:monospace;background:rgba(10,10,30,0.88);padding:3px 8px;border-radius:3px;border:1px solid rgba(74,206,160,0.3)"></span>
 <button id="new-project-btn" onclick="openNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
 <div id="game-hint">WASD / arrows · E: chat · click agent · scroll: zoom</div>
 
@@ -3001,6 +3086,7 @@ function saveAgent(){
         <div id="board-brief-text"></div>
       </div>
       <div id="board-actions">
+        <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
