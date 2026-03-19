@@ -954,26 +954,77 @@ function getScriptedResponse(agent,message){
   return resp.default;
 }
 
-async function getAgentResponse(agent,message,history,baseUrl,apiKey){
-  const agentsContext=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
+// --- Phase 10e: LLM Proxy via Supabase Edge Function ---
+function loadProxyConfig(){
+  return localStorage.getItem('use_llm_proxy')==='true';
+}
+function saveProxyConfig(val){
+  localStorage.setItem('use_llm_proxy',val?'true':'false');
+}
+
+function buildAgentMessages(agent,message,history){
+  const agentsCtx=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
   const selfCtx='Your tools: '+((agent.tools||[]).join(', ')||'none')+
     '. MCPs: '+((agent.mcp||[]).join(', ')||'none')+
     '. Skills: '+((agent.skills||[]).join(', ')||'none')+'.';
-  let systemPrompt=agent.systemPrompt+'\n\n'+selfCtx+'\n\nYour colleagues:\n'+agentsContext;
-  if(window._projectBrief)systemPrompt+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
+  let sys=agent.systemPrompt+'\n\n'+selfCtx+'\n\nYour colleagues:\n'+agentsCtx;
+  if(window._projectBrief)sys+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
   const fmt=getFormatInstruction(agent.id);
-  if(fmt)systemPrompt+='\n\n## Required Output Format\n'+fmt;
-  systemPrompt+='\n\nBe direct and expert. Follow the output format strictly.';
-  const model=(agent.brain||'kimi-latest').replace('litellm/','');
+  if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
+  sys+='\n\nBe direct and expert. Follow the output format strictly.';
+  return{model:(agent.brain||'kimi-latest').replace('litellm/',''),messages:[{role:'system',content:sys},...history,{role:'user',content:message}]};
+}
+
+async function getProxyResponse(agent,message,history){
+  const sbUrl=localStorage.getItem('sb_url');
+  if(!sbUrl||!window._sbClient)throw new Error('Supabase not configured');
+  const{model,messages}=buildAgentMessages(agent,message,history);
+  let token=localStorage.getItem('sb_anon_key')||'';
+  try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
+  const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+token,'apikey':localStorage.getItem('sb_anon_key')||'','Content-Type':'application/json'},
+    body:JSON.stringify({model,messages,max_tokens:600})
+  });
+  const data=await resp.json();
+  if(data.error)throw new Error(data.error.message||'Proxy error');
+  return data.choices?.[0]?.message?.content??'No response.';
+}
+
+async function testProxy(){
+  const el=document.getElementById('proxy-status');
+  if(!el)return;
+  if(!window._sbClient){el.className='err';el.textContent='⚠ Configure Supabase first';return;}
+  const sbUrl=localStorage.getItem('sb_url');
+  if(!sbUrl){el.className='err';el.textContent='⚠ Supabase URL missing';return;}
+  el.className='pending';el.textContent='⏳ Testing proxy…';
+  try{
+    let token=localStorage.getItem('sb_anon_key')||'';
+    try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
+    const res=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+token,'apikey':localStorage.getItem('sb_anon_key')||'','Content-Type':'application/json'},
+      body:JSON.stringify({model:'test',messages:[{role:'user',content:'ping'}],max_tokens:5})
+    });
+    const data=await res.json();
+    if(data.error&&data.error.message.includes('LLM not configured')){
+      el.className='err';el.textContent='⚠ Function deployed but secrets not set';
+    }else if(data.error){
+      el.className='ok';el.textContent='✓ Proxy reachable';
+    }else{
+      el.className='ok';el.textContent='✓ Proxy working';
+    }
+  }catch(e){el.className='err';el.textContent='⚠ '+e.message;}
+}
+
+async function getAgentResponse(agent,message,history,baseUrl,apiKey){
+  // Reuse shared message builder from Phase 10e
+  const{model,messages}=buildAgentMessages(agent,message,history);
   const headers={'content-type':'application/json'};
   if(apiKey)headers['authorization']='Bearer '+apiKey;
   const resp=await fetch(baseUrl+'/v1/chat/completions',{
-    method:'POST',
-    headers,
-    body:JSON.stringify({
-      model,max_tokens:600,
-      messages:[{role:'system',content:systemPrompt},...history,{role:'user',content:message}]
-    })
+    method:'POST',headers,
+    body:JSON.stringify({model,max_tokens:600,messages})
   });
   const data=await resp.json();
   if(data.error)throw new Error(data.error.message||'API error');
@@ -989,7 +1040,11 @@ async function sendChatMessage(){
   input.value='';
   if(btn)btn.disabled=true;
   let response;
-  if(window._llmBaseUrl){
+  if(window._sbClient&&loadProxyConfig()){
+    // Phase 10e: route through Supabase Edge Function (API key stays server-side)
+    try{response=await getProxyResponse(window._chatAgent,msg,window._chatHistory||[]);}
+    catch(e){response=getScriptedResponse(window._chatAgent,msg)+' [Proxy error: '+e.message+']';}
+  }else if(window._llmBaseUrl){
     try{response=await getAgentResponse(window._chatAgent,msg,window._chatHistory||[],window._llmBaseUrl,window._llmApiKey);}
     catch(e){response=getScriptedResponse(window._chatAgent,msg)+' [LLM error: '+e.message+']';}
   }else{
@@ -1121,9 +1176,17 @@ function initLLMSettings(){
   document.getElementById('llm-settings-btn').addEventListener('click',()=>{
     document.getElementById('sb-url').value=localStorage.getItem('sb_url')||'';
     document.getElementById('sb-anon-key').value=localStorage.getItem('sb_anon_key')||'';
+    document.getElementById('use-proxy-toggle').checked=loadProxyConfig();
+    document.getElementById('proxy-status').textContent='';
+    document.getElementById('proxy-status').className='';
     updateSbStatus();
   },true);
   document.getElementById('sb-save-btn').addEventListener('click',saveSupabaseConfig);
+  document.getElementById('use-proxy-toggle').addEventListener('change',e=>{
+    saveProxyConfig(e.target.checked);
+    showToast(e.target.checked?'LLM Proxy enabled':'LLM Proxy disabled');
+  });
+  document.getElementById('proxy-test-btn').addEventListener('click',testProxy);
 }
 
 function loadCredentials(){
@@ -2728,6 +2791,18 @@ function saveAgent(){
     <div style="font-size:9px;color:#555;line-height:1.5;margin-top:6px;">
       Enter your Supabase project URL and anon key to enable cloud sync.<br>
       All data is scoped to your user account via Row Level Security.
+    </div>
+    <!-- Phase 10e: LLM Proxy toggle -->
+    <div class="sb-section-title">⚡ LLM Proxy (Edge Function)</div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:#c0c8d8;margin-bottom:8px;">
+      <input type="checkbox" id="use-proxy-toggle" style="accent-color:#4acea0;width:14px;height:14px;">
+      Route LLM calls through Supabase (API key stays server-side)
+    </label>
+    <button id="proxy-test-btn" style="background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;padding:5px 12px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Test Proxy</button>
+    <div id="proxy-status" style="font-size:10px;font-family:monospace;margin-top:6px;min-height:14px;"></div>
+    <div style="font-size:9px;color:#555;line-height:1.5;margin-top:6px;">
+      Deploy <code style="color:#4acea0;">supabase/functions/llm-proxy/index.ts</code> then set<br>
+      <code style="color:#4acea0;">LLM_BASE_URL</code> + <code style="color:#4acea0;">LLM_API_KEY</code> as Edge Function secrets.
     </div>
   </div>
 </div>
