@@ -1008,6 +1008,8 @@ function buildAgentMessages(agent,message,history){
     '. MCPs: '+((agent.mcp||[]).join(', ')||'none')+
     '. Skills: '+((agent.skills||[]).join(', ')||'none')+'.';
   let sys=agent.systemPrompt+'\n\n'+selfCtx+'\n\nYour colleagues:\n'+agentsCtx;
+  const memCtx=getAgentMemoryContext(agent.id);
+  if(memCtx)sys+='\n\n'+memCtx;
   if(window._projectBrief)sys+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
   const fmt=getFormatInstruction(agent.id);
   if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
@@ -1147,6 +1149,7 @@ function initChatPanel(){
   window._voiceEnabled=false;
   window._agentSessions={};
   window._agentMessages={};
+  window._memories=[];
   window._chatHistory=[];
   window._chatAgent=null;
   window._micActive=false;
@@ -2175,7 +2178,7 @@ function sbLoadAll(){
     if(relays)relays.forEach(r=>{window._relayLog.push({from:r.from_id,fromName:r.from_name,to:r.to_id,preview:r.preview,timestamp:r.timestamp});});
     if(brief&&brief.content){window._projectBrief=brief.content;if(typeof updateBriefHUD==='function')updateBriefHUD();}
     rebuildAgentMessages(); // rebuild chat HTML safely from sessions (replaces innerHTML restore)
-  }).catch(()=>{});
+  }).then(()=>sbLoadMemories()).catch(()=>{});
 }
 // Rebuild per-agent chat HTML from session data using safe DOM methods (no innerHTML from DB)
 function rebuildAgentMessages(){
@@ -2213,6 +2216,93 @@ function sbClearAllData(){
     window._sbClient.from('relay_log').delete().eq('user_id',uid),
     window._sbClient.from('briefs').delete().eq('user_id',uid)
   ]).catch(()=>{});
+}
+
+// --- Phase 12: Cross-Project Memory ---
+async function sbSaveMemory(mem){
+  if(!window._sbClient||!window._sbUser)return;
+  await window._sbClient.from('memories')
+    .insert({user_id:window._sbUser.id,brief:mem.brief||null,artifacts:mem.artifacts||{},relay_count:mem.relay_count||0})
+    .catch(()=>{});
+}
+async function sbLoadMemories(){
+  if(!window._sbClient||!window._sbUser){window._memories=[];return;}
+  const{data}=await window._sbClient.from('memories').select('*').eq('user_id',window._sbUser.id).order('created_at',{ascending:false}).limit(10).catch(()=>({data:[]}));
+  window._memories=data||[];
+  updateMemoryHUD();
+}
+function captureMemory(){
+  const artifacts={};
+  Object.entries(window._agentArtifacts||{}).forEach(([id,art])=>{
+    if(art&&art.content){
+      const ag=AGENTS.find(a=>a.id===id);
+      artifacts[id]={agentName:ag?ag.name:id,type:art.type,lang:art.lang,preview:art.content.slice(0,300)};
+    }
+  });
+  return{brief:window._projectBrief||'',artifacts,relay_count:(window._relayLog||[]).length};
+}
+function getAgentMemoryContext(agentId){
+  if(!window._memories||window._memories.length===0)return'';
+  const lines=['## Past Project Memories (most recent first)'];
+  window._memories.slice(0,3).forEach((mem,i)=>{
+    lines.push('### Project '+(i+1)+' ('+new Date(mem.created_at).toLocaleDateString()+')');
+    if(mem.brief)lines.push('Brief: '+mem.brief.slice(0,200));
+    const agentArt=(mem.artifacts||{})[agentId];
+    if(agentArt){
+      lines.push('Your previous output ('+(agentArt.lang||agentArt.type)+'): '+agentArt.preview);
+    }else{
+      Object.values(mem.artifacts||{}).slice(0,3).forEach(a=>{
+        lines.push(a.agentName+' produced ('+(a.lang||a.type)+'): '+a.preview);
+      });
+    }
+  });
+  return lines.join('\n');
+}
+function updateMemoryHUD(){
+  const count=(window._memories||[]).length;
+  const el=document.getElementById('hud-memory-count');
+  if(!el)return;
+  if(count>0){
+    el.style.display='inline';
+    const numEl=document.getElementById('hud-memory-num');
+    if(numEl)numEl.textContent=count;
+  }else{
+    el.style.display='none';
+  }
+}
+async function openNewProject(){
+  const hasArtifacts=Object.keys(window._agentArtifacts||{}).length>0;
+  if(!window._projectBrief&&!hasArtifacts){openBriefModal();return;}
+  const mem=captureMemory();
+  await sbSaveMemory(mem);
+  if(!window._memories)window._memories=[];
+  window._memories.unshift({...mem,created_at:new Date().toISOString()});
+  updateMemoryHUD();
+  // Clear current project state
+  window._projectBrief='';
+  window._agentArtifacts={};
+  window._agentSessions={};
+  window._agentMessages={};
+  window._relayLog=[];
+  try{localStorage.removeItem('project_brief');}catch(e){}
+  // Clear Supabase current project rows (keep memories)
+  if(window._sbClient&&window._sbUser){
+    const uid=window._sbUser.id;
+    window._sbClient.from('sessions').delete().eq('user_id',uid).catch(()=>{});
+    window._sbClient.from('artifacts').delete().eq('user_id',uid).catch(()=>{});
+    window._sbClient.from('relay_log').delete().eq('user_id',uid).catch(()=>{});
+    window._sbClient.from('briefs').delete().eq('user_id',uid).catch(()=>{});
+  }
+  // Reset chat UIs
+  AGENTS.forEach(a=>{
+    const pane=document.getElementById('msgs-'+a.id);
+    if(pane)pane.innerHTML='';
+    const artArea=document.getElementById('artifact-area-'+a.id);
+    if(artArea)artArea.style.display='none';
+  });
+  updateBriefHUD();
+  showToast('Project archived to memory ◈');
+  setTimeout(()=>openBriefModal(),600);
 }
 
 // --- SCENE ---
@@ -2794,6 +2884,7 @@ function saveAgent(){
   <span class="h-zoom" id="hud-zoom">100%</span>
   <span class="h-sep" id="hud-brief-sep" style="display:none">·</span>
   <span class="h-brief" id="hud-brief" style="display:none" title="Click to edit brief"></span>
+  <span id="hud-memory-count" style="display:none;margin-left:8px;font-size:10px;color:#a78bfa;cursor:default;font-family:monospace" title="Memories from past projects">◈ <span id="hud-memory-num">0</span> mem</span>
 </div>
 <div id="game-zoom-btns">
   <button id="btn-zoom-out" title="Zoom out (−)">−</button>
@@ -2801,6 +2892,7 @@ function saveAgent(){
   <button id="btn-zoom-in" title="Zoom in (+)">+</button>
 </div>
 <button id="board-hud-btn" title="Project Board (Tab)">⊞ Board</button>
+<button id="new-project-btn" onclick="openNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
 <div id="game-hint">WASD / arrows · E: chat · click agent · scroll: zoom</div>
 
 <!-- Chat Panel -->
