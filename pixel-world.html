@@ -993,8 +993,12 @@ async function getProxyResponse(agent,message,history){
     body:JSON.stringify({model,messages,max_tokens:600})
   });
   const data=await resp.json();
-  if(data.error)throw new Error(data.error.message||'Proxy error');
-  return data.choices?.[0]?.message?.content??'No response.';
+  // Catch both {error:{message}} and Supabase's {message} JWT-error format
+  if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+  if(!data.choices&&data.message)throw new Error(data.message);
+  const content=data.choices?.[0]?.message?.content;
+  if(!content&&content!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
+  return content;
 }
 
 async function testProxy(){
