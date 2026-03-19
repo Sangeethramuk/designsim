@@ -976,14 +976,14 @@ function buildAgentMessages(agent,message,history){
 }
 
 async function getProxyResponse(agent,message,history){
-  const sbUrl=localStorage.getItem('sb_url');
+  const{url:sbUrl,key:sbKey}=loadSupabaseConfig();
   if(!sbUrl||!window._sbClient)throw new Error('Supabase not configured');
   const{model,messages}=buildAgentMessages(agent,message,history);
-  let token=localStorage.getItem('sb_anon_key')||'';
+  let token=sbKey||'';
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
   const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
     method:'POST',
-    headers:{'Authorization':'Bearer '+token,'apikey':localStorage.getItem('sb_anon_key')||'','Content-Type':'application/json'},
+    headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
     body:JSON.stringify({model,messages,max_tokens:600})
   });
   const data=await resp.json();
@@ -995,15 +995,15 @@ async function testProxy(){
   const el=document.getElementById('proxy-status');
   if(!el)return;
   if(!window._sbClient){el.className='err';el.textContent='⚠ Configure Supabase first';return;}
-  const sbUrl=localStorage.getItem('sb_url');
+  const{url:sbUrl,key:sbKey}=loadSupabaseConfig();
   if(!sbUrl){el.className='err';el.textContent='⚠ Supabase URL missing';return;}
   el.className='pending';el.textContent='⏳ Testing proxy…';
   try{
-    let token=localStorage.getItem('sb_anon_key')||'';
+    let token=sbKey||'';
     try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
     const res=await fetch(sbUrl+'/functions/v1/llm-proxy',{
       method:'POST',
-      headers:{'Authorization':'Bearer '+token,'apikey':localStorage.getItem('sb_anon_key')||'','Content-Type':'application/json'},
+      headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
       body:JSON.stringify({model:'test',messages:[{role:'user',content:'ping'}],max_tokens:5})
     });
     const data=await res.json();
