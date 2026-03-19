@@ -216,6 +216,29 @@
   #sb-save-btn:hover{background:#0d2818;border-color:#4acea0;}
   #sb-status{font-size:10px;font-family:monospace;margin-top:6px;min-height:14px;}
   #sb-status.ok{color:#4acea0;}#sb-status.err{color:#e05050;}#sb-status.pending{color:#c09030;}
+  /* Phase 10d: Auth modal + HUD auth button */
+  #auth-modal{position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:9500;display:none;align-items:center;justify-content:center;}
+  #auth-modal.active{display:flex;}
+  .auth-box{background:#0a0a1e;border:1px solid #1a2a4a;border-radius:12px;padding:32px 28px;width:340px;max-width:90vw;font-family:monospace;position:relative;}
+  .auth-logo{font-size:10px;letter-spacing:2px;color:#4a9eea;text-transform:uppercase;margin-bottom:6px;}
+  .auth-title{font-size:18px;font-weight:700;color:#e8edf5;margin-bottom:18px;}
+  .auth-tabs{display:flex;gap:0;margin-bottom:18px;border-bottom:1px solid #1a2a4a;}
+  .auth-tab{background:none;border:none;border-bottom:2px solid transparent;color:#506080;padding:7px 16px;cursor:pointer;font-family:monospace;font-size:12px;margin-bottom:-1px;transition:color 0.15s;}
+  .auth-tab.active{color:#4a9eea;border-bottom-color:#4a9eea;}
+  .auth-tab:hover{color:#c0c8d8;}
+  #auth-email,#auth-password{width:100%;background:#060c16;border:1px solid #0d1e30;color:#c0c8d8;padding:9px 12px;font-family:monospace;font-size:12px;border-radius:4px;margin-bottom:10px;box-sizing:border-box;}
+  #auth-email:focus,#auth-password:focus{outline:none;border-color:#4a9eea;}
+  #auth-submit-btn{width:100%;background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:10px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;margin-top:2px;transition:background 0.15s;}
+  #auth-submit-btn:hover{background:#102030;border-color:#4a9eea;}
+  #auth-submit-btn:disabled{opacity:0.45;cursor:not-allowed;}
+  #auth-error{color:#e05050;font-size:11px;margin-top:8px;min-height:16px;}
+  #auth-success{color:#4acea0;font-size:11px;margin-top:6px;min-height:16px;}
+  .auth-note{font-size:10px;color:#506080;margin-top:10px;line-height:1.6;}
+  .auth-close-btn{position:absolute;top:14px;right:16px;background:none;border:none;color:#506080;font-size:17px;cursor:pointer;line-height:1;}
+  .auth-close-btn:hover{color:#c0c8d8;}
+  #hud-auth-btn{position:fixed;top:10px;right:50px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#556;width:32px;height:32px;cursor:pointer;font-size:13px;border-radius:6px;z-index:2000;backdrop-filter:blur(6px);transition:border-color 0.15s,color 0.15s;display:none;align-items:center;justify-content:center;}
+  #hud-auth-btn:hover{border-color:#4a9eea;color:#4a9eea;}
+  #hud-auth-btn.signed-in{color:#4acea0;border-color:rgba(74,206,160,0.45);}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <!-- Phase 10: Supabase -->
@@ -1189,6 +1212,7 @@ function saveSupabaseConfig(){
   }catch(e){}
   initSupabase();
   updateSbStatus(true);
+  updateAuthHUD();
 }
 
 function initSupabase(){
@@ -1229,6 +1253,128 @@ function updateSbStatus(justSaved){
     el.className='ok';
     el.textContent='✓ Connected · anon user '+user.id.slice(0,8)+'…';
   }).catch(()=>{el.className='err';el.textContent='⚠ Connection error';});
+}
+
+// --- Phase 10d: Email Auth ---
+let _authMode='signin';
+
+function showAuthModal(){
+  if(!window._sbClient)return;
+  document.getElementById('auth-modal').classList.add('active');
+  setAuthMode('signin');
+  document.getElementById('auth-email').value='';
+  document.getElementById('auth-password').value='';
+  document.getElementById('auth-error').textContent='';
+  document.getElementById('auth-success').textContent='';
+  setTimeout(()=>document.getElementById('auth-email').focus(),80);
+}
+
+function hideAuthModal(){
+  document.getElementById('auth-modal').classList.remove('active');
+}
+
+function setAuthMode(mode){
+  _authMode=mode;
+  document.getElementById('tab-signin').classList.toggle('active',mode==='signin');
+  document.getElementById('tab-signup').classList.toggle('active',mode==='signup');
+  document.getElementById('auth-submit-btn').textContent=mode==='signin'?'Sign In':'Sign Up';
+  document.getElementById('auth-note-signin').style.display=mode==='signin'?'block':'none';
+  document.getElementById('auth-note-signup').style.display=mode==='signup'?'block':'none';
+  document.getElementById('auth-error').textContent='';
+  document.getElementById('auth-success').textContent='';
+  document.getElementById('auth-password').setAttribute('autocomplete',mode==='signin'?'current-password':'new-password');
+}
+
+async function submitAuth(){
+  if(!window._sbClient)return;
+  const email=document.getElementById('auth-email').value.trim();
+  const password=document.getElementById('auth-password').value;
+  const errEl=document.getElementById('auth-error');
+  const sucEl=document.getElementById('auth-success');
+  const btn=document.getElementById('auth-submit-btn');
+  errEl.textContent='';sucEl.textContent='';
+  if(!email||!password){errEl.textContent='Please enter email and password.';return;}
+  btn.disabled=true;
+  btn.textContent=_authMode==='signin'?'Signing in…':'Signing up…';
+  try{
+    if(_authMode==='signin'){
+      const {data,error}=await window._sbClient.auth.signInWithPassword({email,password});
+      if(error)throw error;
+      window._sbUser=data.user;
+      // Reload data for signed-in user
+      window._agentSessions={};window._agentMessages={};
+      window._agentArtifacts={};window._relayLog=[];
+      window._projectBrief=null;
+      await sbLoadAll();
+      updateBriefHUD();
+      updateAuthHUD();
+      hideAuthModal();
+      showToast('Signed in as '+email);
+    }else{
+      // Sign Up: upgrade anonymous session → email (preserves all data)
+      const {error}=await window._sbClient.auth.updateUser({email,password});
+      if(error)throw error;
+      sucEl.textContent='✓ Check your email to confirm, then sign in.';
+      btn.disabled=false;btn.textContent='Sign Up';
+      return;
+    }
+  }catch(e){
+    errEl.textContent=e.message||'Authentication failed.';
+  }
+  btn.disabled=false;
+  btn.textContent=_authMode==='signin'?'Sign In':'Sign Up';
+}
+
+async function signOut(){
+  if(!window._sbClient)return;
+  await window._sbClient.auth.signOut().catch(()=>{});
+  window._sbUser=null;
+  window._sbReady=initAnonAuth();
+  window._agentSessions={};window._agentMessages={};
+  window._agentArtifacts={};window._relayLog=[];
+  window._projectBrief=null;
+  try{localStorage.removeItem('project_brief');}catch(e){}
+  updateBriefHUD();
+  updateAuthHUD();
+  showToast('Signed out');
+}
+
+function updateAuthHUD(){
+  const btn=document.getElementById('hud-auth-btn');
+  if(!btn)return;
+  if(!window._sbClient){btn.style.display='none';return;}
+  btn.style.display='flex';
+  const user=window._sbUser;
+  if(user&&user.email){
+    btn.title='Signed in as '+user.email+'\nClick to sign out';
+    btn.classList.add('signed-in');
+    btn.textContent='✓';
+  }else{
+    btn.title='Sign in for cross-device sync';
+    btn.classList.remove('signed-in');
+    btn.textContent='👤';
+  }
+}
+
+function initAuthUI(){
+  const modal=document.getElementById('auth-modal');
+  if(!modal)return;
+  document.getElementById('tab-signin').addEventListener('click',()=>setAuthMode('signin'));
+  document.getElementById('tab-signup').addEventListener('click',()=>setAuthMode('signup'));
+  document.getElementById('auth-submit-btn').addEventListener('click',submitAuth);
+  document.getElementById('auth-email').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('auth-password').focus();});
+  document.getElementById('auth-password').addEventListener('keydown',e=>{if(e.key==='Enter')submitAuth();});
+  modal.addEventListener('click',e=>{if(e.target===modal)hideAuthModal();});
+  document.getElementById('hud-auth-btn').addEventListener('click',()=>{
+    const user=window._sbUser;
+    if(user&&user.email){
+      if(confirm('Sign out of '+user.email+'?'))signOut();
+    }else{
+      showAuthModal();
+    }
+  });
+  // Update HUD once auth resolves
+  window._sbReady&&window._sbReady.then(user=>{updateAuthHUD();});
 }
 
 // --- Phase 3: Artifact Detection & Panel ---
@@ -2071,6 +2217,7 @@ class GameScene extends Phaser.Scene{
     initChatPanel();
     initLLMSettings();
     initSupabase();
+    initAuthUI();
     window._briefModalShown=false;
     initBrief();
     initBoard();
@@ -2541,6 +2688,9 @@ function saveAgent(){
   </div>
 </div>
 
+<!-- Phase 10d: Auth HUD button -->
+<button id="hud-auth-btn" title="Sign in for cloud sync">👤</button>
+
 <!-- Global LLM Settings Button -->
 <button id="llm-settings-btn" title="LLM Settings">⚙</button>
 
@@ -2632,6 +2782,26 @@ function saveAgent(){
       <button id="brief-save-btn">Set Brief</button>
       <button id="brief-skip-btn">Skip for now</button>
     </div>
+  </div>
+</div>
+
+<!-- Phase 10d: Auth Modal -->
+<div id="auth-modal">
+  <div class="auth-box">
+    <button class="auth-close-btn" onclick="hideAuthModal()">✕</button>
+    <div class="auth-logo">Design Swarm Studio</div>
+    <div class="auth-title">Cloud Sync</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-signin">Sign In</button>
+      <button class="auth-tab" id="tab-signup">Sign Up</button>
+    </div>
+    <input id="auth-email" type="email" placeholder="Email address" autocomplete="email">
+    <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="auth-submit-btn">Sign In</button>
+    <div id="auth-error"></div>
+    <div id="auth-success"></div>
+    <div class="auth-note" id="auth-note-signin" style="display:block">Sign in to access your data from any device.</div>
+    <div class="auth-note" id="auth-note-signup" style="display:none">Sign Up links your email to this session — all data is preserved.<br>Check your email to confirm, then Sign In.</div>
   </div>
 </div>
 </body>
