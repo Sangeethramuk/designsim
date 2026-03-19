@@ -879,7 +879,11 @@ function appendMessage(type,text,agent){
   msgs.appendChild(div);
   msgs.scrollTop=msgs.scrollHeight;
   // Persist rendered messages per agent
-  if(window._chatAgent)window._agentMessages[window._chatAgent.id]=msgs.innerHTML;
+  if(window._chatAgent){
+    window._agentMessages[window._chatAgent.id]=msgs.innerHTML;
+    const _aid=window._chatAgent.id;const _html=msgs.innerHTML;
+    window._dbReady&&window._dbReady.then(db=>db&&saveMessages(db,_aid,_html));
+  }
 }
 
 function getScriptedResponse(agent,message){
@@ -937,6 +941,8 @@ async function sendChatMessage(){
   window._chatHistory.push({role:'user',content:msg},{role:'assistant',content:response});
   if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
   window._agentSessions[window._chatAgent.id]=window._chatHistory;
+  const _sid=window._chatAgent.id;const _sh=window._chatHistory.slice();
+  window._dbReady&&window._dbReady.then(db=>db&&saveSession(db,_sid,_sh));
   appendMessage('agent',response,window._chatAgent);
   if(storeArtifact(window._chatAgent,response)){
     const art=window._agentArtifacts[window._chatAgent.id];
@@ -1010,6 +1016,8 @@ function initChatPanel(){
   initSpeechRecognition();
   initArtifactPanel();
   initRelayModal();
+  // Hydrate persisted state once DB is ready
+  window._dbReady&&window._dbReady.then(db=>db&&initPersistence(db));
 }
 
 function initLLMSettings(){
@@ -1040,6 +1048,15 @@ function initLLMSettings(){
     document.getElementById('llm-api-key').value='';
     updateCredentialsStatus();
     updateLLMBtn();
+  });
+  document.getElementById('llm-clear-data-btn').addEventListener('click',()=>{
+    if(!confirm('Clear all chat sessions, artifacts, and relay log?'))return;
+    window._agentSessions={};window._agentMessages={};
+    window._agentArtifacts={};window._relayLog=[];
+    window._chatHistory=[];
+    window._dbReady&&window._dbReady.then(db=>db&&clearAllData(db));
+    document.getElementById('llm-settings-modal').classList.remove('active');
+    showToast('Session data cleared');
   });
 }
 
@@ -1131,10 +1148,10 @@ function detectArtifact(text){
 function storeArtifact(agent,rawText){
   const det=detectArtifact(rawText);
   if(!det)return false;
-  window._agentArtifacts[agent.id]={
-    type:det.type,lang:det.lang,content:det.content,
-    timestamp:Date.now(),agentId:agent.id,agentName:agent.name
-  };
+  const art={type:det.type,lang:det.lang,content:det.content,
+    timestamp:Date.now(),agentId:agent.id,agentName:agent.name};
+  window._agentArtifacts[agent.id]=art;
+  window._dbReady&&window._dbReady.then(db=>db&&saveArtifact(db,agent.id,art));
   return true;
 }
 
@@ -1357,7 +1374,9 @@ function relayArtifactTo(toAgentId){
   });
   // Log relay
   if(!window._relayLog)window._relayLog=[];
-  window._relayLog.push({from:from.id,fromName:from.name,to:toAgentId,timestamp:Date.now(),preview:art.content.slice(0,80)});
+  const _rentry={from:from.id,fromName:from.name,to:toAgentId,timestamp:Date.now(),preview:art.content.slice(0,80)};
+  window._relayLog.push(_rentry);
+  window._dbReady&&window._dbReady.then(db=>db&&appendRelayEntry(db,_rentry));
   // Get toAgent name
   const toAgent=AGENTS.find(a=>a.id===toAgentId);
   const toName=toAgent?toAgent.name:toAgentId;
@@ -1621,6 +1640,79 @@ function initBrief(){
     window._briefModalShown=true;
     setTimeout(()=>openBriefModal(false),1200);
   }
+}
+
+// --- Phase 7: Persistence (IndexedDB) ---
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open('designswarm',1);
+    req.onupgradeneeded=e=>{
+      const db=e.target.result;
+      if(!db.objectStoreNames.contains('sessions'))db.createObjectStore('sessions',{keyPath:'agentId'});
+      if(!db.objectStoreNames.contains('artifacts'))db.createObjectStore('artifacts',{keyPath:'agentId'});
+      if(!db.objectStoreNames.contains('relay_log'))db.createObjectStore('relay_log',{autoIncrement:true});
+      if(!db.objectStoreNames.contains('messages'))db.createObjectStore('messages',{keyPath:'agentId'});
+    };
+    req.onsuccess=e=>resolve(e.target.result);
+    req.onerror=e=>reject(e.target.error);
+  });
+}
+function dbPut(db,store,value){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(store,'readwrite');
+    const req=tx.objectStore(store).put(value);
+    req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
+  });
+}
+function dbAdd(db,store,value){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(store,'readwrite');
+    const req=tx.objectStore(store).add(value);
+    req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
+  });
+}
+function dbGetAll(db,store){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(store,'readonly');
+    const req=tx.objectStore(store).getAll();
+    req.onsuccess=e=>res(e.target.result);req.onerror=e=>rej(e.target.error);
+  });
+}
+function dbClearStore(db,store){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(store,'readwrite');
+    const req=tx.objectStore(store).clear();
+    req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
+  });
+}
+function saveSession(db,agentId,messages){
+  return dbPut(db,'sessions',{agentId,messages,updatedAt:Date.now()});
+}
+function saveArtifact(db,agentId,artifact){
+  return dbPut(db,'artifacts',artifact);
+}
+function appendRelayEntry(db,entry){
+  return dbAdd(db,'relay_log',entry);
+}
+function saveMessages(db,agentId,html){
+  return dbPut(db,'messages',{agentId,html});
+}
+function clearAllData(db){
+  return Promise.all(['sessions','artifacts','relay_log','messages'].map(s=>dbClearStore(db,s)));
+}
+function initPersistence(db){
+  // Hydrate all window globals from DB on startup
+  Promise.all([
+    dbGetAll(db,'sessions'),
+    dbGetAll(db,'artifacts'),
+    dbGetAll(db,'relay_log'),
+    dbGetAll(db,'messages')
+  ]).then(([sessions,artifacts,relayEntries,messages])=>{
+    sessions.forEach(s=>{ window._agentSessions[s.agentId]=s.messages; });
+    artifacts.forEach(a=>{ window._agentArtifacts[a.agentId]=a; });
+    relayEntries.forEach(r=>{ window._relayLog.push(r); });
+    messages.forEach(m=>{ window._agentMessages[m.agentId]=m.html; });
+  }).catch(()=>{});
 }
 
 // --- SCENE ---
@@ -2045,6 +2137,7 @@ class GameScene extends Phaser.Scene{
   }
 }
 
+window._dbReady=openDB().catch(()=>null);
 window._game=new Phaser.Game({
   type:Phaser.CANVAS,
   parent:'game-container',
@@ -2266,6 +2359,7 @@ function saveAgent(){
       <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
     </div>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #252548;">
+      <button id="llm-clear-data-btn" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#555;padding:7px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;margin-bottom:10px;">Clear Session Data</button>
       <div style="font-size:9px;color:#555;line-height:1.5;">
         Credentials stored in browser localStorage only.<br>
         Never written to files or sent to any server except your configured API.<br>
