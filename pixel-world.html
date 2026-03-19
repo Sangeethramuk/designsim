@@ -93,7 +93,7 @@
   #chat-agent-model{width:100%;background:transparent;border:none;border-top:1px solid #111;color:#4a9eea;font-size:10px;font-family:monospace;padding:3px 4px;cursor:pointer;margin-top:3px;}
   #chat-agent-model option{background:#0a0a1e;color:#ccc;}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
 </head>
 <body>
@@ -356,6 +356,25 @@ const SCRIPTED_RESPONSES={
   check:{keywords:{'checklist|verify|done|complete|check':"Quick checklist: accessibility \u2713/\u2717, error states \u2713/\u2717, mobile responsive \u2713/\u2717, copy reviewed \u2713/\u2717, dark mode \u2713/\u2717.",'accessibility|a11y|contrast|keyboard':"A11y checklist: contrast 4.5:1+, keyboard nav works, focus visible, alt text on images, form labels present.",'help|what|who|do':"I'm Check. I run rapid validation checklists. Ask me to verify accessibility, responsiveness, or design completeness."},default:"Running validation checklist now. Quick wins: check contrast first, then keyboard nav, then mobile layout. What needs to be verified?"},
   lead:{keywords:{'team|agent|assign|coordinate|manage':"Current team status: Scout researching, Palette on variations, Flow mapping journey, Lens on critique. Everyone's aligned.",'status|progress|update|done|complete':"Project phases: Research (Scout+Scholar) → Design (Palette+Flow+Blueprint+Forge) → Critique (Lens+Eye+Mirror+Council) → Synthesis (Weaver+Gate+Check).",'help|what|who|do':"I'm Director. I coordinate all 13 agents and maintain design quality. Ask me about team status, workflows, or who to consult."},default:"Coordinating the team now. Design Swarm works in phases: research first, then design, then critique, then synthesis. Which phase do you need?"}
 };
+
+// --- Agent Output Format Map (Phase 1) ---
+const AGENT_FORMAT_MAP={
+  scout:'End your response with:\n## Competitor Analysis\n- **[App/Product]**: [pattern or insight]\n(minimum 3 entries)',
+  scholar:'End your response with:\n## References\n1. **[Standard/Guideline]**: [specific rule or requirement]\n(minimum 3 numbered entries)',
+  palette:'Structure each visual option as:\n## Option [N]: [Name]\n**Layout:** ...\n**Color:** ...\n**Rationale:** ...\n(repeat for each option, minimum 3)',
+  flow:'Include a user flow section:\n## User Flow\n1. [Entry point]\n2. [Step]\n→ [Branch/error path]\n(include at least one error/edge path)',
+  blueprint:'Output the full spec as a fenced YAML block:\n```yaml\nframe:\n  name: ...\n  width: ...\ncomponents:\n  - name: ...\n    type: ...\n```',
+  forge:'Output implementation as a fenced TSX block:\n```tsx\n// Component code here\n```\nInclude aria attributes and Tailwind classes.',
+  lens:'Structure critique as:\n## Heuristic Violations\n1. **[Nielsen Heuristic]**: [specific violation]\n   **Severity:** [1–4] **Fix:** [suggestion]\n(minimum 3 violations)',
+  eye:'Structure as:\n## Visual Issues\n1. **[Category]**: [issue]\n   **Fix:** [suggestion]\n(minimum 3 issues, categories: Hierarchy, Spacing, Color, Typography)',
+  mirror:'Write in first person as the persona:\n## As [Persona Name]\n[First-person experience, reactions, and pain points]',
+  council:'Output as:\n## Ramesh (User)\n[feedback]\n## Priya (Senior Designer)\n[feedback]\n## Arjun (Peer Designer)\n[feedback]\n## Verdict\n[summary and recommendation]',
+  weaver:'End with:\n## Synthesis Decision\n**Chosen direction:** ...\n**Rationale:** ...\n**Trade-offs accepted:** ...',
+  gate:'End with a gate checklist:\n## Quality Gate\n- [ ] Research complete\n- [ ] Design critiqued\n- [ ] Accessibility checked\n- [ ] Edge cases handled\n- [ ] Stakeholders aligned\n**GATE:** PASS / FAIL',
+  check:'Output as a markdown checklist:\n- [x] [item] — [note]\n- [ ] [item] — [note]\n(cover: accessibility, responsive, copy, error states, dark mode)',
+  lead:'Include a team status section:\n## Team Status\n- **[AgentName]**: [status / next action]\n(list all agents relevant to the current task)'
+};
+function getFormatInstruction(id){return AGENT_FORMAT_MAP[id]||'';}
 
 // --- Voice Profiles ---
 const VOICE_PROFILES={
@@ -753,7 +772,11 @@ function appendMessage(type,text,agent){
   const div=document.createElement('div');
   div.className=type==='user'?'msg-user':'msg-agent';
   if(type==='agent'&&agent){
-    div.innerHTML='<div class="msg-sender">'+agent.name+' · '+agent.role+'</div>'+text;
+    const sender=document.createElement('div');
+    sender.className='msg-sender';
+    sender.textContent=agent.name+' · '+agent.role;
+    div.appendChild(sender);
+    div.appendChild(document.createTextNode(text));
   }else{
     div.textContent=text;
   }
@@ -778,9 +801,11 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   const selfCtx='Your tools: '+((agent.tools||[]).join(', ')||'none')+
     '. MCPs: '+((agent.mcp||[]).join(', ')||'none')+
     '. Skills: '+((agent.skills||[]).join(', ')||'none')+'.';
-  const systemPrompt=agent.systemPrompt+'\n\n'+selfCtx+
-    '\n\nYour colleagues:\n'+agentsContext+
-    '\n\nKeep responses to 2-3 sentences. Be direct and expert.';
+  let systemPrompt=agent.systemPrompt+'\n\n'+selfCtx+'\n\nYour colleagues:\n'+agentsContext;
+  if(window._projectBrief)systemPrompt+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
+  const fmt=getFormatInstruction(agent.id);
+  if(fmt)systemPrompt+='\n\n## Required Output Format\n'+fmt;
+  systemPrompt+='\n\nBe direct and expert. Follow the output format strictly.';
   const model=(agent.brain||'kimi-latest').replace('litellm/','');
   const headers={'content-type':'application/json'};
   if(apiKey)headers['authorization']='Bearer '+apiKey;
@@ -788,7 +813,7 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
     method:'POST',
     headers,
     body:JSON.stringify({
-      model,max_tokens:300,
+      model,max_tokens:600,
       messages:[{role:'system',content:systemPrompt},...history,{role:'user',content:message}]
     })
   });
@@ -1371,6 +1396,14 @@ class GameScene extends Phaser.Scene{
     const hrs=Math.floor(this.dayTime*24),mins=Math.floor((this.dayTime*24-hrs)*60);
     const h12=hrs%12||12,ap=hrs>=12?'PM':'AM';
     document.getElementById('hud-time').textContent=h12+':'+String(mins).padStart(2,'0')+' '+ap;
+
+    // --- Update thought bubbles to follow agents ---
+    this.agents.forEach(a=>{
+      if(a.bubble){
+        a.bubble.x=a.spr.x;
+        a.bubble.y=a.spr.y-26;
+      }
+    });
 
     // --- Agent Labels (HTML overlay, crisp text) ---
     const cam=this.cameras.main;
