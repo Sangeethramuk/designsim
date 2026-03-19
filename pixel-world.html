@@ -917,7 +917,7 @@ function appendMessage(type,text,agent){
   if(window._chatAgent){
     window._agentMessages[window._chatAgent.id]=msgs.innerHTML;
     const _aid=window._chatAgent.id;const _html=msgs.innerHTML;
-    window._dbReady&&window._dbReady.then(db=>db&&saveMessages(db,_aid,_html));
+    window._sbReady&&window._sbReady.then(user=>user&&sbSaveMessages(_aid,_html));
   }
 }
 
@@ -977,7 +977,7 @@ async function sendChatMessage(){
   if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
   window._agentSessions[window._chatAgent.id]=window._chatHistory;
   const _sid=window._chatAgent.id;const _sh=window._chatHistory.slice();
-  window._dbReady&&window._dbReady.then(db=>db&&saveSession(db,_sid,_sh));
+  window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(_sid,_sh));
   appendMessage('agent',response,window._chatAgent);
   if(typeof addFeedEntry==='function')addFeedEntry('chat',window._chatAgent.id,window._chatAgent.name+': '+response.slice(0,60));
   if(storeArtifact(window._chatAgent,response)){
@@ -1053,7 +1053,7 @@ function initChatPanel(){
   initArtifactPanel();
   initRelayModal();
   // Hydrate persisted state once DB is ready
-  window._dbReady&&window._dbReady.then(db=>db&&initPersistence(db));
+  window._sbReady&&window._sbReady.then(user=>user&&sbLoadAll());
 }
 
 function initLLMSettings(){
@@ -1090,7 +1090,7 @@ function initLLMSettings(){
     window._agentSessions={};window._agentMessages={};
     window._agentArtifacts={};window._relayLog=[];
     window._chatHistory=[];
-    window._dbReady&&window._dbReady.then(db=>db&&clearAllData(db));
+    window._sbReady&&window._sbReady.then(user=>user&&sbClearAllData());
     document.getElementById('llm-settings-modal').classList.remove('active');
     showToast('Session data cleared');
   });
@@ -1174,8 +1174,8 @@ window._sbReady=Promise.resolve(null); // resolves to user or null
 
 function loadSupabaseConfig(){
   try{
-    const url=localStorage.getItem('sb_url')||null;
-    const key=localStorage.getItem('sb_anon_key')||null;
+    const url=localStorage.getItem('sb_url')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||null;
+    const key=localStorage.getItem('sb_anon_key')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||null;
     return {url,key};
   }catch(e){return {url:null,key:null};}
 }
@@ -1258,7 +1258,7 @@ function storeArtifact(agent,rawText){
   const art={type:det.type,lang:det.lang,content:det.content,
     timestamp:Date.now(),agentId:agent.id,agentName:agent.name};
   window._agentArtifacts[agent.id]=art;
-  window._dbReady&&window._dbReady.then(db=>db&&saveArtifact(db,agent.id,art));
+  window._sbReady&&window._sbReady.then(user=>user&&sbSaveArtifact(agent.id,art));
   if(typeof addFeedEntry==='function')addFeedEntry('artifact',agent.id,agent.name+' produced '+( art.lang||art.type));
   return true;
 }
@@ -1484,7 +1484,7 @@ function relayArtifactTo(toAgentId){
   if(!window._relayLog)window._relayLog=[];
   const _rentry={from:from.id,fromName:from.name,to:toAgentId,timestamp:Date.now(),preview:art.content.slice(0,80)};
   window._relayLog.push(_rentry);
-  window._dbReady&&window._dbReady.then(db=>db&&appendRelayEntry(db,_rentry));
+  window._sbReady&&window._sbReady.then(user=>user&&sbAppendRelayEntry(_rentry));
   // Get toAgent name
   const toAgent=AGENTS.find(a=>a.id===toAgentId);
   const toName=toAgent?toAgent.name:toAgentId;
@@ -1803,6 +1803,8 @@ function saveBrief(text){
     if(text)localStorage.setItem('project_brief',text);
     else localStorage.removeItem('project_brief');
   }catch(e){}
+  // Phase 10c: also sync to Supabase
+  window._sbReady&&window._sbReady.then(user=>user&&sbSaveBrief(text));
   updateBriefHUD();
   if(text&&typeof addFeedEntry==='function')addFeedEntry('brief',null,text.slice(0,50));
 }
@@ -1864,77 +1866,54 @@ function initBrief(){
   }
 }
 
-// --- Phase 7: Persistence (IndexedDB) ---
-function openDB(){
-  return new Promise((resolve,reject)=>{
-    const req=indexedDB.open('designswarm',1);
-    req.onupgradeneeded=e=>{
-      const db=e.target.result;
-      if(!db.objectStoreNames.contains('sessions'))db.createObjectStore('sessions',{keyPath:'agentId'});
-      if(!db.objectStoreNames.contains('artifacts'))db.createObjectStore('artifacts',{keyPath:'agentId'});
-      if(!db.objectStoreNames.contains('relay_log'))db.createObjectStore('relay_log',{autoIncrement:true});
-      if(!db.objectStoreNames.contains('messages'))db.createObjectStore('messages',{keyPath:'agentId'});
-    };
-    req.onsuccess=e=>resolve(e.target.result);
-    req.onerror=e=>reject(e.target.error);
-  });
+// --- Phase 10c: Supabase Persistence (replaces IndexedDB) ---
+function sbSaveSession(agentId,messages){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('sessions').upsert({user_id:window._sbUser.id,agent_id:agentId,messages:messages,updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).catch(()=>{});
 }
-function dbPut(db,store,value){
-  return new Promise((res,rej)=>{
-    const tx=db.transaction(store,'readwrite');
-    const req=tx.objectStore(store).put(value);
-    req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
-  });
+function sbSaveArtifact(agentId,artifact){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('artifacts').upsert({user_id:window._sbUser.id,agent_id:agentId,type:artifact.type||null,lang:artifact.lang||null,content:artifact.content||null,agent_name:artifact.agentName||null,timestamp:artifact.timestamp||Date.now(),updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).catch(()=>{});
 }
-function dbAdd(db,store,value){
-  return new Promise((res,rej)=>{
-    const tx=db.transaction(store,'readwrite');
-    const req=tx.objectStore(store).add(value);
-    req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
-  });
+function sbAppendRelayEntry(entry){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('relay_log').insert({user_id:window._sbUser.id,from_id:entry.from||null,from_name:entry.fromName||null,to_id:entry.to||null,preview:entry.preview||null,timestamp:entry.timestamp||Date.now()}).catch(()=>{});
 }
-function dbGetAll(db,store){
-  return new Promise((res,rej)=>{
-    const tx=db.transaction(store,'readonly');
-    const req=tx.objectStore(store).getAll();
-    req.onsuccess=e=>res(e.target.result);req.onerror=e=>rej(e.target.error);
-  });
+function sbSaveMessages(agentId,html){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('messages').upsert({user_id:window._sbUser.id,agent_id:agentId,html:html,updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).catch(()=>{});
 }
-function dbClearStore(db,store){
-  return new Promise((res,rej)=>{
-    const tx=db.transaction(store,'readwrite');
-    const req=tx.objectStore(store).clear();
-    req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
-  });
+function sbSaveBrief(text){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('briefs').upsert({user_id:window._sbUser.id,content:text||null,updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
 }
-function saveSession(db,agentId,messages){
-  return dbPut(db,'sessions',{agentId,messages,updatedAt:Date.now()});
-}
-function saveArtifact(db,agentId,artifact){
-  return dbPut(db,'artifacts',artifact);
-}
-function appendRelayEntry(db,entry){
-  return dbAdd(db,'relay_log',entry);
-}
-function saveMessages(db,agentId,html){
-  return dbPut(db,'messages',{agentId,html});
-}
-function clearAllData(db){
-  return Promise.all(['sessions','artifacts','relay_log','messages'].map(s=>dbClearStore(db,s)));
-}
-function initPersistence(db){
-  // Hydrate all window globals from DB on startup
-  Promise.all([
-    dbGetAll(db,'sessions'),
-    dbGetAll(db,'artifacts'),
-    dbGetAll(db,'relay_log'),
-    dbGetAll(db,'messages')
-  ]).then(([sessions,artifacts,relayEntries,messages])=>{
-    sessions.forEach(s=>{ window._agentSessions[s.agentId]=s.messages; });
-    artifacts.forEach(a=>{ window._agentArtifacts[a.agentId]=a; });
-    relayEntries.forEach(r=>{ window._relayLog.push(r); });
-    messages.forEach(m=>{ window._agentMessages[m.agentId]=m.html; });
+function sbLoadAll(){
+  if(!window._sbClient||!window._sbUser)return Promise.resolve();
+  const uid=window._sbUser.id;
+  return Promise.all([
+    window._sbClient.from('sessions').select('*').eq('user_id',uid),
+    window._sbClient.from('artifacts').select('*').eq('user_id',uid),
+    window._sbClient.from('relay_log').select('*').eq('user_id',uid).order('id',{ascending:true}),
+    window._sbClient.from('messages').select('*').eq('user_id',uid),
+    window._sbClient.from('briefs').select('*').eq('user_id',uid).maybeSingle()
+  ]).then(([{data:sessions},{data:artifacts},{data:relays},{data:messages},{data:brief}])=>{
+    if(sessions)sessions.forEach(s=>{window._agentSessions[s.agent_id]=s.messages;});
+    if(artifacts)artifacts.forEach(a=>{window._agentArtifacts[a.agent_id]={type:a.type,lang:a.lang,content:a.content,agentName:a.agent_name,timestamp:a.timestamp,agentId:a.agent_id};});
+    if(relays)relays.forEach(r=>{window._relayLog.push({from:r.from_id,fromName:r.from_name,to:r.to_id,preview:r.preview,timestamp:r.timestamp});});
+    if(messages)messages.forEach(m=>{window._agentMessages[m.agent_id]=m.html;});
+    if(brief&&brief.content){window._projectBrief=brief.content;if(typeof updateBriefHUD==='function')updateBriefHUD();}
   }).catch(()=>{});
+}
+function sbClearAllData(){
+  if(!window._sbClient||!window._sbUser)return Promise.resolve();
+  const uid=window._sbUser.id;
+  return Promise.all([
+    window._sbClient.from('sessions').delete().eq('user_id',uid),
+    window._sbClient.from('artifacts').delete().eq('user_id',uid),
+    window._sbClient.from('relay_log').delete().eq('user_id',uid),
+    window._sbClient.from('messages').delete().eq('user_id',uid),
+    window._sbClient.from('briefs').delete().eq('user_id',uid)
+  ]).catch(()=>{});
 }
 
 // --- SCENE ---
@@ -2361,7 +2340,7 @@ class GameScene extends Phaser.Scene{
   }
 }
 
-window._dbReady=openDB().catch(()=>null);
+// Phase 10c: IndexedDB replaced by Supabase — _sbReady set in initSupabase()
 window._game=new Phaser.Game({
   type:Phaser.CANVAS,
   parent:'game-container',
