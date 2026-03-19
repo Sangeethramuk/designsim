@@ -92,6 +92,20 @@
   #llm-save-btn{background:#0a2a1a;border:1px solid #2a5a3a;color:#4abc6a;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;width:100%;}#llm-save-btn:hover{background:#1a4a2a;}
   #chat-agent-model{width:100%;background:transparent;border:none;border-top:1px solid #111;color:#4a9eea;font-size:10px;font-family:monospace;padding:3px 4px;cursor:pointer;margin-top:3px;}
   #chat-agent-model option{background:#0a0a1e;color:#ccc;}
+  /* Phase 2 — Project Brief */
+  #game-hud .h-brief{color:#4a9eea;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;pointer-events:auto;}
+  #game-hud .h-brief:hover{color:#7ac8ff;text-decoration:underline;}
+  #brief-modal{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:8500;display:none;align-items:center;justify-content:center;}
+  #brief-modal.active{display:flex;}
+  #brief-panel{background:#0a0a1e;border:1px solid #4a9eea;border-radius:10px;padding:24px;width:420px;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.7);}
+  #brief-panel h3{color:#fff;font-size:13px;margin:0 0 8px;display:flex;align-items:center;justify-content:space-between;}
+  #brief-subtitle{font-size:11px;color:#666;margin:0 0 12px;}
+  #brief-input{width:100%;background:#060614;border:1px solid #252548;color:#ccc;padding:8px 10px;font-size:12px;font-family:monospace;border-radius:4px;resize:vertical;box-sizing:border-box;}
+  #brief-input:focus{outline:none;border-color:#4a9eea;}
+  #brief-save-btn{flex:1;background:#0a2a1a;border:1px solid #2a5a3a;color:#4abc6a;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
+  #brief-save-btn:hover{background:#1a4a2a;}
+  #brief-skip-btn{background:#1a1a2e;border:1px solid #333;color:#666;padding:9px 12px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
+  #brief-skip-btn:hover{color:#aaa;border-color:#555;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
@@ -1001,6 +1015,78 @@ function updateLLMBtn(){
   }
 }
 
+// --- Phase 2: Project Brief ---
+function loadBrief(){
+  try{window._projectBrief=localStorage.getItem('project_brief')||null;}
+  catch(e){window._projectBrief=null;}
+}
+
+function saveBrief(text){
+  window._projectBrief=text||null;
+  try{
+    if(text)localStorage.setItem('project_brief',text);
+    else localStorage.removeItem('project_brief');
+  }catch(e){}
+  updateBriefHUD();
+}
+
+function updateBriefHUD(){
+  const sep=document.getElementById('hud-brief-sep');
+  const el=document.getElementById('hud-brief');
+  if(!el)return;
+  if(window._projectBrief){
+    const truncated=window._projectBrief.length>45?window._projectBrief.slice(0,45)+'…':window._projectBrief;
+    el.textContent=truncated;
+    el.title='Brief: '+window._projectBrief+'\n(click to edit)';
+    el.style.display='';
+    if(sep)sep.style.display='';
+  }else{
+    el.style.display='none';
+    if(sep)sep.style.display='none';
+  }
+}
+
+function openBriefModal(editMode){
+  const modal=document.getElementById('brief-modal');
+  const input=document.getElementById('brief-input');
+  const subtitle=document.getElementById('brief-subtitle');
+  subtitle.textContent=editMode?'Update the project brief below.':'What are you designing? Describe it in 1–3 sentences.';
+  input.value=window._projectBrief||'';
+  modal.classList.add('active');
+  setTimeout(()=>input.focus(),80);
+}
+
+function closeBriefModal(){
+  document.getElementById('brief-modal').classList.remove('active');
+}
+
+function initBrief(){
+  loadBrief();
+  updateBriefHUD();
+  document.getElementById('brief-save-btn').addEventListener('click',()=>{
+    const text=document.getElementById('brief-input').value.trim();
+    if(text){saveBrief(text);closeBriefModal();}
+  });
+  document.getElementById('brief-skip-btn').addEventListener('click',closeBriefModal);
+  document.getElementById('brief-modal-close').addEventListener('click',closeBriefModal);
+  document.getElementById('brief-modal').addEventListener('click',e=>{
+    if(e.target===document.getElementById('brief-modal'))closeBriefModal();
+  });
+  document.getElementById('brief-input').addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){
+      const text=document.getElementById('brief-input').value.trim();
+      if(text){saveBrief(text);closeBriefModal();}
+    }
+  });
+  const hudBrief=document.getElementById('hud-brief');
+  if(hudBrief)hudBrief.addEventListener('click',()=>openBriefModal(true));
+  // Auto-show on first load if no brief saved
+  if(!window._projectBrief&&!window._briefModalShown){
+    window._briefModalShown=true;
+    setTimeout(()=>openBriefModal(false),1200);
+  }
+}
+
 // --- SCENE ---
 class GameScene extends Phaser.Scene{
   constructor(){super('GameScene')}
@@ -1155,6 +1241,8 @@ class GameScene extends Phaser.Scene{
     // Init DOM chat panel
     initChatPanel();
     initLLMSettings();
+    window._briefModalShown=false;
+    initBrief();
   }
 
   // --- Popover ---
@@ -1571,6 +1659,8 @@ function saveAgent(){
   <span class="h-time" id="hud-time">—</span>
   <span class="h-sep">·</span>
   <span class="h-zoom" id="hud-zoom">100%</span>
+  <span class="h-sep" id="hud-brief-sep" style="display:none">·</span>
+  <span class="h-brief" id="hud-brief" style="display:none" title="Click to edit brief"></span>
 </div>
 <div id="game-zoom-btns">
   <button id="btn-zoom-out" title="Zoom out (−)">−</button>
@@ -1628,6 +1718,19 @@ function saveAgent(){
         Never written to files or sent to any server except your configured API.<br>
         Use config.local.js for file-based config (see README).
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 2: Project Brief Modal -->
+<div id="brief-modal">
+  <div id="brief-panel">
+    <h3>📋 Project Brief <button class="llm-close-btn" id="brief-modal-close">✕</button></h3>
+    <p id="brief-subtitle">What are you designing? Describe it in 1–3 sentences.</p>
+    <textarea id="brief-input" rows="4" placeholder="e.g. A mobile banking app for senior citizens — focus on accessibility and trust."></textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button id="brief-save-btn">Set Brief</button>
+      <button id="brief-skip-btn">Skip for now</button>
     </div>
   </div>
 </div>
