@@ -157,6 +157,29 @@
   #relay-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   @keyframes relay-flash{0%,100%{opacity:1}20%,60%{opacity:0.2}40%,80%{opacity:1}}
   .relay-flashing{animation:relay-flash 0.6s ease;}
+  /* Phase 8 — Collaboration Feed */
+  #feed-panel{position:fixed;right:0;top:0;bottom:0;width:210px;background:rgba(6,6,18,0.93);border-left:1px solid #1a1a30;z-index:3500;display:flex;flex-direction:column;transform:translateX(100%);transition:transform 0.2s ease;backdrop-filter:blur(6px);}
+  #feed-panel.open{transform:translateX(0);}
+  #feed-header{padding:10px 12px 8px;border-bottom:1px solid #111122;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  #feed-title{font-family:monospace;font-size:10px;color:#4a4a7a;text-transform:uppercase;letter-spacing:0.8px;}
+  #feed-close{background:none;border:none;color:#333;cursor:pointer;font-size:12px;padding:0;line-height:1;}
+  #feed-close:hover{color:#888;}
+  #feed-list{flex:1;overflow-y:auto;padding:6px 0;}
+  #feed-list::-webkit-scrollbar{width:3px;}
+  #feed-list::-webkit-scrollbar-thumb{background:#1a1a30;}
+  .feed-entry{padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);}
+  .feed-entry:hover{background:rgba(255,255,255,0.02);}
+  .feed-entry-top{display:flex;align-items:center;gap:5px;margin-bottom:2px;}
+  .feed-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+  .feed-agent{font-size:9px;font-family:monospace;color:#5a5a8a;font-weight:bold;}
+  .feed-time{font-size:8px;color:#2a2a4a;margin-left:auto;}
+  .feed-content{font-size:9px;font-family:monospace;color:#4a5a6a;line-height:1.4;word-break:break-word;}
+  .feed-type-chat .feed-content{color:#3a6a4a;}
+  .feed-type-artifact .feed-content{color:#2a5a7a;}
+  .feed-type-relay .feed-content{color:#5a3a7a;}
+  .feed-type-brief .feed-content{color:#6a5a2a;}
+  #feed-toggle-btn{position:fixed;bottom:44px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#8090c8;font-family:monospace;font-size:11px;padding:5px 10px;cursor:pointer;border-radius:4px;z-index:3600;backdrop-filter:blur(4px);}
+  #feed-toggle-btn:hover,#feed-toggle-btn.active{border-color:#4a9eea;color:#4a9eea;}
   /* Phase 5 — Project Board */
   #board-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:9000;display:none;flex-direction:column;align-items:center;justify-content:flex-start;padding:24px 16px;overflow-y:auto;}
   #board-overlay.active{display:flex;}
@@ -944,6 +967,7 @@ async function sendChatMessage(){
   const _sid=window._chatAgent.id;const _sh=window._chatHistory.slice();
   window._dbReady&&window._dbReady.then(db=>db&&saveSession(db,_sid,_sh));
   appendMessage('agent',response,window._chatAgent);
+  if(typeof addFeedEntry==='function')addFeedEntry('chat',window._chatAgent.id,window._chatAgent.name+': '+response.slice(0,60));
   if(storeArtifact(window._chatAgent,response)){
     const art=window._agentArtifacts[window._chatAgent.id];
     document.getElementById('chat-artifact-type-badge').textContent=art.lang||art.type;
@@ -1152,6 +1176,7 @@ function storeArtifact(agent,rawText){
     timestamp:Date.now(),agentId:agent.id,agentName:agent.name};
   window._agentArtifacts[agent.id]=art;
   window._dbReady&&window._dbReady.then(db=>db&&saveArtifact(db,agent.id,art));
+  if(typeof addFeedEntry==='function')addFeedEntry('artifact',agent.id,agent.name+' produced '+( art.lang||art.type));
   return true;
 }
 
@@ -1382,6 +1407,7 @@ function relayArtifactTo(toAgentId){
   const toName=toAgent?toAgent.name:toAgentId;
   closeRelayModal();
   showToast('Relayed to '+toName);
+  if(typeof addFeedEntry==='function')addFeedEntry('relay',from.id,from.name+' → '+toName+': '+art.content.slice(0,40));
   // Fire Phaser animation — need fromAgent scene data
   const scene=window._game&&window._game.scene.getScene('GameScene');
   if(scene&&scene.agents){
@@ -1570,6 +1596,61 @@ function initBoard(){
   },true);
 }
 
+// --- Phase 8: Collaboration Feed ---
+function prependFeedDOM(entry){
+  const list=document.getElementById('feed-list');
+  if(!list)return;
+  const div=document.createElement('div');
+  div.className='feed-entry feed-type-'+entry.type;
+  const top=document.createElement('div');top.className='feed-entry-top';
+  const dot=document.createElement('span');dot.className='feed-dot';
+  dot.style.background=entry.agentColor||'#4a4a7a';
+  const agent=document.createElement('span');agent.className='feed-agent';
+  const icons={chat:'',artifact:'◈ ',relay:'→ ',brief:'◉ '};
+  agent.textContent=(icons[entry.type]||'')+entry.agentName;
+  const time=document.createElement('span');time.className='feed-time';
+  time.textContent=new Date(entry.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  top.appendChild(dot);top.appendChild(agent);top.appendChild(time);
+  const content=document.createElement('div');content.className='feed-content';
+  content.textContent=entry.content;
+  div.appendChild(top);div.appendChild(content);
+  list.insertBefore(div,list.firstChild);
+  // Trim to 100 entries
+  while(list.children.length>100)list.removeChild(list.lastChild);
+}
+
+function addFeedEntry(type,agentId,content){
+  const agent=agentId?AGENTS.find(a=>a.id===agentId):null;
+  const entry={
+    type,
+    agentId:agentId||'system',
+    agentName:agent?agent.name:(type==='brief'?'Brief':'System'),
+    agentColor:agent?('#'+agent.zc.toString(16).padStart(6,'0')):'#6a5a2a',
+    content,
+    timestamp:Date.now()
+  };
+  if(!window._feedLog)window._feedLog=[];
+  window._feedLog.unshift(entry);
+  if(window._feedLog.length>100)window._feedLog.length=100;
+  prependFeedDOM(entry);
+}
+
+function toggleFeed(){
+  const panel=document.getElementById('feed-panel');
+  const btn=document.getElementById('feed-toggle-btn');
+  if(!panel)return;
+  window._feedOpen=!window._feedOpen;
+  panel.classList.toggle('open',window._feedOpen);
+  btn&&btn.classList.toggle('active',window._feedOpen);
+}
+
+function initFeed(){
+  window._feedLog=[];
+  window._feedOpen=false;
+  document.getElementById('feed-close').addEventListener('click',toggleFeed);
+  document.getElementById('feed-toggle-btn').addEventListener('click',toggleFeed);
+}
+
 // --- Phase 2: Project Brief ---
 function loadBrief(){
   try{window._projectBrief=localStorage.getItem('project_brief')||null;}
@@ -1583,6 +1664,7 @@ function saveBrief(text){
     else localStorage.removeItem('project_brief');
   }catch(e){}
   updateBriefHUD();
+  if(text&&typeof addFeedEntry==='function')addFeedEntry('brief',null,text.slice(0,50));
 }
 
 function updateBriefHUD(){
@@ -1872,6 +1954,7 @@ class GameScene extends Phaser.Scene{
     window._briefModalShown=false;
     initBrief();
     initBoard();
+    initFeed();
   }
 
   // --- Popover ---
@@ -2385,6 +2468,16 @@ function saveAgent(){
     <div id="board-grid"></div>
   </div>
 </div>
+
+<!-- Phase 8: Collaboration Feed -->
+<div id="feed-panel">
+  <div id="feed-header">
+    <span id="feed-title">Activity Feed</span>
+    <button id="feed-close">✕</button>
+  </div>
+  <div id="feed-list"></div>
+</div>
+<button id="feed-toggle-btn" title="Activity Feed">◎ Feed</button>
 
 <!-- Phase 4: Relay Modal -->
 <div id="relay-modal">
