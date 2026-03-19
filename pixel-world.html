@@ -123,6 +123,24 @@
   #chat-artifact-relay:hover{background:#102030;border-color:#4a9eea;}
   @keyframes blink-cursor{0%,100%{opacity:1}50%{opacity:0}}
   .artifact-streaming::after{content:'▋';animation:blink-cursor 0.6s infinite;color:#4a9eea;font-size:10px;}
+  /* Phase 4 — Relay Modal */
+  #relay-modal{position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:8600;display:none;align-items:center;justify-content:center;}
+  #relay-modal.active{display:flex;}
+  #relay-panel{background:#0a0a1e;border:1px solid #4a9eea;border-radius:10px;padding:20px;width:460px;max-height:80vh;overflow-y:auto;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.8);}
+  #relay-panel h3{color:#fff;font-size:13px;margin:0 0 6px;display:flex;align-items:center;justify-content:space-between;}
+  #relay-subtitle{font-size:10px;color:#555;margin:0 0 14px;}
+  #relay-agent-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .relay-agent-card{background:#0d0d20;border:1px solid #252548;border-radius:6px;padding:10px 12px;cursor:pointer;transition:border-color 0.15s,background 0.15s;}
+  .relay-agent-card:hover{border-color:#4a9eea;background:#101028;}
+  .relay-agent-card.relay-self{opacity:0.35;pointer-events:none;}
+  .relay-card-name{font-size:11px;color:#ccc;font-weight:bold;}
+  .relay-card-role{font-size:9px;color:#555;margin-top:2px;}
+  .relay-card-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  /* Toast */
+  #relay-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#0a2a1a;border:1px solid #2a6a4a;color:#4abc6a;padding:8px 18px;border-radius:20px;font-size:11px;font-family:monospace;opacity:0;pointer-events:none;transition:opacity 0.2s,transform 0.2s;z-index:9900;}
+  #relay-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  @keyframes relay-flash{0%,100%{opacity:1}20%,60%{opacity:0.2}40%,80%{opacity:1}}
+  .relay-flashing{animation:relay-flash 0.6s ease;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
@@ -944,6 +962,7 @@ function initChatPanel(){
   document.getElementById('chat-voice-toggle').style.opacity='0.4';
   initSpeechRecognition();
   initArtifactPanel();
+  initRelayModal();
 }
 
 function initLLMSettings(){
@@ -1143,6 +1162,125 @@ function initArtifactPanel(){
   document.getElementById('chat-artifact-relay').addEventListener('click',()=>{
     if(typeof openRelayModal==='function')openRelayModal();
   });
+}
+
+// --- Phase 4: Relay Chaining ---
+function showToast(msg){
+  const t=document.getElementById('relay-toast');
+  if(!t)return;
+  t.textContent=msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer=setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+function fireRelayAnimation(fromAgent,toAgentId){
+  const scene=window._game&&window._game.scene.getScene('GameScene');
+  if(!scene)return;
+  const toData=scene.agents&&scene.agents.find(a=>a.id===toAgentId);
+  if(!toData||!fromAgent.spr||!toData.spr)return;
+  const gfx=scene.add.text(fromAgent.spr.x,fromAgent.spr.y,'◻',{fontSize:'8px',color:'#4a9eea'}).setDepth(300000);
+  const midX=(fromAgent.spr.x+toData.spr.x)/2;
+  const midY=Math.min(fromAgent.spr.y,toData.spr.y)-40;
+  // Two-segment tween: rise to midpoint, then fall to target
+  scene.tweens.add({
+    targets:gfx,
+    x:{value:midX,duration:300,ease:'Sine.easeInOut'},
+    y:{value:midY,duration:300,ease:'Sine.easeOut'},
+    onComplete:()=>{
+      scene.tweens.add({
+        targets:gfx,
+        x:{value:toData.spr.x,duration:300,ease:'Sine.easeInOut'},
+        y:{value:toData.spr.y,duration:300,ease:'Sine.easeIn'},
+        alpha:{value:0,duration:300},
+        onComplete:()=>{
+          gfx.destroy();
+          // Flash target bubble if it exists
+          if(toData.bubble&&toData.bubbleTxt){
+            const art=window._agentArtifacts&&window._agentArtifacts[fromAgent.id];
+            const preview=art?art.content.slice(0,40)+'…':'[relay]';
+            toData.bubbleTxt.setText(preview);
+            toData.bubble.setVisible(true);
+            toData.bubbleTxt.setVisible(true);
+            setTimeout(()=>{toData.bubble.setVisible(false);toData.bubbleTxt.setVisible(false);},3000);
+          }
+        }
+      });
+    }
+  });
+}
+
+function relayArtifactTo(toAgentId){
+  const from=window._chatAgent;
+  if(!from)return;
+  const art=window._agentArtifacts&&window._agentArtifacts[from.id];
+  if(!art)return;
+  // Inject artifact as system message into target agent's session
+  if(!window._agentSessions[toAgentId])window._agentSessions[toAgentId]=[];
+  window._agentSessions[toAgentId].unshift({
+    role:'system',
+    content:'[Relay from '+from.name+']: '+art.content
+  });
+  // Log relay
+  if(!window._relayLog)window._relayLog=[];
+  window._relayLog.push({from:from.id,fromName:from.name,to:toAgentId,timestamp:Date.now(),preview:art.content.slice(0,80)});
+  // Get toAgent name
+  const toAgent=AGENTS.find(a=>a.id===toAgentId);
+  const toName=toAgent?toAgent.name:toAgentId;
+  closeRelayModal();
+  showToast('Relayed to '+toName);
+  // Fire Phaser animation — need fromAgent scene data
+  const scene=window._game&&window._game.scene.getScene('GameScene');
+  if(scene&&scene.agents){
+    const fromData=scene.agents.find(a=>a.id===from.id);
+    if(fromData)fireRelayAnimation(fromData,toAgentId);
+  }
+}
+
+function openRelayModal(){
+  const art=window._chatAgent&&window._agentArtifacts&&window._agentArtifacts[window._chatAgent.id];
+  if(!art){showToast('No artifact to relay');return;}
+  const subtitle=document.getElementById('relay-subtitle');
+  if(subtitle)subtitle.textContent='Choose an agent to receive this artifact from '+window._chatAgent.name+'.';
+  // Render agent grid
+  const grid=document.getElementById('relay-agent-grid');
+  if(!grid)return;
+  grid.innerHTML='';
+  AGENTS.forEach(a=>{
+    const card=document.createElement('div');
+    card.className='relay-agent-card'+(a.id===window._chatAgent.id?' relay-self':'');
+    const dot=document.createElement('span');
+    dot.className='relay-card-dot';
+    // Convert hex color int to CSS hex
+    const hexStr='#'+a.zc.toString(16).padStart(6,'0');
+    dot.style.background=hexStr;
+    const nameEl=document.createElement('div');
+    nameEl.className='relay-card-name';
+    nameEl.appendChild(dot);
+    nameEl.appendChild(document.createTextNode(a.name));
+    const roleEl=document.createElement('div');
+    roleEl.className='relay-card-role';
+    roleEl.textContent=a.role;
+    card.appendChild(nameEl);
+    card.appendChild(roleEl);
+    if(a.id!==window._chatAgent.id){
+      card.addEventListener('click',()=>relayArtifactTo(a.id));
+    }
+    grid.appendChild(card);
+  });
+  document.getElementById('relay-modal').classList.add('active');
+}
+
+function closeRelayModal(){
+  document.getElementById('relay-modal').classList.remove('active');
+}
+
+function initRelayModal(){
+  window._relayLog=[];
+  const modal=document.getElementById('relay-modal');
+  if(!modal)return;
+  document.getElementById('relay-modal-close').addEventListener('click',closeRelayModal);
+  modal.addEventListener('click',e=>{if(e.target===modal)closeRelayModal();});
 }
 
 // --- Phase 2: Project Brief ---
@@ -1866,6 +2004,18 @@ function saveAgent(){
     </div>
   </div>
 </div>
+
+<!-- Phase 4: Relay Modal -->
+<div id="relay-modal">
+  <div id="relay-panel">
+    <h3>Relay Artifact <button class="llm-close-btn" id="relay-modal-close">✕</button></h3>
+    <p id="relay-subtitle">Choose an agent to receive this artifact.</p>
+    <div id="relay-agent-grid"></div>
+  </div>
+</div>
+
+<!-- Phase 4: Toast Notification -->
+<div id="relay-toast"></div>
 
 <!-- Phase 2: Project Brief Modal -->
 <div id="brief-modal">
