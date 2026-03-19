@@ -956,7 +956,8 @@ function getScriptedResponse(agent,message){
 
 // --- Phase 10e: LLM Proxy via Supabase Edge Function ---
 function loadProxyConfig(){
-  return localStorage.getItem('use_llm_proxy')==='true';
+  const v=localStorage.getItem('use_llm_proxy');
+  return v===null?true:v==='true'; // default ON for public hosting
 }
 function saveProxyConfig(val){
   localStorage.setItem('use_llm_proxy',val?'true':'false');
@@ -1253,6 +1254,10 @@ function updateLLMBtn(){
   }
 }
 
+// --- Phase 11a: Baked-in Supabase public credentials (safe to expose — anon key, RLS-protected) ---
+const SUPABASE_URL      = 'https://ofidqxlnqvjpflicopcz.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9maWRxeGxucXZqcGZsaWNvcGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MjI5OTgsImV4cCI6MjA4OTQ5ODk5OH0.fAKq1PFe9AZUjFm9kxqz_t3YNLnvxqSNk4EbiMMPjxE';
+
 // --- Phase 10: Supabase Config + Anonymous Auth ---
 window._sbClient=null;
 window._sbUser=null;
@@ -1260,10 +1265,10 @@ window._sbReady=Promise.resolve(null); // resolves to user or null
 
 function loadSupabaseConfig(){
   try{
-    const url=localStorage.getItem('sb_url')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||null;
-    const key=localStorage.getItem('sb_anon_key')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||null;
+    const url=localStorage.getItem('sb_url')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||SUPABASE_URL;
+    const key=localStorage.getItem('sb_anon_key')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||SUPABASE_ANON_KEY;
     return {url,key};
-  }catch(e){return {url:null,key:null};}
+  }catch(e){return {url:SUPABASE_URL,key:SUPABASE_ANON_KEY};}
 }
 
 function saveSupabaseConfig(){
