@@ -1270,6 +1270,7 @@ function buildAgentMessages(agent,message,history){
   let sys=agent.systemPrompt+'\n\n'+selfCtx+'\n\nYour colleagues:\n'+agentsCtx;
   const memCtx=getAgentMemoryContext(agent.id);
   if(memCtx)sys+='\n\n'+memCtx;
+  if(window._userProfile)sys+='\n\n## What You Know About This User\n'+window._userProfile;
   if(window._projectBrief)sys+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
   // Director gets a live team status snapshot so it can give contextual guidance
   if(agent.id==='lead')sys+='\n\n'+getTeamStatusContext();
@@ -1525,6 +1526,7 @@ function initChatPanel(){
   window._sprintPlan=null;
   window._sprintVizOpen=false;
   window._memBrowserOpen=false;
+  window._userProfile=null;
   window._chatHistory=[];
   window._chatAgent=null;
   window._micActive=false;
@@ -1628,6 +1630,27 @@ function initLLMSettings(){
     showToast('Figma settings saved');
   });
   document.getElementById('figma-push-btn').addEventListener('click',pushToFigma);
+  // Phase 17: User profile wiring
+  document.getElementById('llm-settings-btn').addEventListener('click',()=>{
+    const ta=document.getElementById('user-profile-text');
+    if(ta)ta.value=window._userProfile||'';
+  },true);
+  document.getElementById('profile-save-btn').addEventListener('click',()=>{
+    const ta=document.getElementById('user-profile-text');
+    if(!ta)return;
+    const val=ta.value.trim();
+    window._userProfile=val||null;
+    sbSaveUserProfile(val);
+    showToast('User profile saved');
+  });
+  document.getElementById('profile-clear-btn').addEventListener('click',()=>{
+    if(!confirm('Clear the user profile? Agents will no longer have learned preferences injected.'))return;
+    window._userProfile=null;
+    sbSaveUserProfile('');
+    const ta=document.getElementById('user-profile-text');
+    if(ta)ta.value='';
+    showToast('User profile cleared');
+  });
 }
 
 function loadCredentials(){
@@ -2675,7 +2698,7 @@ function sbLoadAll(){
     if(relays)relays.forEach(r=>{window._relayLog.push({from:r.from_id,fromName:r.from_name,to:r.to_id,preview:r.preview,timestamp:r.timestamp});});
     if(brief&&brief.content){window._projectBrief=brief.content;if(typeof updateBriefHUD==='function')updateBriefHUD();}
     rebuildAgentMessages(); // rebuild chat HTML safely from sessions (replaces innerHTML restore)
-  }).then(()=>sbLoadMemories()).catch(()=>{});
+  }).then(()=>sbLoadMemories()).then(()=>sbLoadUserProfile()).catch(()=>{});
 }
 // Rebuild per-agent chat HTML from session data using safe DOM methods (no innerHTML from DB)
 function rebuildAgentMessages(){
@@ -2727,6 +2750,81 @@ async function sbLoadMemories(){
   const{data}=await window._sbClient.from('memories').select('*').eq('user_id',window._sbUser.id).order('created_at',{ascending:false}).limit(10).catch(()=>({data:[]}));
   window._memories=data||[];
   updateMemoryHUD();
+}
+
+// --- Phase 17: Agent Learning Layer ---
+async function sbLoadUserProfile(){
+  if(!window._sbClient||!window._sbUser)return;
+  const{data}=await window._sbClient.from('user_profile').select('profile_text').eq('user_id',window._sbUser.id).maybeSingle().catch(()=>({data:null}));
+  window._userProfile=(data&&data.profile_text&&data.profile_text.trim())||null;
+  const ta=document.getElementById('user-profile-text');
+  if(ta)ta.value=window._userProfile||'';
+}
+function sbSaveUserProfile(profileText){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('user_profile').upsert({user_id:window._sbUser.id,profile_text:profileText||'',updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
+}
+async function extractSprintLearnings(){
+  const lead=AGENTS.find(a=>a.id==='lead');
+  if(!lead)return null;
+  const parts=[];
+  if(window._projectBrief)parts.push('Brief: '+window._projectBrief.slice(0,200));
+  const artIds=Object.keys(window._agentArtifacts||{});
+  artIds.slice(0,6).forEach(id=>{
+    const art=window._agentArtifacts[id];
+    const ag=AGENTS.find(a=>a.id===id);
+    if(art&&art.content)parts.push((ag?ag.name:id)+' produced: '+art.content.slice(0,280));
+  });
+  if(!parts.length)return null;
+  const extractPrompt=
+    'Based on this completed design sprint, extract what you have learned about this user\'s preferences and working style.\n\n'+
+    parts.join('\n')+
+    '\n\nFormat your response under exactly these headings (2-3 concise bullets each, no preamble, no explanation):\n'+
+    '## Design Preferences\n## Technical Preferences\n## Domain Context\n## What Works\n## What To Avoid';
+  try{
+    let resp;
+    if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,extractPrompt,[]);
+    else if(window._llmBaseUrl)resp=await getAgentResponse(lead,extractPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    else return null;
+    return resp&&resp.trim()?resp.trim():null;
+  }catch(e){console.warn('extractSprintLearnings failed:',e.message);return null;}
+}
+async function mergeUserProfile(newLearnings){
+  if(!newLearnings)return;
+  const lead=AGENTS.find(a=>a.id==='lead');
+  let merged;
+  if(!window._userProfile){
+    merged=newLearnings;
+  }else{
+    const mergePrompt=
+      'Merge this existing user profile with new learnings from a recent sprint. '+
+      'Resolve any contradictions (prefer the newer insight). Keep max 4 bullets per section. '+
+      'Output ONLY the merged profile in the same 5-section format, no preamble.\n\n'+
+      '## EXISTING PROFILE\n'+window._userProfile+
+      '\n\n## NEW LEARNINGS\n'+newLearnings;
+    try{
+      let resp;
+      if(lead&&window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,mergePrompt,[]);
+      else if(lead&&window._llmBaseUrl)resp=await getAgentResponse(lead,mergePrompt,[],window._llmBaseUrl,window._llmApiKey);
+      else resp=null;
+      merged=(resp&&resp.trim())?resp.trim():newLearnings;
+    }catch(e){merged=newLearnings;}
+  }
+  window._userProfile=merged;
+  sbSaveUserProfile(merged);
+  const ta=document.getElementById('user-profile-text');
+  if(ta)ta.value=merged;
+}
+async function updateUserProfile(){
+  if(!window._sbClient||!window._sbUser)return;
+  try{
+    showToast('Director is distilling sprint learnings…');
+    const learnings=await extractSprintLearnings();
+    if(!learnings){showToast('Not enough sprint output to update profile');return;}
+    await mergeUserProfile(learnings);
+    const bulletCount=(window._userProfile||'').split('\n').filter(l=>l.trim().startsWith('-')).length;
+    showToast('✦ User profile updated — '+bulletCount+' learnings');
+  }catch(e){console.warn('updateUserProfile failed:',e.message);}
 }
 function captureMemory(){
   const artifacts={};
@@ -3093,7 +3191,10 @@ function _swarmEnd(done){
   updateSwarmBtn();
   rebuildAgentMessages();
   showToast(window._swarmAbort?'Swarm stopped':'✦ Swarm complete — '+done+' agents ran');
-  if(!window._swarmAbort){setTimeout(()=>{if(!window._boardOpen)openBoard();},800);}
+  if(!window._swarmAbort){
+    setTimeout(()=>{if(!window._boardOpen)openBoard();},800);
+    setTimeout(()=>updateUserProfile(),4000); // non-blocking: distil learnings after board opens
+  }
   // Sprint viz stays open so user can review — auto-close only on abort
   if(window._swarmAbort)closeSprintViz();
 }
@@ -4033,6 +4134,19 @@ function saveAgent(){
     <div style="font-size:9px;color:#444;line-height:1.5;margin-top:4px;">
       Posts Blueprint spec + Director summary as a Figma comment.<br>
       Pushes color tokens via Figma Variables API.
+    </div>
+  </div>
+  <!-- Phase 17: User Profile (Agent Learning) -->
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #151528;">
+    <div class="sb-section-title">🧠 User Profile (Agent Learning)</div>
+    <div style="font-size:9px;color:#444;line-height:1.5;margin-bottom:8px;">
+      Auto-built after each swarm. Injected into every agent's system prompt so they improve over time based on your preferences.
+    </div>
+    <textarea id="user-profile-text" placeholder="No profile yet. Run a swarm to start building your profile…" rows="9"
+      style="width:100%;background:#060614;border:1px solid #1a1a30;color:#9090b8;padding:8px 10px;font-family:monospace;font-size:9px;border-radius:4px;box-sizing:border-box;resize:vertical;line-height:1.6;"></textarea>
+    <div style="display:flex;gap:6px;margin-top:6px;">
+      <button id="profile-save-btn" style="flex:1;background:#0a0a1e;border:1px solid #2a2a5a;color:#a78bfa;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Save Edits</button>
+      <button id="profile-clear-btn" style="flex:1;background:#1a0a0a;border:1px solid #5a2a2a;color:#e88888;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Clear Profile</button>
     </div>
   </div>
 </div>
