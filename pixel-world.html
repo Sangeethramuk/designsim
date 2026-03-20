@@ -2125,6 +2125,96 @@ function fireRelayAnimation(fromAgent,toAgentId){
   });
 }
 
+// Phase 16c — Physical Agent Handoff Animations
+function fireHandoffAnimations(fromIds,toIds){
+  if(!toIds||!toIds.length)return;
+  const scene=window._game&&window._game.scene.getScene('GameScene');
+  if(!scene||!scene.agents)return;
+  // Walk toward the first agent of the next wave
+  const targetAgent=scene.agents.find(a=>a.id===toIds[0]);
+  if(!targetAgent)return;
+  fromIds.forEach((id,i)=>{
+    setTimeout(()=>{
+      const fromAgent=scene.agents.find(a=>a.id===id);
+      if(!fromAgent||fromAgent.walking)return;
+      walkAgentToHandoff(scene,fromAgent,targetAgent);
+    },i*200); // stagger starts so agents don't all move simultaneously
+  });
+}
+
+function walkAgentToHandoff(scene,agent,target){
+  if(!agent.spr||!target.spr||agent.walking)return;
+  agent.walking=true;
+  // Hide bubble during walk
+  if(agent.bubble)agent.bubble.setAlpha(0);
+  const startX=agent.spr.x,startY=agent.spr.y;
+  const endX=target.spr.x,endY=target.spr.y;
+  const dx=endX-startX,dy=endY-startY;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist<TILE*1.5){agent.walking=false;return;} // already adjacent, skip
+  // Stop 1.5 tiles away from target (don't overlap)
+  const stopX=endX-(dx/dist)*TILE*1.5;
+  const stopY=endY-(dy/dist)*TILE*1.5;
+  // Pick walking direction (dominant axis)
+  agent.walkDir=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up');
+  let frame=0;
+  // Alternate walking frames via interval
+  const walkTimer=setInterval(()=>{
+    frame=1-frame;
+    if(agent.spr&&!agent.spr.destroyed)agent.spr.setTexture(agent.id+'_'+agent.walkDir+'_'+frame);
+  },180);
+  const walkDuration=Math.max(400,dist*3.5);
+  scene.tweens.add({
+    targets:agent.spr,
+    x:stopX,y:stopY,
+    duration:walkDuration,
+    ease:'Linear',
+    onUpdate:()=>{
+      // Keep sprite depth correct as it moves
+      if(agent.spr)agent.spr.setDepth(agent.spr.y);
+    },
+    onComplete:()=>{
+      clearInterval(walkTimer);
+      if(agent.spr&&!agent.spr.destroyed)agent.spr.setTexture(agent.id+'_'+agent.walkDir+'_0');
+      // Flash target's bubble briefly
+      if(target.bubble&&target.bubbleTxt){
+        target.bubbleTxt.setText('receiving…');
+        scene.tweens.add({targets:target.bubble,alpha:1,duration:200});
+        setTimeout(()=>{
+          if(target.bubble)scene.tweens.add({targets:target.bubble,alpha:0,duration:400});
+          if(target.bubbleTxt)target.bubbleTxt.setText((AGENT_THOUGHTS[target.id]||['...'])[0]);
+        },1500);
+      }
+      // Walk back home after 700ms
+      setTimeout(()=>{
+        if(!agent.spr||agent.spr.destroyed){agent.walking=false;return;}
+        const bx=agent.homeX-agent.spr.x,by=agent.homeY-agent.spr.y;
+        const backDist=Math.sqrt(bx*bx+by*by);
+        agent.walkDir=Math.abs(bx)>Math.abs(by)?(bx>0?'right':'left'):(by>0?'down':'up');
+        let f2=0;
+        const backTimer=setInterval(()=>{
+          f2=1-f2;
+          if(agent.spr&&!agent.spr.destroyed)agent.spr.setTexture(agent.id+'_'+agent.walkDir+'_'+f2);
+        },180);
+        scene.tweens.add({
+          targets:agent.spr,
+          x:agent.homeX,y:agent.homeY,
+          duration:Math.max(400,backDist*3.5),
+          ease:'Linear',
+          onUpdate:()=>{if(agent.spr)agent.spr.setDepth(agent.spr.y);},
+          onComplete:()=>{
+            clearInterval(backTimer);
+            agent.walking=false;
+            if(agent.spr&&!agent.spr.destroyed)agent.spr.setTexture(agent.id+'_'+agent.facing+'_0');
+            // Restore sprite depth to home position
+            if(agent.spr)agent.spr.setDepth(agent.homeY);
+          }
+        });
+      },700);
+    }
+  });
+}
+
 function relayArtifactTo(toAgentId){
   const from=window._chatAgent;
   if(!from)return;
@@ -2859,6 +2949,9 @@ async function runSwarm(){
       updateSprintCards([id],'done');
     }));
     completedIds.push(...wave.agents);
+    // Fire handoff animations to next wave (non-blocking — runs while LLM calls proceed)
+    const nextWave=activeWaves[activeWaves.indexOf(wave)+1];
+    if(nextWave&&!window._swarmAbort)fireHandoffAnimations(wave.agents,nextWave.agents);
     if(!window._swarmAbort)await new Promise(r=>setTimeout(r,300));
   }
 
@@ -3044,6 +3137,8 @@ class GameScene extends Phaser.Scene{
         idleTimer:0,idleState:'idle',
         lookDir:a.facing,nextIdleAt:randInt(2000,5000),
         lookDuration:0,typeFrame:0,nextPauseAt:randInt(2000,5000),pauseDuration:0,
+        homeX:a.tx*TILE+TILE/2,homeY:a.ty*TILE+TILE/2,
+        walking:false,walkDir:a.facing,
       };
 
       spr.on('pointerdown',()=>{this._clickedAgent=true;openChat(agentData);});
@@ -3325,8 +3420,9 @@ class GameScene extends Phaser.Scene{
     this.player.setTexture('player_'+this.pDir+'_'+(this.moving?this.pFrame:0));
     this.player.setDepth(this.player.y);
 
-    // --- Agent Idle Animations ---
+    // --- Agent Idle Animations (skip while agent is physically walking) ---
     this.agents.forEach(a=>{
+      if(a.walking)return; // walking animation is handled by walkAgentToHandoff()
       a.idleTimer+=delta;
       if(a.idle==='look'){
         if(a.idleState==='idle'&&a.idleTimer>a.nextIdleAt){
@@ -3568,7 +3664,9 @@ function addNewAgent(){
     const agentRuntime=Object.assign({},stub,{spr,labelEl,
       bubble:bub,bubbleTxt:btxt,            // correct property name used by update loop
       thoughtIdx:0,thoughtTimer:0,inRange:false,
-      animTimer:0,animFrame:0,dir:'down'});
+      animTimer:0,animFrame:0,dir:'down',
+      homeX:stub.tx*TILE+TILE/2,homeY:stub.ty*TILE+TILE/2,
+      walking:false,walkDir:stub.facing||'down'});
     scene.agents.push(agentRuntime);
     closeBoard();
     openEditor(agentRuntime,scene);
