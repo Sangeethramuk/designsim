@@ -557,7 +557,7 @@ const AGENTS=[
    desc:'Coordinates all 13 agents, maintains workflow and design quality across phases.',tx:12,ty:6,facing:'right',
    shirt:0x8b6914,hair:0x1a1a1a,idle:'look',
    brain:'kimi-latest',
-   systemPrompt:'You are the Team Lead for the Design Swarm. You oversee all 13 agents and ensure quality design outputs. You know each agent\'s role deeply and can direct work efficiently.',
+   systemPrompt:'You are the Director of the Design Swarm — a 14-agent AI design studio. You coordinate the full design sprint: Wave 1 (Scout+Scholar research), Wave 2 (Palette→Flow→Blueprint→Forge design, in that order), Wave 3 (Lens+Eye+Mirror critique), Wave 4 (Council+Weaver+Gate+Check synthesis). You know each agent\'s output and can tell the user where the sprint stands, what is done, what needs attention, and what to do next. You give direct, actionable guidance. You read the live team status injected into your context and reference it when responding.',
    tools:[],mcp:[],skills:['design-quality-gate'],noCollide:true},
 ];
 
@@ -1138,6 +1138,56 @@ function saveProxyConfig(val){
   localStorage.setItem('use_llm_proxy',val?'true':'false');
 }
 
+// --- Swarm orchestration helpers ---
+
+// Collect outputs from a list of completed agent IDs into a context block
+function collectWaveOutputs(agentIds){
+  const parts=[];
+  agentIds.forEach(id=>{
+    const a=AGENTS.find(x=>x.id===id);if(!a)return;
+    const art=window._agentArtifacts&&window._agentArtifacts[id];
+    const sess=window._agentSessions&&window._agentSessions[id]||[];
+    const lastReply=sess.filter(m=>m.role==='assistant').pop();
+    const content=art?art.content:lastReply?lastReply.content:null;
+    if(content)parts.push('### '+a.name+' — '+a.role+'\n'+content.slice(0,600));
+  });
+  return parts.length
+    ?'## Prior Phase Outputs — read and build upon these\n\n'+parts.join('\n\n---\n\n')
+    :null;
+}
+
+// Inject a context block as a system message into target agents' sessions
+function injectContextToAgents(targetIds,contextBlock){
+  if(!contextBlock)return;
+  targetIds.forEach(id=>{
+    if(!window._agentSessions[id])window._agentSessions[id]=[];
+    // Remove stale prior-phase injections first
+    window._agentSessions[id]=window._agentSessions[id].filter(m=>
+      !(m.role==='system'&&m.content.startsWith('## Prior Phase Outputs'))
+    );
+    window._agentSessions[id].unshift({role:'system',content:contextBlock});
+  });
+}
+
+// Build live team status for the Director's chat context
+function getTeamStatusContext(){
+  const lines=['## Live Team Status'];
+  AGENTS.forEach(a=>{
+    if(a.id==='lead')return;
+    const art=window._agentArtifacts&&window._agentArtifacts[a.id];
+    const sess=(window._agentSessions&&window._agentSessions[a.id])||[];
+    const lastReply=sess.filter(m=>m.role==='assistant').pop();
+    if(art){
+      lines.push('- **'+a.name+'** ('+a.role+'): ✓ has output — '+art.content.slice(0,90).replace(/\n/g,' ')+'…');
+    }else if(lastReply){
+      lines.push('- **'+a.name+'** ('+a.role+'): last said — '+lastReply.content.slice(0,90).replace(/\n/g,' ')+'…');
+    }else{
+      lines.push('- **'+a.name+'** ('+a.role+'): idle — no output yet');
+    }
+  });
+  return lines.join('\n');
+}
+
 function buildAgentMessages(agent,message,history){
   const agentsCtx=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
   const selfCtx='Your tools: '+((agent.tools||[]).join(', ')||'none')+
@@ -1147,6 +1197,8 @@ function buildAgentMessages(agent,message,history){
   const memCtx=getAgentMemoryContext(agent.id);
   if(memCtx)sys+='\n\n'+memCtx;
   if(window._projectBrief)sys+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
+  // Director gets a live team status snapshot so it can give contextual guidance
+  if(agent.id==='lead')sys+='\n\n'+getTeamStatusContext();
   const fmt=getFormatInstruction(agent.id);
   if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
   sys+='\n\nBe direct and expert. Follow the output format strictly.';
@@ -2630,10 +2682,12 @@ async function openNewProject(){
 }
 
 // --- Phase 13: Swarm Mode ---
-async function runSwarmAgent(agent){
-  const msg=window._projectBrief
+
+// Run a single agent headlessly with an explicit prompt
+async function runSwarmAgent(agent, customPrompt){
+  const msg=customPrompt||(window._projectBrief
     ?'Based on the project brief, generate your specialist output now.'
-    :'Introduce yourself and describe how you would approach a typical design project.';
+    :'Introduce yourself and describe how you would approach a typical design project.');
   const history=window._agentSessions[agent.id]||[];
   let response;
   try{
@@ -2653,7 +2707,6 @@ async function runSwarmAgent(agent){
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(agent.id,newHistory.slice()));
   storeArtifact(agent,response);
   if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
-  // Live-update open chat panel if it's this agent
   if(window._chatAgent&&window._chatAgent.id===agent.id){
     appendMessage('agent',response,agent);
     const art=window._agentArtifacts[agent.id];
@@ -2665,31 +2718,84 @@ async function runSwarmAgent(agent){
   }
   return response;
 }
+
 async function runSwarm(){
   if(!window._projectBrief){showToast('Set a project brief first');return;}
   if(window._swarmRunning){window._swarmAbort=true;return;}
-  window._swarmRunning=true;
-  window._swarmAbort=false;
+  window._swarmRunning=true;window._swarmAbort=false;
   updateSwarmBtn();
-  const waves=[
-    AGENTS.filter(a=>['scout','scholar'].includes(a.id)),
-    AGENTS.filter(a=>['palette','flow','blueprint','forge'].includes(a.id)),
-    AGENTS.filter(a=>['lens','eye','mirror'].includes(a.id)),
-    AGENTS.filter(a=>['council','weaver','gate','check','lead'].includes(a.id))
-  ];
   let done=0;
   const prog=document.getElementById('swarm-progress');
-  if(prog)prog.style.display='inline';
-  for(const wave of waves){
-    if(window._swarmAbort)break;
-    await Promise.all(wave.map(async agent=>{
-      await runSwarmAgent(agent);
+  if(prog){prog.style.display='inline';prog.textContent='Starting…';}
+
+  // Helper: run a group in parallel with a shared prompt, then tick counter
+  const runGroup=async(ids,prompt)=>{
+    const agents=AGENTS.filter(a=>ids.includes(a.id));
+    await Promise.all(agents.map(async a=>{
+      if(window._swarmAbort)return;
+      await runSwarmAgent(a,prompt);
       done++;
       if(prog)prog.textContent=done+'/14';
     }));
-    await new Promise(r=>setTimeout(r,300));
-  }
+    if(!window._swarmAbort)await new Promise(r=>setTimeout(r,250));
+  };
+
+  // ── WAVE 1: Research (parallel) ────────────────────────────────────────────
+  if(prog)prog.textContent='1/4 Research…';
+  await runGroup(['scout','scholar'],
+    'Based on the project brief, conduct your specialist research now. Be specific and thorough. Output structured findings.');
+  if(window._swarmAbort){return _swarmEnd(done);}
+
+  // ── WAVE 2a: Palette + Flow (parallel) — inject research ───────────────────
+  if(prog)prog.textContent='2/4 Design…';
+  injectContextToAgents(['palette','flow'],
+    collectWaveOutputs(['scout','scholar']));
+  await runGroup(['palette','flow'],
+    'Based on the project brief and the research findings in your context, generate your specialist design output now.');
+  if(window._swarmAbort){return _swarmEnd(done);}
+
+  // ── WAVE 2b: Blueprint — needs Palette + Flow first ────────────────────────
+  injectContextToAgents(['blueprint'],
+    collectWaveOutputs(['scout','scholar','palette','flow']));
+  await runGroup(['blueprint'],
+    'Based on the project brief, research, visual options, and UX flows above, generate detailed Figma/YAML specifications now.');
+  if(window._swarmAbort){return _swarmEnd(done);}
+
+  // ── WAVE 2c: Forge — needs Blueprint ───────────────────────────────────────
+  injectContextToAgents(['forge'],
+    collectWaveOutputs(['scout','scholar','palette','flow','blueprint']));
+  await runGroup(['forge'],
+    'Based on the design specifications above, implement production-ready code. Follow the specs precisely.');
+  if(window._swarmAbort){return _swarmEnd(done);}
+
+  // ── WAVE 3: Critique (parallel) — inject all design outputs ───────────────
+  if(prog)prog.textContent='3/4 Critique…';
+  const designCtx=collectWaveOutputs(['scout','scholar','palette','flow','blueprint','forge']);
+  injectContextToAgents(['lens','eye','mirror'],designCtx);
+  await runGroup(['lens','eye','mirror'],
+    'Based on the project brief and all design outputs in your context, perform your specialist critique now. Be specific and actionable.');
+  if(window._swarmAbort){return _swarmEnd(done);}
+
+  // ── WAVE 4: Synthesis (parallel) — inject everything ──────────────────────
+  if(prog)prog.textContent='4/4 Synthesis…';
+  const allCtx=collectWaveOutputs(['scout','scholar','palette','flow','blueprint','forge','lens','eye','mirror']);
+  injectContextToAgents(['council','weaver','gate','check'],allCtx);
+  await runGroup(['council','weaver','gate','check'],
+    'Based on all research, design, and critique outputs in your context, deliver your final synthesis now.');
+  if(window._swarmAbort){return _swarmEnd(done);}
+
+  // ── Director: final sprint summary ────────────────────────────────────────
+  injectContextToAgents(['lead'],
+    collectWaveOutputs(['scout','scholar','palette','flow','blueprint','forge','lens','eye','mirror','council','weaver','gate','check']));
+  await runGroup(['lead'],
+    'The full design sprint is complete. Summarise what was researched, what was designed, key critique findings, and the synthesis outcome. Provide a clear handoff brief.');
+
+  _swarmEnd(done);
+}
+
+function _swarmEnd(done){
   window._swarmRunning=false;
+  const prog=document.getElementById('swarm-progress');
   if(prog)prog.style.display='none';
   updateSwarmBtn();
   rebuildAgentMessages();
