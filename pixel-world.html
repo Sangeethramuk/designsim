@@ -54,6 +54,15 @@
   .msg-agent{align-self:flex-start;background:#1a1a2e;padding:6px 10px;border-radius:8px 8px 8px 0;max-width:85%;font-size:12px;border-left:2px solid var(--agent-color,#888);color:#ddd;}
   .msg-agent .msg-sender{font-size:10px;margin-bottom:3px;opacity:0.7;color:var(--agent-color,#888);}
   .msg-body{line-height:1.6;white-space:pre-wrap;word-break:break-word;}
+  /* Thinking indicator */
+  @keyframes think-bounce{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-5px);opacity:1}}
+  .msg-thinking .msg-body{display:flex;gap:5px;align-items:center;padding:5px 2px;min-height:18px;}
+  .think-dot{width:6px;height:6px;border-radius:50%;background:var(--agent-color,#4a9eea);animation:think-bounce 1.1s ease-in-out infinite;}
+  .think-dot:nth-child(2){animation-delay:.18s}.think-dot:nth-child(3){animation-delay:.36s}
+  .msg-thinking .msg-sender{opacity:.5;font-style:italic;}
+  /* Streaming cursor on active message */
+  @keyframes stream-blink{0%,100%{opacity:1}50%{opacity:0}}
+  .msg-streaming .msg-body::after{content:'▋';display:inline-block;animation:stream-blink .55s infinite;color:var(--agent-color,#4a9eea);font-size:.85em;margin-left:2px;vertical-align:text-bottom;}
   .msg-body strong{color:#e8edf5;font-weight:700;}
   .msg-body em{color:#b0c0e0;font-style:italic;}
   .msg-body code{background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:0.88em;color:#4acea0;}
@@ -1024,6 +1033,71 @@ function appendMessage(type,text,agent){
   }
 }
 
+// --- Thinking indicator ---
+function appendThinking(agent){
+  const msgs=document.getElementById('chat-messages');
+  if(!msgs)return null;
+  const div=document.createElement('div');
+  div.className='msg-agent msg-thinking';
+  div.id='msg-thinking-indicator';
+  const sender=document.createElement('div');
+  sender.className='msg-sender';
+  sender.textContent=agent.name+' · thinking…';
+  const body=document.createElement('div');
+  body.className='msg-body';
+  body.innerHTML='<span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span>';
+  div.appendChild(sender);div.appendChild(body);
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+  return div;
+}
+function removeThinking(){
+  const el=document.getElementById('msg-thinking-indicator');
+  if(el)el.remove();
+}
+
+// --- Streaming message helpers ---
+function createStreamMessage(agent){
+  const msgs=document.getElementById('chat-messages');
+  if(!msgs)return null;
+  const div=document.createElement('div');
+  div.className='msg-agent msg-streaming';
+  if(agent){
+    const sender=document.createElement('div');
+    sender.className='msg-sender';
+    sender.textContent=agent.name+' · '+agent.role;
+    div.appendChild(sender);
+  }
+  const body=document.createElement('div');
+  body.className='msg-body';
+  div.appendChild(body);
+  msgs.appendChild(div);
+  msgs.scrollTop=msgs.scrollHeight;
+  return div;
+}
+function updateStreamMessage(el,fullText){
+  if(!el)return;
+  const body=el.querySelector('.msg-body');
+  if(body)body.innerHTML=renderMarkdown(fullText);
+  const msgs=document.getElementById('chat-messages');
+  if(msgs)msgs.scrollTop=msgs.scrollHeight;
+}
+function finalizeStreamMessage(el){
+  if(el)el.classList.remove('msg-streaming');
+}
+
+// --- Word-by-word simulated streaming for scripted responses ---
+async function simulateStreaming(text,onToken){
+  // Stream word by word at ~40ms per word
+  const words=text.split(/(\s+)/);
+  let acc='';
+  for(const part of words){
+    acc+=part;
+    onToken(part,acc);
+    if(part.trim())await new Promise(r=>setTimeout(r,38));
+  }
+}
+
 function getScriptedResponse(agent,message){
   const resp=SCRIPTED_RESPONSES[agent.id];
   if(!resp)return"I'm "+agent.name+". "+agent.desc;
@@ -1056,6 +1130,74 @@ function buildAgentMessages(agent,message,history){
   if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
   sys+='\n\nBe direct and expert. Follow the output format strictly.';
   return{model:(agent.brain||'kimi-latest').replace('litellm/',''),messages:[{role:'system',content:sys},...history,{role:'user',content:message}]};
+}
+
+// --- SSE reader shared by both streaming functions ---
+async function _readSSEStream(resp,onToken){
+  const reader=resp.body.getReader();
+  const decoder=new TextDecoder();
+  let full='';let buf='';
+  while(true){
+    const{done,value}=await reader.read();
+    if(done)break;
+    buf+=decoder.decode(value,{stream:true});
+    const lines=buf.split('\n');
+    buf=lines.pop()||''; // keep incomplete line
+    for(const line of lines){
+      if(!line.startsWith('data: '))continue;
+      const d=line.slice(6).trim();
+      if(d==='[DONE]')continue;
+      try{
+        const token=JSON.parse(d).choices?.[0]?.delta?.content;
+        if(token){full+=token;onToken(token,full);}
+      }catch(e){}
+    }
+  }
+  return full;
+}
+
+// --- Real streaming: direct LLM (stream:true + SSE) ---
+async function getAgentResponseStream(agent,message,history,baseUrl,apiKey,onToken){
+  const{model,messages}=buildAgentMessages(agent,message,history);
+  const headers={'content-type':'application/json'};
+  if(apiKey)headers['authorization']='Bearer '+apiKey;
+  const resp=await fetch(baseUrl+'/v1/chat/completions',{
+    method:'POST',headers,
+    body:JSON.stringify({model,max_tokens:600,messages,stream:true})
+  });
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  return _readSSEStream(resp,onToken);
+}
+
+// --- Real streaming: Supabase proxy (streams SSE if Edge Fn supports it, else simulates) ---
+async function getProxyResponseStream(agent,message,history,onToken){
+  const{url:sbUrl,key:sbKey}=loadSupabaseConfig();
+  if(!sbUrl||!window._sbClient)throw new Error('Supabase not configured');
+  const{model,messages}=buildAgentMessages(agent,message,history);
+  let tok=sbKey||'';
+  try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)tok=session.access_token;}catch(e){}
+  const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+tok,'apikey':sbKey||'','Content-Type':'application/json'},
+    body:JSON.stringify({model,messages,max_tokens:600,stream:true})
+  });
+  if(!resp.ok){
+    // Try parsing error JSON
+    try{const d=await resp.clone().json();throw new Error(d.error?.message||'Proxy error');}catch(e2){throw new Error('Proxy HTTP '+resp.status);}
+  }
+  const ct=resp.headers.get('content-type')||'';
+  if(ct.includes('event-stream')||ct.includes('text/plain')){
+    // Updated Edge Function: pipe SSE through
+    return _readSSEStream(resp,onToken);
+  }
+  // Old Edge Function: non-streaming JSON — simulate streaming for UX
+  const data=await resp.json();
+  if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+  if(!data.choices&&data.message)throw new Error(data.message);
+  const content=data.choices?.[0]?.message?.content;
+  if(!content&&content!==0)throw new Error('Empty response from proxy');
+  await simulateStreaming(content,onToken);
+  return content;
 }
 
 async function getProxyResponse(agent,message,history){
@@ -1123,35 +1265,74 @@ async function sendChatMessage(){
   const btn=document.getElementById('chat-send');
   const msg=input.value.trim();
   if(!msg||!window._chatAgent)return;
+  const agent=window._chatAgent; // capture — may change if user opens another chat
+
   appendMessage('user',msg);
   input.value='';
-  if(btn)btn.disabled=true;
-  let response;
-  if(window._sbClient&&loadProxyConfig()){
-    // Phase 10e: route through Supabase Edge Function (API key stays server-side)
-    try{response=await getProxyResponse(window._chatAgent,msg,window._chatHistory||[]);}
-    catch(e){response=getScriptedResponse(window._chatAgent,msg)+' [Proxy error: '+e.message+']';}
-  }else if(window._llmBaseUrl){
-    try{response=await getAgentResponse(window._chatAgent,msg,window._chatHistory||[],window._llmBaseUrl,window._llmApiKey);}
-    catch(e){response=getScriptedResponse(window._chatAgent,msg)+' [LLM error: '+e.message+']';}
-  }else{
-    response=getScriptedResponse(window._chatAgent,msg);
+  if(btn){btn.disabled=true;btn.textContent='…';}
+
+  // Show thinking dots immediately
+  appendThinking(agent);
+
+  let response='';
+  let streamEl=null;
+
+  // onToken: called for each incoming token — removes thinking on first token, streams into bubble
+  const onToken=(_tok,full)=>{
+    if(!streamEl){removeThinking();streamEl=createStreamMessage(agent);}
+    updateStreamMessage(streamEl,full);
+  };
+
+  try{
+    if(window._sbClient&&loadProxyConfig()){
+      response=await getProxyResponseStream(agent,msg,window._chatHistory||[],onToken);
+    }else if(window._llmBaseUrl){
+      response=await getAgentResponseStream(agent,msg,window._chatHistory||[],window._llmBaseUrl,window._llmApiKey,onToken);
+    }else{
+      // Scripted fallback — word-by-word simulation
+      const scripted=getScriptedResponse(agent,msg);
+      await simulateStreaming(scripted,onToken);
+      response=scripted;
+    }
+  }catch(e){
+    const fallback=getScriptedResponse(agent,msg)+' [Error: '+e.message+']';
+    removeThinking();
+    if(!streamEl){streamEl=createStreamMessage(agent);}
+    updateStreamMessage(streamEl,fallback);
+    response=fallback;
   }
+
+  // Remove blinking cursor, message is final
+  finalizeStreamMessage(streamEl);
+
+  // If nothing was streamed (empty response edge case), fall back
+  if(!streamEl&&response){
+    removeThinking();
+    appendMessage('agent',response,agent);
+  }
+
+  // --- Post-response: session, persistence, feed, artifacts ---
   window._chatHistory=window._chatHistory||[];
   window._chatHistory.push({role:'user',content:msg},{role:'assistant',content:response});
   if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
-  window._agentSessions[window._chatAgent.id]=window._chatHistory;
-  const _sid=window._chatAgent.id;const _sh=window._chatHistory.slice();
+  window._agentSessions[agent.id]=window._chatHistory;
+  const _sid=agent.id;const _sh=window._chatHistory.slice();
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(_sid,_sh));
-  appendMessage('agent',response,window._chatAgent);
-  if(typeof addFeedEntry==='function')addFeedEntry('chat',window._chatAgent.id,window._chatAgent.name+': '+response.slice(0,60));
-  if(storeArtifact(window._chatAgent,response)){
-    const art=window._agentArtifacts[window._chatAgent.id];
+
+  // Sync rendered HTML cache so switching agents restores history correctly
+  const msgs=document.getElementById('chat-messages');
+  if(msgs&&window._chatAgent&&window._chatAgent.id===agent.id){
+    window._agentMessages[agent.id]=msgs.innerHTML;
+  }
+
+  if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
+  if(storeArtifact(agent,response)){
+    const art=window._agentArtifacts[agent.id];
     document.getElementById('chat-artifact-type-badge').textContent=art.lang||art.type;
     streamArtifactContent(art.content);
   }
-  if(window._voiceEnabled)speakText(response,window._chatAgent);
-  if(btn)btn.disabled=false;
+  if(window._voiceEnabled)speakText(response,agent);
+  if(btn){btn.disabled=false;btn.textContent='↑';}
 }
 
 function openChat(agent){

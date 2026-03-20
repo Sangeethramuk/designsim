@@ -1,5 +1,6 @@
 // Design Swarm Studio — LLM Proxy Edge Function
 // Forwards chat completions to your LLM provider using server-side secrets.
+// Supports both streaming (SSE, stream:true) and non-streaming JSON responses.
 // Deploy: Supabase Dashboard → Edge Functions → New Function → paste this code
 // Secrets: Dashboard → Settings → Edge Function Secrets
 //   LLM_BASE_URL  = e.g. https://api.moonshot.ai
@@ -25,7 +26,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { model, messages, max_tokens } = await req.json()
+    const { model, messages, max_tokens, stream } = await req.json()
 
     const llmBaseUrl = Deno.env.get('LLM_BASE_URL')?.replace(/\/$/, '')
     const llmApiKey  = Deno.env.get('LLM_API_KEY')
@@ -43,9 +44,23 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${llmApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ model, messages, max_tokens }),
+      body: JSON.stringify({ model, messages, max_tokens, stream: !!stream }),
     })
 
+    if (stream) {
+      // Pipe the SSE stream directly to the client — no buffering
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'X-Accel-Buffering': 'no',
+        },
+      })
+    }
+
+    // Non-streaming: return JSON as before
     const data = await upstream.json()
 
     return new Response(JSON.stringify(data), {
