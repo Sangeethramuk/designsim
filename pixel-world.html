@@ -1609,6 +1609,25 @@ function initLLMSettings(){
     showToast(e.target.checked?'LLM Proxy enabled':'LLM Proxy disabled');
   });
   document.getElementById('proxy-test-btn').addEventListener('click',testProxy);
+  // Figma integration wiring
+  document.getElementById('llm-settings-btn').addEventListener('click',()=>{
+    const cfg=loadFigmaConfig();
+    const tokenEl=document.getElementById('figma-token');
+    const keyEl=document.getElementById('figma-file-key');
+    if(tokenEl)tokenEl.value=cfg.token;
+    if(keyEl)keyEl.value=cfg.fileKey;
+    const statusEl=document.getElementById('figma-status');
+    if(statusEl){statusEl.textContent='';statusEl.style.color='#666';}
+  },true);
+  document.getElementById('figma-save-btn').addEventListener('click',()=>{
+    const t=(document.getElementById('figma-token').value||'').trim();
+    const k=(document.getElementById('figma-file-key').value||'').trim();
+    saveFigmaConfig(t,k);
+    const statusEl=document.getElementById('figma-status');
+    if(statusEl){statusEl.textContent='✓ Saved';statusEl.style.color='#4acea0';}
+    showToast('Figma settings saved');
+  });
+  document.getElementById('figma-push-btn').addEventListener('click',pushToFigma);
 }
 
 function loadCredentials(){
@@ -2847,6 +2866,101 @@ async function openNewProject(){
   setTimeout(()=>openBriefModal(),600);
 }
 
+// --- Phase 16d: Figma Integration ---
+
+function loadFigmaConfig(){
+  return{
+    token:localStorage.getItem('figma_token')||'',
+    fileKey:localStorage.getItem('figma_file_key')||''
+  };
+}
+function saveFigmaConfig(token,fileKey){
+  try{
+    localStorage.setItem('figma_token',token);
+    localStorage.setItem('figma_file_key',fileKey);
+  }catch(e){}
+}
+
+function parseBlueprintTokens(yaml){
+  const tokens={colors:{}};
+  // Extract all hex colour values from the YAML text
+  const colorRx=/#([0-9a-fA-F]{6})\b/g;
+  let m;let i=0;
+  const seen=new Set();
+  while((m=colorRx.exec(yaml))!==null){
+    const hex='#'+m[1].toLowerCase();
+    if(!seen.has(hex)){seen.add(hex);tokens.colors['color-'+(++i)]=hex;}
+  }
+  return tokens;
+}
+
+async function pushToFigma(){
+  const cfg=loadFigmaConfig();
+  if(!cfg.token||!cfg.fileKey){
+    showToast('Configure Figma token + file key in ⚙ settings');
+    document.getElementById('llm-settings-modal')&&document.getElementById('llm-settings-modal').classList.add('active');
+    return;
+  }
+  const statusEl=document.getElementById('figma-status');
+  if(statusEl){statusEl.textContent='Pushing…';statusEl.style.color='#888';}
+  const blueprintArt=window._agentArtifacts&&window._agentArtifacts['blueprint'];
+  const weaverArt=window._agentArtifacts&&window._agentArtifacts['weaver'];
+  const leadSess=(window._agentSessions&&window._agentSessions['lead'])||[];
+  const directorSummary=leadSess.filter(m=>m.role==='assistant').pop();
+  // Build comment body
+  const lines=['🤖 Design Swarm Export'];
+  if(window._projectBrief)lines.push('','📋 Brief',''+window._projectBrief);
+  if(blueprintArt)lines.push('','📐 Blueprint Spec ('+blueprintArt.lang+')',''+blueprintArt.content.slice(0,2400));
+  if(weaverArt)lines.push('','🧵 Synthesis',''+weaverArt.content.slice(0,600));
+  if(directorSummary)lines.push('','🎯 Director Summary',''+directorSummary.content.slice(0,600));
+  const commentBody=lines.join('\n');
+  try{
+    // 1. Post comment
+    const r=await fetch('https://api.figma.com/v1/files/'+cfg.fileKey+'/comments',{
+      method:'POST',
+      headers:{'X-Figma-Token':cfg.token,'Content-Type':'application/json'},
+      body:JSON.stringify({message:commentBody})
+    });
+    if(!r.ok){
+      const errBody=await r.json().catch(()=>({}));
+      throw new Error('Comment failed: '+(errBody.err||r.status));
+    }
+    // 2. Push color tokens via Variables API
+    let tokenCount=0;
+    if(blueprintArt){
+      const tokens=parseBlueprintTokens(blueprintArt.content);
+      const colorKeys=Object.keys(tokens.colors);
+      if(colorKeys.length){
+        const variablesPayload={
+          variableCollections:[{action:'CREATE',id:'coll1',name:'Design Swarm Tokens',initialModeId:'mode1'}],
+          variableModes:[{action:'CREATE',id:'mode1',name:'Default',variableCollectionId:'coll1'}],
+          variables:colorKeys.map((k,i)=>({action:'CREATE',id:'var'+i,name:k,resolvedType:'COLOR',variableCollectionId:'coll1'})),
+          variableModeValues:colorKeys.map((k,i)=>{
+            const h=tokens.colors[k];
+            const rv=parseInt(h.slice(1,3),16)/255;
+            const gv=parseInt(h.slice(3,5),16)/255;
+            const bv=parseInt(h.slice(5,7),16)/255;
+            return{variableId:'var'+i,modeId:'mode1',value:{r:rv,g:gv,b:bv,a:1}};
+          })
+        };
+        const vr=await fetch('https://api.figma.com/v1/files/'+cfg.fileKey+'/variables',{
+          method:'POST',
+          headers:{'X-Figma-Token':cfg.token,'Content-Type':'application/json'},
+          body:JSON.stringify(variablesPayload)
+        });
+        if(vr.ok)tokenCount=colorKeys.length;
+      }
+    }
+    const msg='✓ Pushed!'+(tokenCount?' '+tokenCount+' color tokens':'')+(blueprintArt?' + spec':'');
+    if(statusEl){statusEl.textContent=msg;statusEl.style.color='#4acea0';}
+    showToast('✓ Figma: '+msg.replace('✓ ',''));
+  }catch(e){
+    const errMsg='✗ '+e.message;
+    if(statusEl){statusEl.textContent=errMsg;statusEl.style.color='#e84855';}
+    showToast('Figma push failed: '+e.message);
+  }
+}
+
 // --- Phase 13: Swarm Mode ---
 
 // Run a single agent headlessly with an explicit prompt
@@ -3904,6 +4018,23 @@ function saveAgent(){
       <code style="color:#4acea0;">LLM_BASE_URL</code> + <code style="color:#4acea0;">LLM_API_KEY</code> as Edge Function secrets.
     </div>
   </div>
+  <!-- Figma Integration -->
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #151528;">
+    <div class="sb-section-title">🎨 Figma Integration</div>
+    <input id="figma-token" type="password" placeholder="Personal Access Token (figd_...)" autocomplete="off"
+      style="width:100%;background:#060614;border:1px solid #1a1a30;color:#c0c8d8;padding:7px 10px;font-family:monospace;font-size:11px;border-radius:4px;box-sizing:border-box;margin-bottom:6px;">
+    <input id="figma-file-key" placeholder="File key (from figma.com/file/KEY/...)"
+      style="width:100%;background:#060614;border:1px solid #1a1a30;color:#c0c8d8;padding:7px 10px;font-family:monospace;font-size:11px;border-radius:4px;box-sizing:border-box;margin-bottom:6px;">
+    <div style="display:flex;gap:6px;">
+      <button id="figma-save-btn" style="flex:1;background:#0a0a1e;border:1px solid #2a2a5a;color:#a78bfa;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Save</button>
+      <button id="figma-push-btn" style="flex:1;background:#1a0a1e;border:1px solid #4a1a5a;color:#e879f9;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">⟶ Push to Figma</button>
+    </div>
+    <div id="figma-status" style="font-size:10px;font-family:monospace;margin-top:6px;min-height:14px;color:#666;"></div>
+    <div style="font-size:9px;color:#444;line-height:1.5;margin-top:4px;">
+      Posts Blueprint spec + Director summary as a Figma comment.<br>
+      Pushes color tokens via Figma Variables API.
+    </div>
+  </div>
 </div>
 
 <!-- Phase 5: Project Board -->
@@ -3919,6 +4050,7 @@ function saveAgent(){
         <button class="board-action-btn" onclick="addNewAgent()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e">+ Agent</button>
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
+        <button class="board-action-btn" onclick="pushToFigma()" style="color:#e879f9;border-color:rgba(232,121,249,0.35);background:#120a18">⟶ Figma</button>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
       </div>
     </div>
