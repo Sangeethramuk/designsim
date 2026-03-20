@@ -1188,6 +1188,52 @@ function getTeamStatusContext(){
   return lines.join('\n');
 }
 
+async function runDirectorPlanning(brief){
+  const lead=AGENTS.find(a=>a.id==='lead');
+  if(!lead)return null;
+  const knownIds=AGENTS.map(a=>a.id).filter(id=>id!=='lead');
+  const planningPrompt=
+    'PROJECT BRIEF:\n"'+brief+'"\n\n'+
+    'You are the Director of a design studio. Analyze this brief and decide the MINIMAL set of specialists needed.\n'+
+    'Available specialists: scout (competitive research), scholar (best practices & patterns), '+
+    'palette (UI color & visual variations), flow (UX flows & user journeys), '+
+    'blueprint (Figma YAML specs & layout specs), forge (frontend code generation), '+
+    'lens (UX critique & usability), eye (UI aesthetics & visual critique), '+
+    'mirror (persona simulation & user testing), council (review panel & sign-off), '+
+    'weaver (synthesis & recommendations), gate (quality gate & acceptance), check (design checklist).\n\n'+
+    'Return ONLY valid JSON — absolutely no markdown, no explanation, no code fences:\n'+
+    '{"rationale":"1-2 sentences why these agents were chosen","waves":[{"name":"Wave Name","agents":["agent-id"],"prompt":"specific task prompt for these agents"},...]}\n\n'+
+    'Rules:\n'+
+    '- Only include agents that genuinely add value for THIS brief\n'+
+    '- Keep waves sequential where output from one wave feeds the next\n'+
+    '- Agents within a wave run in parallel\n'+
+    '- Blueprint must come after palette/flow if both exist\n'+
+    '- Forge must come after blueprint if blueprint is included\n'+
+    '- Always end with at least one synthesis agent (weaver, council, or gate)\n'+
+    '- Do not include lead/director in waves\n'+
+    '- Use only the exact agent IDs listed above';
+  try{
+    let resp;
+    if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,planningPrompt,[]);
+    else if(window._llmBaseUrl)resp=await getAgentResponse(lead,planningPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    else return null;
+    // Extract JSON object from response (may have surrounding text)
+    const m=resp.match(/\{[\s\S]*\}/);
+    if(!m)return null;
+    const plan=JSON.parse(m[0]);
+    if(!Array.isArray(plan.waves)||!plan.waves.length)return null;
+    // Validate: filter out unknown agent IDs and empty waves
+    plan.waves=plan.waves
+      .map(w=>({...w,agents:(w.agents||[]).filter(id=>knownIds.includes(id))}))
+      .filter(w=>w.agents&&w.agents.length>0);
+    if(!plan.waves.length)return null;
+    return plan;
+  }catch(e){
+    console.warn('Director planning failed:',e.message);
+    return null;
+  }
+}
+
 function buildAgentMessages(agent,message,history){
   const agentsCtx=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
   const selfCtx='Your tools: '+((agent.tools||[]).join(', ')||'none')+
@@ -1448,6 +1494,7 @@ function initChatPanel(){
   window._memories=[];
   window._swarmRunning=false;
   window._swarmAbort=false;
+  window._sprintPlan=null;
   window._memBrowserOpen=false;
   window._chatHistory=[];
   window._chatAgent=null;
@@ -2719,6 +2766,22 @@ async function runSwarmAgent(agent, customPrompt){
   return response;
 }
 
+// ── Hardcoded fallback wave plan (used when Director planning fails or LLM unavailable) ──
+const HARDCODED_WAVES=[
+  {name:'Research',agents:['scout','scholar'],
+    prompt:'Based on the project brief, conduct your specialist research now. Be specific and thorough. Output structured findings.'},
+  {name:'Visual Design',agents:['palette','flow'],
+    prompt:'Based on the project brief and the research findings in your context, generate your specialist design output now.'},
+  {name:'Specifications',agents:['blueprint'],
+    prompt:'Based on the project brief, research, and visual/UX options above, generate detailed Figma/YAML specifications now.'},
+  {name:'Code Generation',agents:['forge'],
+    prompt:'Based on the design specifications above, implement production-ready code. Follow the specs precisely.'},
+  {name:'Critique',agents:['lens','eye','mirror'],
+    prompt:'Based on the project brief and all design outputs in your context, perform your specialist critique now. Be specific and actionable.'},
+  {name:'Synthesis',agents:['council','weaver','gate','check'],
+    prompt:'Based on all research, design, and critique outputs in your context, deliver your final synthesis now.'},
+];
+
 async function runSwarm(){
   if(!window._projectBrief){showToast('Set a project brief first');return;}
   if(window._swarmRunning){window._swarmAbort=true;return;}
@@ -2726,69 +2789,55 @@ async function runSwarm(){
   updateSwarmBtn();
   let done=0;
   const prog=document.getElementById('swarm-progress');
-  if(prog){prog.style.display='inline';prog.textContent='Starting…';}
+  if(prog){prog.style.display='inline';prog.textContent='Director planning…';}
 
-  // Helper: run a group in parallel with a shared prompt, then tick counter
-  const runGroup=async(ids,prompt)=>{
-    const agents=AGENTS.filter(a=>ids.includes(a.id));
-    await Promise.all(agents.map(async a=>{
+  // ── Phase 1: Director decides which agents and in what order ──────────────
+  showToast('Director is planning the sprint…');
+  const dirPlan=await runDirectorPlanning(window._projectBrief);
+  if(window._swarmAbort){return _swarmEnd(done);}
+  if(dirPlan&&dirPlan.waves&&dirPlan.waves.length){
+    window._sprintPlan=dirPlan;
+    showToast('Plan: '+dirPlan.rationale.slice(0,55)+'…');
+  }else{
+    window._sprintPlan=null; // use fallback
+  }
+  const activeWaves=window._sprintPlan?window._sprintPlan.waves:HARDCODED_WAVES;
+  const totalAgents=activeWaves.reduce((s,w)=>s+w.agents.length,0)+1; // +1 for Director
+
+  // ── Phase 2: Execute each wave dynamically ────────────────────────────────
+  const completedIds=[];
+  for(const wave of activeWaves){
+    if(window._swarmAbort)break;
+    if(prog)prog.textContent=done+'/'+totalAgents+' '+wave.name+'…';
+    // Inject outputs from all previous waves into this wave's agents
+    if(completedIds.length){
+      const ctx=collectWaveOutputs(completedIds);
+      if(ctx)injectContextToAgents(wave.agents,ctx);
+    }
+    // Run all agents in this wave in parallel
+    await Promise.all(wave.agents.map(async id=>{
       if(window._swarmAbort)return;
-      await runSwarmAgent(a,prompt);
+      const ag=AGENTS.find(a=>a.id===id);
+      if(!ag)return;
+      await runSwarmAgent(ag,wave.prompt);
       done++;
-      if(prog)prog.textContent=done+'/14';
+      if(prog)prog.textContent=done+'/'+totalAgents;
     }));
-    if(!window._swarmAbort)await new Promise(r=>setTimeout(r,250));
-  };
+    completedIds.push(...wave.agents);
+    if(!window._swarmAbort)await new Promise(r=>setTimeout(r,300));
+  }
 
-  // ── WAVE 1: Research (parallel) ────────────────────────────────────────────
-  if(prog)prog.textContent='1/4 Research…';
-  await runGroup(['scout','scholar'],
-    'Based on the project brief, conduct your specialist research now. Be specific and thorough. Output structured findings.');
-  if(window._swarmAbort){return _swarmEnd(done);}
-
-  // ── WAVE 2a: Palette + Flow (parallel) — inject research ───────────────────
-  if(prog)prog.textContent='2/4 Design…';
-  injectContextToAgents(['palette','flow'],
-    collectWaveOutputs(['scout','scholar']));
-  await runGroup(['palette','flow'],
-    'Based on the project brief and the research findings in your context, generate your specialist design output now.');
-  if(window._swarmAbort){return _swarmEnd(done);}
-
-  // ── WAVE 2b: Blueprint — needs Palette + Flow first ────────────────────────
-  injectContextToAgents(['blueprint'],
-    collectWaveOutputs(['scout','scholar','palette','flow']));
-  await runGroup(['blueprint'],
-    'Based on the project brief, research, visual options, and UX flows above, generate detailed Figma/YAML specifications now.');
-  if(window._swarmAbort){return _swarmEnd(done);}
-
-  // ── WAVE 2c: Forge — needs Blueprint ───────────────────────────────────────
-  injectContextToAgents(['forge'],
-    collectWaveOutputs(['scout','scholar','palette','flow','blueprint']));
-  await runGroup(['forge'],
-    'Based on the design specifications above, implement production-ready code. Follow the specs precisely.');
-  if(window._swarmAbort){return _swarmEnd(done);}
-
-  // ── WAVE 3: Critique (parallel) — inject all design outputs ───────────────
-  if(prog)prog.textContent='3/4 Critique…';
-  const designCtx=collectWaveOutputs(['scout','scholar','palette','flow','blueprint','forge']);
-  injectContextToAgents(['lens','eye','mirror'],designCtx);
-  await runGroup(['lens','eye','mirror'],
-    'Based on the project brief and all design outputs in your context, perform your specialist critique now. Be specific and actionable.');
-  if(window._swarmAbort){return _swarmEnd(done);}
-
-  // ── WAVE 4: Synthesis (parallel) — inject everything ──────────────────────
-  if(prog)prog.textContent='4/4 Synthesis…';
-  const allCtx=collectWaveOutputs(['scout','scholar','palette','flow','blueprint','forge','lens','eye','mirror']);
-  injectContextToAgents(['council','weaver','gate','check'],allCtx);
-  await runGroup(['council','weaver','gate','check'],
-    'Based on all research, design, and critique outputs in your context, deliver your final synthesis now.');
-  if(window._swarmAbort){return _swarmEnd(done);}
-
-  // ── Director: final sprint summary ────────────────────────────────────────
-  injectContextToAgents(['lead'],
-    collectWaveOutputs(['scout','scholar','palette','flow','blueprint','forge','lens','eye','mirror','council','weaver','gate','check']));
-  await runGroup(['lead'],
-    'The full design sprint is complete. Summarise what was researched, what was designed, key critique findings, and the synthesis outcome. Provide a clear handoff brief.');
+  // ── Director: final summary (always runs last) ────────────────────────────
+  if(!window._swarmAbort){
+    if(prog)prog.textContent=done+'/'+totalAgents+' Director…';
+    const lead=AGENTS.find(a=>a.id==='lead');
+    if(lead){
+      const allCtx=collectWaveOutputs(completedIds);
+      if(allCtx)injectContextToAgents(['lead'],allCtx);
+      await runSwarmAgent(lead,
+        'The design sprint is complete. Summarise the full workflow: what was researched, what was designed, the critique findings, and the synthesis outcome. Provide a clear deliverables summary and next steps.');
+    }
+  }
 
   _swarmEnd(done);
 }
