@@ -320,6 +320,34 @@
   .board-card-edit-btn:hover{color:#4a9eea;border-color:#4a9eea;}
   .btn-danger{background:#3a1010;color:#e84855;border:1px solid #5a2020;}
   .btn-danger:hover{background:#4a1414;}
+  /* Phase 16b: Sprint Battle Map */
+  #sprint-panel{position:fixed;right:-340px;top:0;bottom:0;width:320px;background:#05050f;border-left:1px solid #181830;z-index:8600;display:flex;flex-direction:column;font-family:monospace;transition:right 0.3s ease;overflow:hidden;}
+  #sprint-panel.active{right:0;}
+  #sprint-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid #151528;flex-shrink:0;gap:8px;}
+  #sprint-title{font-size:12px;font-weight:bold;color:#a78bfa;letter-spacing:0.5px;flex:1;}
+  #sprint-agent-count{font-size:10px;color:#444;margin-left:4px;}
+  #sprint-body{flex:1;overflow-y:auto;padding:10px 12px 20px;}
+  #sprint-body::-webkit-scrollbar{width:3px;}
+  #sprint-body::-webkit-scrollbar-thumb{background:#252548;}
+  .sprint-rationale{font-size:9px;color:#4a4a7a;font-style:italic;line-height:1.6;margin-bottom:12px;padding:8px 10px;border:1px solid #111128;border-radius:4px;background:#070716;}
+  .sprint-wave{margin-bottom:14px;}
+  .sprint-wave-label{font-size:9px;color:#3a3a6a;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid #0d0d20;}
+  .sprint-agent-card{display:flex;align-items:center;gap:7px;padding:6px 9px;border-radius:5px;border:1px solid #111120;margin-bottom:4px;transition:border-color .2s,background .2s,opacity .2s;}
+  .sprint-card-dot{width:6px;height:6px;border-radius:50%;background:var(--ac,#888);flex-shrink:0;transition:box-shadow .2s;}
+  .sprint-card-name{font-size:10px;font-weight:bold;color:#888;flex:1;transition:color .2s;}
+  .sprint-card-role{font-size:8px;color:#2a2a4a;text-align:right;max-width:90px;line-height:1.3;}
+  .sprint-card-check{font-size:9px;color:#3a8a5a;display:none;flex-shrink:0;font-weight:bold;}
+  /* States */
+  .sprint-queued{background:#04040e;border-color:#0d0d1e;opacity:0.55;}
+  .sprint-queued .sprint-card-name{color:#2a2a4a;}
+  .sprint-active{border-color:var(--ac,#4a9eea)!important;background:#080818!important;opacity:1!important;animation:sprint-pulse 1.2s ease-in-out infinite;}
+  .sprint-active .sprint-card-name{color:#ddd!important;}
+  .sprint-active .sprint-card-dot{box-shadow:0 0 7px var(--ac,#4a9eea);}
+  .sprint-done{border-color:#162616;background:#060d06;opacity:1;}
+  .sprint-done .sprint-card-name{color:#3a7a4a;}
+  .sprint-done .sprint-card-check{display:inline;}
+  .sprint-done .sprint-card-dot{background:#3a7a4a!important;}
+  @keyframes sprint-pulse{0%,100%{border-opacity:1;}50%{opacity:0.75;}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <!-- Phase 10: Supabase -->
@@ -1495,6 +1523,7 @@ function initChatPanel(){
   window._swarmRunning=false;
   window._swarmAbort=false;
   window._sprintPlan=null;
+  window._sprintVizOpen=false;
   window._memBrowserOpen=false;
   window._chatHistory=[];
   window._chatAgent=null;
@@ -2804,6 +2833,9 @@ async function runSwarm(){
   const activeWaves=window._sprintPlan?window._sprintPlan.waves:HARDCODED_WAVES;
   const totalAgents=activeWaves.reduce((s,w)=>s+w.agents.length,0)+1; // +1 for Director
 
+  // Open sprint visualizer panel
+  openSprintViz(window._sprintPlan,totalAgents);
+
   // ── Phase 2: Execute each wave dynamically ────────────────────────────────
   const completedIds=[];
   for(const wave of activeWaves){
@@ -2814,6 +2846,8 @@ async function runSwarm(){
       const ctx=collectWaveOutputs(completedIds);
       if(ctx)injectContextToAgents(wave.agents,ctx);
     }
+    // Mark this wave's agents as active in the sprint viz
+    updateSprintCards(wave.agents,'active');
     // Run all agents in this wave in parallel
     await Promise.all(wave.agents.map(async id=>{
       if(window._swarmAbort)return;
@@ -2822,6 +2856,7 @@ async function runSwarm(){
       await runSwarmAgent(ag,wave.prompt);
       done++;
       if(prog)prog.textContent=done+'/'+totalAgents;
+      updateSprintCards([id],'done');
     }));
     completedIds.push(...wave.agents);
     if(!window._swarmAbort)await new Promise(r=>setTimeout(r,300));
@@ -2830,12 +2865,14 @@ async function runSwarm(){
   // ── Director: final summary (always runs last) ────────────────────────────
   if(!window._swarmAbort){
     if(prog)prog.textContent=done+'/'+totalAgents+' Director…';
+    updateSprintCards(['lead'],'active');
     const lead=AGENTS.find(a=>a.id==='lead');
     if(lead){
       const allCtx=collectWaveOutputs(completedIds);
       if(allCtx)injectContextToAgents(['lead'],allCtx);
       await runSwarmAgent(lead,
         'The design sprint is complete. Summarise the full workflow: what was researched, what was designed, the critique findings, and the synthesis outcome. Provide a clear deliverables summary and next steps.');
+      updateSprintCards(['lead'],'done');
     }
   }
 
@@ -2850,6 +2887,8 @@ function _swarmEnd(done){
   rebuildAgentMessages();
   showToast(window._swarmAbort?'Swarm stopped':'✦ Swarm complete — '+done+' agents ran');
   if(!window._swarmAbort){setTimeout(()=>{if(!window._boardOpen)openBoard();},800);}
+  // Sprint viz stays open so user can review — auto-close only on abort
+  if(window._swarmAbort)closeSprintViz();
 }
 function updateSwarmBtn(){
   const btn=document.getElementById('swarm-run-btn');
@@ -2863,6 +2902,86 @@ function updateSwarmBtn(){
     btn.style.color='#4acea0';
     btn.style.borderColor='rgba(74,206,160,0.35)';
   }
+}
+
+// Phase 16b — Sprint Battle Map Visualizer
+function openSprintViz(plan,totalAgents){
+  window._sprintVizOpen=true;
+  const panel=document.getElementById('sprint-panel');
+  const body=document.getElementById('sprint-body');
+  const countEl=document.getElementById('sprint-agent-count');
+  if(!panel||!body)return;
+  body.innerHTML='';
+  if(countEl)countEl.textContent=totalAgents+' agents';
+  // Director rationale
+  if(plan&&plan.rationale){
+    const rat=document.createElement('div');
+    rat.className='sprint-rationale';
+    rat.textContent='"'+plan.rationale+'"';
+    body.appendChild(rat);
+  }
+  // Wave sections
+  const waves=plan?plan.waves:HARDCODED_WAVES;
+  waves.forEach(wave=>{
+    const waveEl=document.createElement('div');
+    waveEl.className='sprint-wave';
+    const lbl=document.createElement('div');
+    lbl.className='sprint-wave-label';
+    lbl.textContent=wave.name;
+    waveEl.appendChild(lbl);
+    (wave.agents||[]).forEach(id=>{
+      const ag=AGENTS.find(a=>a.id===id);
+      if(!ag)return;
+      const card=document.createElement('div');
+      card.className='sprint-agent-card sprint-queued';
+      card.id='sprint-card-'+id;
+      card.style.setProperty('--ac','#'+ag.zc.toString(16).padStart(6,'0'));
+      card.innerHTML=
+        '<span class="sprint-card-dot"></span>'+
+        '<span class="sprint-card-name">'+ag.name+'</span>'+
+        '<span class="sprint-card-role">'+ag.role+'</span>'+
+        '<span class="sprint-card-check">✓</span>';
+      waveEl.appendChild(card);
+    });
+    body.appendChild(waveEl);
+  });
+  // Director card (always last)
+  const lead=AGENTS.find(a=>a.id==='lead');
+  if(lead){
+    const waveEl=document.createElement('div');
+    waveEl.className='sprint-wave';
+    const lbl=document.createElement('div');
+    lbl.className='sprint-wave-label';lbl.textContent='Director';
+    const card=document.createElement('div');
+    card.className='sprint-agent-card sprint-queued';
+    card.id='sprint-card-lead';
+    card.style.setProperty('--ac','#'+lead.zc.toString(16).padStart(6,'0'));
+    card.innerHTML=
+      '<span class="sprint-card-dot"></span>'+
+      '<span class="sprint-card-name">'+lead.name+'</span>'+
+      '<span class="sprint-card-role">'+lead.role+'</span>'+
+      '<span class="sprint-card-check">✓</span>';
+    waveEl.appendChild(card);
+    body.appendChild(waveEl);
+  }
+  panel.classList.add('active');
+}
+
+function closeSprintViz(){
+  window._sprintVizOpen=false;
+  const panel=document.getElementById('sprint-panel');
+  if(panel)panel.classList.remove('active');
+}
+
+function updateSprintCards(ids,status){
+  ids.forEach(id=>{
+    const card=document.getElementById('sprint-card-'+id);
+    if(!card)return;
+    card.className='sprint-agent-card sprint-'+status;
+    if(status==='active'){
+      card.scrollIntoView({behavior:'smooth',block:'nearest'});
+    }
+  });
 }
 
 // --- SCENE ---
@@ -3778,6 +3897,15 @@ function saveAgent(){
     <div class="auth-note" id="auth-note-signin" style="display:block">Sign in to access your data from any device.</div>
     <div class="auth-note" id="auth-note-signup" style="display:none">Sign Up links your email to this session — all data is preserved.<br>Check your email to confirm, then Sign In.</div>
   </div>
+</div>
+<!-- Phase 16b: Sprint Battle Map -->
+<div id="sprint-panel">
+  <div id="sprint-header">
+    <span id="sprint-title">◈ Sprint</span>
+    <span id="sprint-agent-count"></span>
+    <button class="llm-close-btn" onclick="closeSprintViz()" title="Close sprint panel">✕</button>
+  </div>
+  <div id="sprint-body"></div>
 </div>
 </body>
 </html>
