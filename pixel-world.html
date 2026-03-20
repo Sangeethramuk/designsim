@@ -2890,14 +2890,16 @@ class GameScene extends Phaser.Scene{
       const inRange=dist<3*TILE;
       if(inRange!==a.inRange){
         a.inRange=inRange;
-        this.tweens.add({targets:a.bubble,alpha:inRange?1:0,duration:300});
-        if(inRange)speakWhisper(AGENT_THOUGHTS[a.id][a.thoughtIdx]);
+        if(a.bubble)this.tweens.add({targets:a.bubble,alpha:inRange?1:0,duration:300});
+        const thoughts=AGENT_THOUGHTS[a.id]||['...'];
+        if(inRange)speakWhisper(thoughts[a.thoughtIdx||0]);
       }
       if(inRange){
-        a.thoughtTimer+=delta;
+        a.thoughtTimer=(a.thoughtTimer||0)+delta;
         if(a.thoughtTimer>5000){
-          a.thoughtIdx=(a.thoughtIdx+1)%AGENT_THOUGHTS[a.id].length;
-          a.bubbleTxt.setText(AGENT_THOUGHTS[a.id][a.thoughtIdx]);
+          const thoughts=AGENT_THOUGHTS[a.id]||['...'];
+          a.thoughtIdx=((a.thoughtIdx||0)+1)%thoughts.length;
+          if(a.bubbleTxt)a.bubbleTxt.setText(thoughts[a.thoughtIdx]);
           a.thoughtTimer=0;
         }
       }
@@ -3031,7 +3033,8 @@ function deleteCurrentAgent(){
       const sa=currentEditScene.agents[si];
       if(sa.spr)sa.spr.destroy();
       if(sa.labelEl)sa.labelEl.remove();
-      if(sa.bubble)sa.bubble.remove();
+      if(sa.bubble)sa.bubble.destroy(true);   // Phaser container — destroy() not .remove()
+      if(sa.bubbleTxt)sa.bubbleTxt.destroy(); // also destroy text child explicitly
       currentEditScene.agents.splice(si,1);
     }
   }
@@ -3079,7 +3082,16 @@ function addNewAgent(){
     labelEl.textContent=stub.name;
     labelEl.style.color='#'+stub.zc.toString(16).padStart(6,'0');
     document.getElementById('agent-labels').appendChild(labelEl);
-    const agentRuntime=Object.assign({},stub,{spr,labelEl,bubble:null,bubbleText:null,bubbleTimer:0,animTimer:0,animFrame:0,dir:'down'});
+    // Thought bubble (Phaser container — must exist or update loop crashes on bubbleTxt.setText)
+    AGENT_THOUGHTS[newId]=['Working on it...','Ready to help!','Ask me anything'];
+    const bub=scene.add.container(spr.x,spr.y-26).setDepth(150000).setAlpha(0);
+    const bg=scene.add.rectangle(0,0,86,14,0x0a0a2e,0.92).setStrokeStyle(1,stub.zc);
+    const btxt=scene.add.text(0,0,'Working on it...',{fontSize:'5px',fontFamily:'monospace',color:'#e0e0e0',resolution:2}).setOrigin(0.5);
+    bub.add([bg,btxt]);
+    const agentRuntime=Object.assign({},stub,{spr,labelEl,
+      bubble:bub,bubbleTxt:btxt,            // correct property name used by update loop
+      thoughtIdx:0,thoughtTimer:0,inRange:false,
+      animTimer:0,animFrame:0,dir:'down'});
     scene.agents.push(agentRuntime);
     closeBoard();
     openEditor(agentRuntime,scene);
@@ -3182,7 +3194,15 @@ function saveAgent(){
     }
   });
   
+  // Update thought bubble stroke color to new zc
+  if(currentEditAgent.bubble&&currentEditAgent.bubble.list&&currentEditAgent.bubble.list[0]){
+    currentEditAgent.bubble.list[0].setStrokeStyle(1,currentEditAgent.zc);
+  }
+  // Refresh board if open so name/role/zone reflect edits immediately
+  if(window._boardOpen)renderBoardGrid();
+
   closeEditor();
+  showToast('✓ '+currentEditAgent.name+' saved');
 }
 </script>
 
