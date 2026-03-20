@@ -256,6 +256,40 @@
   #hud-auth-btn{position:fixed;top:10px;right:50px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#556;width:32px;height:32px;cursor:pointer;font-size:13px;border-radius:6px;z-index:2000;backdrop-filter:blur(6px);transition:border-color 0.15s,color 0.15s;display:none;align-items:center;justify-content:center;}
   #hud-auth-btn:hover{border-color:#4a9eea;color:#4a9eea;}
   #hud-auth-btn.signed-in{color:#4acea0;border-color:rgba(74,206,160,0.45);}
+  /* Phase 14: Memory Browser */
+  #memory-browser-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:8800;display:none;align-items:center;justify-content:center;}
+  #memory-browser-overlay.active{display:flex;}
+  #memory-browser-panel{background:#0a0a1e;border:1px solid #252548;border-radius:10px;width:90%;max-width:780px;max-height:85vh;display:flex;flex-direction:column;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.8);}
+  #memory-browser-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #151528;flex-shrink:0;}
+  #memory-browser-title{font-size:13px;font-weight:bold;color:#a78bfa;letter-spacing:0.5px;}
+  #memory-browser-body{display:flex;flex:1;overflow:hidden;min-height:300px;}
+  #memory-card-list{width:240px;flex-shrink:0;overflow-y:auto;border-right:1px solid #151528;padding:10px;}
+  #memory-card-list::-webkit-scrollbar{width:3px;}
+  #memory-card-list::-webkit-scrollbar-thumb{background:#252548;}
+  #memory-detail{flex:1;overflow-y:auto;padding:16px 18px;}
+  #memory-detail::-webkit-scrollbar{width:3px;}
+  #memory-detail::-webkit-scrollbar-thumb{background:#252548;}
+  .memory-card{padding:10px 12px;border:1px solid #1a1a30;border-radius:6px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s,background 0.15s;}
+  .memory-card:hover{border-color:#a78bfa;background:#0d0d20;}
+  .memory-card.selected{border-color:#a78bfa;background:#100d1e;}
+  .mem-card-header{font-size:11px;color:#a78bfa;font-weight:bold;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;}
+  .mem-card-date{font-size:9px;color:#555;font-weight:normal;}
+  .mem-card-brief{font-size:10px;color:#666;line-height:1.4;margin-bottom:4px;}
+  .mem-card-meta{font-size:9px;color:#3a3a5a;}
+  .mem-detail-title{font-size:13px;color:#a78bfa;font-weight:bold;margin-bottom:14px;}
+  .mem-detail-section-label{font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;}
+  .mem-detail-brief{font-size:11px;color:#9090b8;line-height:1.6;background:#060614;border:1px solid #151528;border-radius:4px;padding:10px;white-space:pre-wrap;}
+  .mem-detail-artifact{background:#060614;border:1px solid #151528;border-radius:4px;padding:8px 10px;margin-bottom:6px;}
+  .mem-art-header{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+  .mem-art-name{font-size:10px;color:#8888cc;font-weight:bold;}
+  .mem-art-badge{font-size:9px;padding:1px 6px;border-radius:8px;background:#1a1a2e;color:#4a9eea;border:1px solid #252548;}
+  .mem-art-preview{font-size:9px;color:#4a5a6a;line-height:1.4;white-space:pre-wrap;}
+  .mem-detail-meta{font-size:10px;color:#444;}
+  /* Phase 15: Agent Editor v2 */
+  .board-card-edit-btn{font-size:9px;color:#4a6a8a;border:1px solid #1a3a5a;background:#050510;padding:2px 6px;border-radius:3px;cursor:pointer;font-family:monospace;margin-top:4px;display:inline-block;}
+  .board-card-edit-btn:hover{color:#4a9eea;border-color:#4a9eea;}
+  .btn-danger{background:#3a1010;color:#e84855;border:1px solid #5a2020;}
+  .btn-danger:hover{background:#4a1414;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <!-- Phase 10: Supabase -->
@@ -360,6 +394,10 @@
         <label>System Prompt</label>
         <textarea id="edit-systemPrompt" placeholder="Key instruction for the agent..."></textarea>
       </div>
+      <div class="editor-row">
+        <label>Format Instruction</label>
+        <textarea id="edit-format" placeholder="Output format hint (e.g. Return a JSON object with keys…)" style="min-height:52px"></textarea>
+      </div>
     </div>
     <div class="editor-section">
       <div class="editor-section-title">Tools</div>
@@ -377,6 +415,7 @@
       <div class="chip-add" onclick="addSkill()">+ Add Skill</div>
     </div>
     <div class="editor-footer">
+      <button class="btn btn-danger" onclick="deleteCurrentAgent()" style="margin-right:auto">✕ Delete Agent</button>
       <button class="btn btn-secondary" onclick="closeEditor()">Cancel</button>
       <button class="btn btn-primary" onclick="saveAgent()">Save Changes</button>
     </div>
@@ -764,6 +803,8 @@ function makeChar(prefix,shirtCol,hairCol){
   });
 }
 
+// Load any persisted agent customisations before generating textures
+loadAgentsFromStorage();
 // Player
 makeChar('player',0x4a7abc,0x5c3a1e);
 // All 13 agents
@@ -1152,6 +1193,7 @@ function initChatPanel(){
   window._memories=[];
   window._swarmRunning=false;
   window._swarmAbort=false;
+  window._memBrowserOpen=false;
   window._chatHistory=[];
   window._chatAgent=null;
   window._micActive=false;
@@ -1869,9 +1911,21 @@ function renderBoardGrid(){
     if(isChatting){badge.className+=' board-status-chatting';badge.textContent='chatting';}
     else if(art){badge.className+=' board-status-output';badge.textContent='has output';}
     else{badge.className+=' board-status-idle';badge.textContent='idle';}
+    // Edit button
+    const editBtn=document.createElement('button');
+    editBtn.className='board-card-edit-btn';
+    editBtn.textContent='✎ Edit';
+    editBtn.addEventListener('click',e=>{
+      e.stopPropagation();
+      closeBoard();
+      const scene=window._game&&window._game.scene.getScene('GameScene');
+      const agentData=scene&&scene.agents&&scene.agents.find(ag=>ag.id===a.id);
+      if(agentData)openEditor(agentData,scene);
+    });
     card.appendChild(header);card.appendChild(roleEl);card.appendChild(zoneEl);
     if(art)card.appendChild(preview);
     card.appendChild(badge);
+    card.appendChild(editBtn);
     card.addEventListener('click',()=>{
       closeBoard();
       // Find agent data from scene and open chat
@@ -2272,6 +2326,70 @@ function updateMemoryHUD(){
   }else{
     el.style.display='none';
   }
+  if(window._memBrowserOpen)renderMemoryCards();
+}
+// --- Phase 14: Memory Browser ---
+function openMemoryBrowser(){
+  window._memBrowserOpen=true;
+  renderMemoryCards();
+  document.getElementById('memory-browser-overlay').classList.add('active');
+}
+function closeMemoryBrowser(){
+  window._memBrowserOpen=false;
+  document.getElementById('memory-browser-overlay').classList.remove('active');
+}
+function renderMemoryCards(){
+  const list=document.getElementById('memory-card-list');
+  const detail=document.getElementById('memory-detail');
+  if(!list)return;
+  list.innerHTML='';
+  detail.innerHTML='<div style="color:#333;font-size:11px;font-family:monospace;padding:20px">Select a memory to view details</div>';
+  const mems=window._memories||[];
+  if(mems.length===0){
+    list.innerHTML='<div style="color:#333;font-size:11px;font-family:monospace;padding:20px;line-height:1.8">No memories yet.<br>Use ✦ New Project to archive a project.</div>';
+    return;
+  }
+  mems.forEach((mem,i)=>{
+    const card=document.createElement('div');card.className='memory-card';
+    const artCount=Object.keys(mem.artifacts||{}).length;
+    const date=new Date(mem.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+    card.innerHTML='<div class="mem-card-header">◈ Project '+(i+1)+' <span class="mem-card-date">'+date+'</span></div>'+
+      '<div class="mem-card-brief">'+escHtml((mem.brief||'No brief').slice(0,100))+(mem.brief&&mem.brief.length>100?'…':'')+'</div>'+
+      '<div class="mem-card-meta">'+artCount+' artifact'+(artCount!==1?'s':'')+' · '+(mem.relay_count||0)+' relay'+((mem.relay_count||0)!==1?'s':'')+'</div>';
+    card.addEventListener('click',()=>{
+      document.querySelectorAll('.memory-card').forEach(c=>c.classList.remove('selected'));
+      card.classList.add('selected');showMemoryDetail(mem,i);
+    });
+    list.appendChild(card);
+  });
+}
+function showMemoryDetail(mem,idx){
+  const detail=document.getElementById('memory-detail');
+  if(!detail)return;
+  const date=new Date(mem.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  let html='<div class="mem-detail-title">Project '+(idx+1)+' — '+date+'</div>';
+  if(mem.brief){html+='<div class="mem-detail-section-label">Brief</div><div class="mem-detail-brief">'+escHtml(mem.brief)+'</div>';}
+  const arts=mem.artifacts||{};const artKeys=Object.keys(arts);
+  if(artKeys.length>0){
+    html+='<div class="mem-detail-section-label">Artifacts ('+artKeys.length+')</div>';
+    artKeys.forEach(agentId=>{
+      const a=arts[agentId];
+      html+='<div class="mem-detail-artifact"><div class="mem-art-header"><span class="mem-art-name">'+escHtml(a.agentName)+'</span><span class="mem-art-badge">'+escHtml(a.lang||a.type||'')+'</span></div>'+
+        '<div class="mem-art-preview">'+escHtml((a.preview||'').slice(0,150))+((a.preview||'').length>150?'…':'')+'</div></div>';
+    });
+  }
+  html+='<div class="mem-detail-section-label">Relays</div><div class="mem-detail-meta">'+(mem.relay_count||0)+' relay'+((mem.relay_count||0)!==1?'s':'')+' in this project</div>';
+  detail.innerHTML=html;
+}
+function initMemoryBrowser(){
+  window._memBrowserOpen=false;
+  document.getElementById('memory-browser-close').addEventListener('click',closeMemoryBrowser);
+  document.getElementById('memory-browser-overlay').addEventListener('click',e=>{
+    if(e.target===document.getElementById('memory-browser-overlay'))closeMemoryBrowser();
+  });
+  document.getElementById('mem-browser-btn').addEventListener('click',()=>{
+    window._memBrowserOpen?closeMemoryBrowser():openMemoryBrowser();
+  });
 }
 async function openNewProject(){
   const hasArtifacts=Object.keys(window._agentArtifacts||{}).length>0;
@@ -2549,6 +2667,7 @@ class GameScene extends Phaser.Scene{
     initBrief();
     initBoard();
     initFeed();
+    initMemoryBrowser();
   }
 
   // --- Popover ---
@@ -2837,6 +2956,25 @@ const AVAILABLE_MCP=['deepwiki','figma','refero'];
 const AVAILABLE_SKILLS=['research-competitive','research-best-practices','generate-ui','generate-ux','generate-figma-specs','generate-code','critique-ux','critique-ui','critique-persona','review-panel','synthesize-design','design-quality-gate','design-checklist'];
 const AVAILABLE_MODELS=['kimi-latest','litellm/glm-latest','litellm/glm-flash-experimental','litellm/claude-opus-4-5','litellm/claude-opus-4-6','litellm/claude-sonnet-4-5','litellm/claude-sonnet-4-6','litellm/open-large','litellm/open-fast'];
 
+function saveAgentsToStorage(){
+  try{
+    const data=AGENTS.map(a=>({id:a.id,name:a.name,role:a.role,desc:a.desc,
+      zone:a.zone,zc:a.zc,brain:a.brain,systemPrompt:a.systemPrompt,
+      tools:a.tools,mcp:a.mcp,skills:a.skills,
+      shirt:a.shirt,hair:a.hair,tx:a.tx,ty:a.ty,facing:a.facing,idle:a.idle}));
+    localStorage.setItem('custom_agents',JSON.stringify(data));
+    localStorage.setItem('custom_format_map',JSON.stringify(AGENT_FORMAT_MAP));
+  }catch(e){}
+}
+function loadAgentsFromStorage(){
+  try{
+    const raw=localStorage.getItem('custom_agents');
+    if(raw){const saved=JSON.parse(raw);saved.forEach(s=>{const i=AGENTS.findIndex(a=>a.id===s.id);if(i>=0)Object.assign(AGENTS[i],s);});}
+    const fmtRaw=localStorage.getItem('custom_format_map');
+    if(fmtRaw)Object.assign(AGENT_FORMAT_MAP,JSON.parse(fmtRaw));
+  }catch(e){}
+}
+
 function openEditor(agent,scene){
   currentEditAgent=agent;
   currentEditScene=scene;
@@ -2860,6 +2998,8 @@ function openEditor(agent,scene){
   brainSel.innerHTML=AVAILABLE_MODELS.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
   brainSel.value=agent.brain||AVAILABLE_MODELS[0];
   document.getElementById('edit-systemPrompt').value=agent.systemPrompt||'';
+  const fmtEl=document.getElementById('edit-format');
+  if(fmtEl)fmtEl.value=AGENT_FORMAT_MAP[agent.id]||'';
 
   renderChips('edit-tools-list',agent.tools||[],AVAILABLE_TOOLS,removeTool);
   renderChips('edit-mcp-list',agent.mcp||[],AVAILABLE_MCP,removeMcp);
@@ -2876,6 +3016,79 @@ function closeEditor(){
 }
 
 function handleEsc(e){if(e.key==='Escape')closeEditor();}
+
+function deleteCurrentAgent(){
+  if(!currentEditAgent)return;
+  if(!confirm('Delete agent "'+currentEditAgent.name+'"? This cannot be undone.'))return;
+  const id=currentEditAgent.id;
+  // Remove from AGENTS[]
+  const idx=AGENTS.findIndex(a=>a.id===id);
+  if(idx>=0)AGENTS.splice(idx,1);
+  // Remove from scene
+  if(currentEditScene&&currentEditScene.agents){
+    const si=currentEditScene.agents.findIndex(a=>a.id===id);
+    if(si>=0){
+      const sa=currentEditScene.agents[si];
+      if(sa.spr)sa.spr.destroy();
+      if(sa.labelEl)sa.labelEl.remove();
+      if(sa.bubble)sa.bubble.remove();
+      currentEditScene.agents.splice(si,1);
+    }
+  }
+  // Clean up sessions / artifacts
+  if(window._agentSessions)delete window._agentSessions[id];
+  if(window._agentArtifacts)delete window._agentArtifacts[id];
+  saveAgentsToStorage();
+  closeEditor();
+  if(window._boardOpen)renderBoardGrid();
+  showToast('Agent "'+id+'" deleted');
+}
+
+function addNewAgent(){
+  // Build a fresh stub agent and open the editor for it
+  const newId='agent_'+Date.now();
+  const stub={
+    id:newId,name:'New Agent',role:'Custom Role',desc:'A new custom agent.',
+    zone:'Corridor',zc:0x7a7aaa,brain:AVAILABLE_MODELS[0],
+    systemPrompt:'You are a helpful design assistant.',
+    tools:[],mcp:[],skills:[],
+    shirt:0x6a4aaa,hair:0x3a2a6a,
+    tx:13,ty:7,facing:'down',idle:'look',
+    noCollide:true
+  };
+  AGENTS.push(stub);
+  // Add to live scene
+  const scene=window._game&&window._game.scene.getScene('GameScene');
+  if(scene&&scene.agents){
+    makeChar(newId,stub.shirt,stub.hair);
+    // regenerate textures into scene
+    ['down','up','left','right'].forEach(dir=>{
+      for(let f=0;f<2;f++){
+        const key=newId+'_'+dir+'_'+f;
+        const canvas=textures[key];
+        if(canvas)scene.textures.addCanvas(key,canvas);
+      }
+    });
+    // Create sprite at tile position
+    const TILE=16;
+    const spr=scene.add.sprite(stub.tx*TILE+TILE/2,stub.ty*TILE+TILE/2,newId+'_down_0');
+    spr.setScale(2);spr.setDepth(stub.ty*TILE);
+    // Label
+    const labelEl=document.createElement('div');
+    labelEl.className='agent-label';
+    labelEl.textContent=stub.name;
+    labelEl.style.color='#'+stub.zc.toString(16).padStart(6,'0');
+    document.getElementById('agent-labels').appendChild(labelEl);
+    const agentRuntime=Object.assign({},stub,{spr,labelEl,bubble:null,bubbleText:null,bubbleTimer:0,animTimer:0,animFrame:0,dir:'down'});
+    scene.agents.push(agentRuntime);
+    closeBoard();
+    openEditor(agentRuntime,scene);
+  } else {
+    saveAgentsToStorage();
+    showToast('Agent created — reload to see in world');
+    if(window._boardOpen)renderBoardGrid();
+  }
+}
 
 function hex(c){return '#'+(c>>>0).toString(16).padStart(6,'0');}
 function hexToNum(h){return parseInt(h.replace('#',''),16);}
@@ -2925,7 +3138,24 @@ function saveAgent(){
   currentEditAgent.idle=document.getElementById('edit-idle').value;
   currentEditAgent.brain=document.getElementById('edit-brain').value;
   currentEditAgent.systemPrompt=document.getElementById('edit-systemPrompt').value;
-  
+  const fmtVal=(document.getElementById('edit-format')||{}).value||'';
+  if(fmtVal.trim())AGENT_FORMAT_MAP[currentEditAgent.id]=fmtVal.trim();
+
+  // Sync back to canonical AGENTS[] array so swarm + new sessions use updated data
+  const agentIdx=AGENTS.findIndex(a=>a.id===currentEditAgent.id);
+  if(agentIdx>=0){
+    Object.assign(AGENTS[agentIdx],{
+      name:currentEditAgent.name,role:currentEditAgent.role,desc:currentEditAgent.desc,
+      zone:currentEditAgent.zone,zc:currentEditAgent.zc,brain:currentEditAgent.brain,
+      systemPrompt:currentEditAgent.systemPrompt,tools:currentEditAgent.tools,
+      mcp:currentEditAgent.mcp,skills:currentEditAgent.skills,
+      shirt:currentEditAgent.shirt,hair:currentEditAgent.hair,
+      tx:currentEditAgent.tx,ty:currentEditAgent.ty,
+      facing:currentEditAgent.facing,idle:currentEditAgent.idle
+    });
+  }
+  saveAgentsToStorage();
+
   // Update sprite position
   currentEditAgent.spr.x=currentEditAgent.tx*TILE+TILE/2;
   currentEditAgent.spr.y=currentEditAgent.ty*TILE+TILE/2;
@@ -2978,6 +3208,7 @@ function saveAgent(){
 <button id="board-hud-btn" title="Project Board (Tab)">⊞ Board</button>
 <span id="swarm-progress" style="display:none;position:fixed;bottom:10px;right:80px;z-index:8001;font-size:10px;color:#4acea0;font-family:monospace;background:rgba(10,10,30,0.88);padding:3px 8px;border-radius:3px;border:1px solid rgba(74,206,160,0.3)"></span>
 <button id="new-project-btn" onclick="openNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
+<button id="mem-browser-btn" title="Browse past project memories" style="position:fixed;bottom:66px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">◈ Memories</button>
 <div id="game-hint">WASD / arrows · E: chat · click agent · scroll: zoom</div>
 
 <!-- Chat Panel -->
@@ -3087,6 +3318,7 @@ function saveAgent(){
       </div>
       <div id="board-actions">
         <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
+        <button class="board-action-btn" onclick="addNewAgent()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e">+ Agent</button>
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
@@ -3127,6 +3359,20 @@ function saveAgent(){
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button id="brief-save-btn">Set Brief</button>
       <button id="brief-skip-btn">Skip for now</button>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 14: Memory Browser -->
+<div id="memory-browser-overlay">
+  <div id="memory-browser-panel">
+    <div id="memory-browser-header">
+      <div id="memory-browser-title">◈ Project Memories</div>
+      <button class="llm-close-btn" id="memory-browser-close">✕</button>
+    </div>
+    <div id="memory-browser-body">
+      <div id="memory-card-list"></div>
+      <div id="memory-detail"></div>
     </div>
   </div>
 </div>
