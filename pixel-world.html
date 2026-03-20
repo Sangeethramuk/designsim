@@ -1177,7 +1177,8 @@ function collectWaveOutputs(agentIds){
     const sess=window._agentSessions&&window._agentSessions[id]||[];
     const lastReply=sess.filter(m=>m.role==='assistant').pop();
     const content=art?art.content:lastReply?lastReply.content:null;
-    if(content)parts.push('### '+a.name+' — '+a.role+'\n'+content.slice(0,600));
+    // Skip swarm-error sentinels — don't pollute downstream context with failure messages
+    if(content&&!content.startsWith('⚠[swarm-error]'))parts.push('### '+a.name+' — '+a.role+'\n'+content.slice(0,600));
   });
   return parts.length
     ?'## Prior Phase Outputs — read and build upon these\n\n'+parts.join('\n\n---\n\n')
@@ -1241,12 +1242,15 @@ async function runDirectorPlanning(brief){
     '- Do not include lead/director in waves\n'+
     '- Use only the exact agent IDs listed above';
   try{
+    window._headlessMode=true;
     let resp;
     if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,planningPrompt,[]);
     else if(window._llmBaseUrl)resp=await getAgentResponse(lead,planningPrompt,[],window._llmBaseUrl,window._llmApiKey);
-    else return null;
-    // Extract JSON object from response (may have surrounding text)
-    const m=resp.match(/\{[\s\S]*\}/);
+    else{window._headlessMode=false;return null;}
+    window._headlessMode=false;
+    // Strip code fences, then extract first JSON object
+    const clean=resp.replace(/```(?:json)?\s*/g,'').replace(/```/g,'');
+    const m=clean.match(/\{[\s\S]*\}/);
     if(!m)return null;
     const plan=JSON.parse(m[0]);
     if(!Array.isArray(plan.waves)||!plan.waves.length)return null;
@@ -1257,6 +1261,7 @@ async function runDirectorPlanning(brief){
     if(!plan.waves.length)return null;
     return plan;
   }catch(e){
+    window._headlessMode=false;
     console.warn('Director planning failed:',e.message);
     return null;
   }
@@ -1273,11 +1278,17 @@ function buildAgentMessages(agent,message,history){
   if(window._userProfile)sys+='\n\n## What You Know About This User\n'+window._userProfile;
   if(window._projectBrief)sys+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs should relate to this project unless asked otherwise.';
   // Director gets a live team status snapshot so it can give contextual guidance
-  if(agent.id==='lead')sys+='\n\n'+getTeamStatusContext();
-  const fmt=getFormatInstruction(agent.id);
-  if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
+  if(agent.id==='lead'&&!window._headlessMode)sys+='\n\n'+getTeamStatusContext();
+  // Skip format instruction for headless Director calls (planning, extract, merge) — they need clean structured output
+  if(!window._headlessMode){
+    const fmt=getFormatInstruction(agent.id);
+    if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
+  }
   sys+='\n\nBe direct and expert. Follow the output format strictly.';
-  return{model:(agent.brain||'kimi-latest').replace('litellm/',''),messages:[{role:'system',content:sys},...history,{role:'user',content:message}]};
+  // Synthesis/lead agents get higher token budget; resolve via a property on the returned object
+  const synthIds=['weaver','council','gate','check','lead'];
+  const maxTokens=synthIds.includes(agent.id)?1200:600;
+  return{model:(agent.brain||'kimi-latest').replace('litellm/',''),maxTokens,messages:[{role:'system',content:sys},...history,{role:'user',content:message}]};
 }
 
 // --- SSE reader shared by both streaming functions ---
@@ -1306,12 +1317,12 @@ async function _readSSEStream(resp,onToken){
 
 // --- Real streaming: direct LLM (stream:true + SSE) ---
 async function getAgentResponseStream(agent,message,history,baseUrl,apiKey,onToken){
-  const{model,messages}=buildAgentMessages(agent,message,history);
+  const{model,messages,maxTokens}=buildAgentMessages(agent,message,history);
   const headers={'content-type':'application/json'};
   if(apiKey)headers['authorization']='Bearer '+apiKey;
   const resp=await fetch(baseUrl+'/v1/chat/completions',{
     method:'POST',headers,
-    body:JSON.stringify({model,max_tokens:600,messages,stream:true})
+    body:JSON.stringify({model,max_tokens:maxTokens,messages,stream:true})
   });
   if(!resp.ok)throw new Error('HTTP '+resp.status);
   return _readSSEStream(resp,onToken);
@@ -1321,13 +1332,13 @@ async function getAgentResponseStream(agent,message,history,baseUrl,apiKey,onTok
 async function getProxyResponseStream(agent,message,history,onToken){
   const{url:sbUrl,key:sbKey}=loadSupabaseConfig();
   if(!sbUrl||!window._sbClient)throw new Error('Supabase not configured');
-  const{model,messages}=buildAgentMessages(agent,message,history);
+  const{model,messages,maxTokens}=buildAgentMessages(agent,message,history);
   let tok=sbKey||'';
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)tok=session.access_token;}catch(e){}
   const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
     method:'POST',
     headers:{'Authorization':'Bearer '+tok,'apikey':sbKey||'','Content-Type':'application/json'},
-    body:JSON.stringify({model,messages,max_tokens:600,stream:true})
+    body:JSON.stringify({model,messages,max_tokens:maxTokens,stream:true})
   });
   if(!resp.ok){
     // Try parsing error JSON
@@ -1351,13 +1362,13 @@ async function getProxyResponseStream(agent,message,history,onToken){
 async function getProxyResponse(agent,message,history){
   const{url:sbUrl,key:sbKey}=loadSupabaseConfig();
   if(!sbUrl||!window._sbClient)throw new Error('Supabase not configured');
-  const{model,messages}=buildAgentMessages(agent,message,history);
+  const{model,messages,maxTokens}=buildAgentMessages(agent,message,history);
   let token=sbKey||'';
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
   const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
     method:'POST',
     headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
-    body:JSON.stringify({model,messages,max_tokens:600})
+    body:JSON.stringify({model,messages,max_tokens:maxTokens})
   });
   const data=await resp.json();
   // Catch both {error:{message}} and Supabase's {message} JWT-error format
@@ -1396,12 +1407,12 @@ async function testProxy(){
 
 async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   // Reuse shared message builder from Phase 10e
-  const{model,messages}=buildAgentMessages(agent,message,history);
+  const{model,messages,maxTokens}=buildAgentMessages(agent,message,history);
   const headers={'content-type':'application/json'};
   if(apiKey)headers['authorization']='Bearer '+apiKey;
   const resp=await fetch(baseUrl+'/v1/chat/completions',{
     method:'POST',headers,
-    body:JSON.stringify({model,max_tokens:600,messages})
+    body:JSON.stringify({model,max_tokens:maxTokens,messages})
   });
   const data=await resp.json();
   if(data.error)throw new Error(data.error.message||'API error');
@@ -1945,8 +1956,10 @@ function detectArtifact(text){
   // 3. Numbered/bulleted list (≥4 items)
   const listLines=lines.filter(l=>/^(\s*[-*•]|\s*\d+[.)]\s)/.test(l));
   if(listLines.length>=4)return{type:'list',lang:'',content:text.trim()};
-  // 4. Markdown heading structure
-  if(/^##\s/.test(text))return{type:'text',lang:'md',content:text.trim()};
+  // 4. Markdown heading structure (H1, H2, or H3 anywhere in text)
+  if(/^#{1,3}\s/m.test(text))return{type:'text',lang:'md',content:text.trim()};
+  // 5. Substantial prose fallback (>250 chars) — capture even unstructured agent outputs
+  if(text.trim().length>250)return{type:'text',lang:'text',content:text.trim()};
   return null;
 }
 
@@ -2754,15 +2767,28 @@ async function sbLoadMemories(){
 
 // --- Phase 17: Agent Learning Layer ---
 async function sbLoadUserProfile(){
-  if(!window._sbClient||!window._sbUser)return;
-  const{data}=await window._sbClient.from('user_profile').select('profile_text').eq('user_id',window._sbUser.id).maybeSingle().catch(()=>({data:null}));
-  window._userProfile=(data&&data.profile_text&&data.profile_text.trim())||null;
+  let profile=null;
+  if(window._sbClient&&window._sbUser){
+    const{data}=await window._sbClient.from('user_profile').select('profile_text').eq('user_id',window._sbUser.id).maybeSingle().catch(()=>({data:null}));
+    profile=(data&&data.profile_text&&data.profile_text.trim())||null;
+  }else{
+    // localStorage fallback for local-LLM users without Supabase
+    try{profile=localStorage.getItem('user_profile')||null;}catch(e){}
+  }
+  window._userProfile=profile;
   const ta=document.getElementById('user-profile-text');
-  if(ta)ta.value=window._userProfile||'';
+  if(ta)ta.value=profile||'';
 }
 function sbSaveUserProfile(profileText){
-  if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('user_profile').upsert({user_id:window._sbUser.id,profile_text:profileText||'',updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
+  if(window._sbClient&&window._sbUser){
+    window._sbClient.from('user_profile').upsert({user_id:window._sbUser.id,profile_text:profileText||'',updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
+  }else{
+    // localStorage fallback
+    try{
+      if(profileText&&profileText.trim())localStorage.setItem('user_profile',profileText);
+      else localStorage.removeItem('user_profile');
+    }catch(e){}
+  }
 }
 async function extractSprintLearnings(){
   const lead=AGENTS.find(a=>a.id==='lead');
@@ -2782,12 +2808,14 @@ async function extractSprintLearnings(){
     '\n\nFormat your response under exactly these headings (2-3 concise bullets each, no preamble, no explanation):\n'+
     '## Design Preferences\n## Technical Preferences\n## Domain Context\n## What Works\n## What To Avoid';
   try{
+    window._headlessMode=true;
     let resp;
     if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,extractPrompt,[]);
     else if(window._llmBaseUrl)resp=await getAgentResponse(lead,extractPrompt,[],window._llmBaseUrl,window._llmApiKey);
-    else return null;
+    else{window._headlessMode=false;return null;}
+    window._headlessMode=false;
     return resp&&resp.trim()?resp.trim():null;
-  }catch(e){console.warn('extractSprintLearnings failed:',e.message);return null;}
+  }catch(e){window._headlessMode=false;console.warn('extractSprintLearnings failed:',e.message);return null;}
 }
 async function mergeUserProfile(newLearnings){
   if(!newLearnings)return;
@@ -2803,12 +2831,14 @@ async function mergeUserProfile(newLearnings){
       '## EXISTING PROFILE\n'+window._userProfile+
       '\n\n## NEW LEARNINGS\n'+newLearnings;
     try{
+      window._headlessMode=true;
       let resp;
       if(lead&&window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,mergePrompt,[]);
       else if(lead&&window._llmBaseUrl)resp=await getAgentResponse(lead,mergePrompt,[],window._llmBaseUrl,window._llmApiKey);
       else resp=null;
+      window._headlessMode=false;
       merged=(resp&&resp.trim())?resp.trim():newLearnings;
-    }catch(e){merged=newLearnings;}
+    }catch(e){window._headlessMode=false;merged=newLearnings;}
   }
   window._userProfile=merged;
   sbSaveUserProfile(merged);
@@ -2816,7 +2846,8 @@ async function mergeUserProfile(newLearnings){
   if(ta)ta.value=merged;
 }
 async function updateUserProfile(){
-  if(!window._sbClient||!window._sbUser)return;
+  // Works with Supabase auth OR local-LLM mode (localStorage fallback)
+  if(!window._llmBaseUrl&&!(window._sbClient&&loadProxyConfig()))return;
   try{
     showToast('Director is distilling sprint learnings…');
     const learnings=await extractSprintLearnings();
@@ -3068,6 +3099,7 @@ async function runSwarmAgent(agent, customPrompt){
     :'Introduce yourself and describe how you would approach a typical design project.');
   const history=window._agentSessions[agent.id]||[];
   let response;
+  let _swarmErrored=false;
   try{
     if(window._sbClient&&loadProxyConfig()){
       response=await getProxyResponse(agent,msg,history);
@@ -3077,13 +3109,22 @@ async function runSwarmAgent(agent, customPrompt){
       response=getScriptedResponse(agent,msg);
     }
   }catch(e){
-    response=getScriptedResponse(agent,msg)+' [Swarm error: '+e.message+']';
+    _swarmErrored=true;
+    response='⚠[swarm-error] '+agent.name+' unavailable: '+e.message;
+    console.warn('Swarm agent error ('+agent.id+'):',e.message);
   }
-  const newHistory=[...history,{role:'user',content:msg},{role:'assistant',content:response}];
-  if(newHistory.length>30)newHistory.splice(0,newHistory.length-30);
+  let newHistory=[...history,{role:'user',content:msg},{role:'assistant',content:response}];
+  if(newHistory.length>30){
+    // Preserve system messages (injected context); trim oldest chat turns only
+    const sys=newHistory.filter(m=>m.role==='system');
+    let chat=newHistory.filter(m=>m.role!=='system');
+    const maxChat=30-sys.length;
+    if(chat.length>maxChat)chat=chat.slice(chat.length-maxChat);
+    newHistory=[...sys,...chat];
+  }
   window._agentSessions[agent.id]=newHistory;
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(agent.id,newHistory.slice()));
-  storeArtifact(agent,response);
+  if(!_swarmErrored)storeArtifact(agent,response); // don't store error sentinels as artifacts
   if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
   if(window._chatAgent&&window._chatAgent.id===agent.id){
     appendMessage('agent',response,agent);
@@ -3155,7 +3196,9 @@ async function runSwarm(){
       if(window._swarmAbort)return;
       const ag=AGENTS.find(a=>a.id===id);
       if(!ag)return;
-      await runSwarmAgent(ag,wave.prompt);
+      // Per-agent prompt: append role focus so parallel agents don't duplicate each other
+      const agentPrompt=(wave.prompt||'')+'\n\nYour specific focus: apply your role as '+ag.role+' specialist. Do not duplicate what your colleagues in this wave will cover.';
+      await runSwarmAgent(ag,agentPrompt);
       done++;
       if(prog)prog.textContent=done+'/'+totalAgents;
       updateSprintCards([id],'done');
@@ -3169,6 +3212,9 @@ async function runSwarm(){
 
   // ── Director: final summary (always runs last) ────────────────────────────
   if(!window._swarmAbort){
+    // Fire handoff animation from last wave's agents to Director
+    const lastWave=activeWaves[activeWaves.length-1];
+    if(lastWave)fireHandoffAnimations(lastWave.agents,['lead']);
     if(prog)prog.textContent=done+'/'+totalAgents+' Director…';
     updateSprintCards(['lead'],'active');
     const lead=AGENTS.find(a=>a.id==='lead');
