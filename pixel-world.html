@@ -1853,6 +1853,13 @@ function initAnonAuth(){
   return window._sbClient.auth.getSession().then(({data:{session}})=>{
     if(session&&session.user){
       window._sbUser=session.user;
+      // Restore all user data on page refresh.
+      // sbLoadAll() is called here (not via _sbReady.then in initChatPanel) because
+      // initChatPanel runs BEFORE initSupabase creates this promise — so the .then()
+      // registered there fires against Promise.resolve(null) and is a no-op.
+      // getSession() is async so all init fns (initArtifactPanel, initRelayModal etc.)
+      // are guaranteed to have finished before this callback fires.
+      if(typeof sbLoadAll==='function')sbLoadAll();
       return session.user;
     }
     // No session — not signed in via Google. Redirect to landing page.
