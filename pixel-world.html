@@ -242,6 +242,15 @@
   /* Toast */
   #relay-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#0a2a1a;border:1px solid #2a6a4a;color:#4abc6a;padding:8px 18px;border-radius:20px;font-size:11px;font-family:monospace;opacity:0;pointer-events:none;transition:opacity 0.2s,transform 0.2s;z-index:9900;}
   #relay-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  /* Preview-ready banner (sprint complete) */
+  #preview-ready-banner{display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9950;background:#061a10;border:1px solid #2a6a4a;border-radius:24px;padding:0;font-family:monospace;box-shadow:0 4px 24px rgba(0,0,0,0.7);animation:prb-slidein 0.35s ease;}
+  #preview-ready-banner.show{display:flex;align-items:center;gap:0;}
+  @keyframes prb-slidein{from{opacity:0;transform:translateX(-50%) translateY(-12px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+  #preview-ready-link{display:flex;align-items:center;gap:8px;padding:9px 18px 9px 16px;color:#4acea0;font-size:12px;font-weight:bold;text-decoration:none;cursor:pointer;border-radius:24px 0 0 24px;}
+  #preview-ready-link:hover{background:rgba(74,206,160,0.12);color:#6adbb0;}
+  #preview-ready-link .prb-icon{font-size:14px;}
+  #preview-ready-close{padding:9px 13px 9px 6px;color:#3a7a5a;font-size:12px;cursor:pointer;background:none;border:none;font-family:monospace;border-radius:0 24px 24px 0;line-height:1;}
+  #preview-ready-close:hover{color:#4acea0;}
   @keyframes relay-flash{0%,100%{opacity:1}20%,60%{opacity:0.2}40%,80%{opacity:1}}
   .relay-flashing{animation:relay-flash 0.6s ease;}
   /* Phase 8 — Collaboration Feed */
@@ -2786,25 +2795,51 @@ function downloadDossier(){
 }
 
 // Open dossier as a live preview in a new browser tab (instant, no upload needed)
+// Called from user click on "▶ Preview" board button — window.open is safe here (direct click)
 function openDossierPreview(){
-  const html=generateDossierHTMLWithActions();
-  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const win=window.open(url,'_blank');
-  if(!win){showToast('Pop-up blocked — use ⬇ HTML instead');return;}
-  setTimeout(()=>URL.revokeObjectURL(url),120000);
-  showToast('Dossier opened in new tab');
-}
-
-// Called automatically after sprint completes — opens dossier with Share + Figma action bar
-function openSprintPreviewTab(){
   try{
     const html=generateDossierHTMLWithActions();
     const blob=new Blob([html],{type:'text/html;charset=utf-8'});
     const url=URL.createObjectURL(blob);
     const win=window.open(url,'_blank');
-    if(!win){showToast('⚠ Pop-up blocked — click Preview in Board to open dossier',3000);return;}
+    if(!win){
+      // Fallback: update the banner link instead so user can click it
+      const link=document.getElementById('preview-ready-link');
+      if(link)link.href=url;
+      const banner=document.getElementById('preview-ready-banner');
+      if(banner)banner.classList.add('show');
+      showToast('Pop-up blocked — click the banner at top to open preview',3000);
+      return;
+    }
     setTimeout(()=>URL.revokeObjectURL(url),120000);
+    showToast('Dossier opened in new tab');
+  }catch(e){showToast('Preview error: '+e.message,3000);}
+}
+
+// Called automatically after sprint completes — shows a clickable banner (avoids popup blocker)
+function openSprintPreviewTab(){
+  try{
+    const html=generateDossierHTMLWithActions();
+    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    // Revoke any previous blob URL to free memory
+    if(window._dossierBlobUrl){try{URL.revokeObjectURL(window._dossierBlobUrl);}catch(e){}}
+    window._dossierBlobUrl=url;
+    // Wire the banner link and show it — user clicks the <a> directly (no popup blocker)
+    const link=document.getElementById('preview-ready-link');
+    if(link){
+      link.href=url;
+      // Auto-revoke after 10 minutes
+      if(window._dossierBlobTimer)clearTimeout(window._dossierBlobTimer);
+      window._dossierBlobTimer=setTimeout(()=>{
+        URL.revokeObjectURL(url);
+        window._dossierBlobUrl=null;
+        const banner=document.getElementById('preview-ready-banner');
+        if(banner)banner.classList.remove('show');
+      },600000);
+    }
+    const banner=document.getElementById('preview-ready-banner');
+    if(banner)banner.classList.add('show');
   }catch(e){console.warn('[Preview] openSprintPreviewTab:',e.message);}
 }
 
@@ -5222,6 +5257,14 @@ function saveAgent(){
 
 <!-- Phase 4: Toast Notification -->
 <div id="relay-toast"></div>
+
+<!-- Sprint-complete preview banner (click-safe, no popup blocker) -->
+<div id="preview-ready-banner">
+  <a id="preview-ready-link" href="#" target="_blank" rel="noopener">
+    <span class="prb-icon">✦</span> Sprint complete — Open Preview
+  </a>
+  <button id="preview-ready-close" onclick="document.getElementById('preview-ready-banner').classList.remove('show')" title="Dismiss">✕</button>
+</div>
 
 <!-- Phase 2: Project Brief Modal -->
 <div id="brief-modal">
