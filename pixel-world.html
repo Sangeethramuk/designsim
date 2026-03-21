@@ -2608,7 +2608,7 @@ function initRelayModal(){
 
 // --- Phase 5: Project Board ---
 function escHtml(s){
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function renderBoardGrid(){
@@ -2766,7 +2766,8 @@ function generateDossierHTML(){
     }else{
       contentHtml='<div class="mc">'+escHtml(art.content).replace(/\n/g,'<br>')+'</div>';
     }
-    agentSections+='<div class="as"><div class="ah"><span class="ad" style="background:'+escHtml(a.color)+'"></span><span class="an">'+escHtml(a.name)+'</span><span class="ar">'+escHtml(a.role)+'</span><span class="at">'+typeLabel+'</span></div><div class="ac">'+contentHtml+'</div></div>';
+    const agentColor='#'+(a.zc||0).toString(16).padStart(6,'0');
+    agentSections+='<div class="as"><div class="ah"><span class="ad" style="background:'+agentColor+'"></span><span class="an">'+escHtml(a.name)+'</span><span class="ar">'+escHtml(a.role)+'</span><span class="at">'+typeLabel+'</span></div><div class="ac">'+contentHtml+'</div></div>';
   });
   if(!hasAny)agentSections='<p class="empty">No artifacts generated yet.</p>';
   let relayHtml='';
