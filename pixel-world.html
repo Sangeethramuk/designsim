@@ -132,6 +132,38 @@
   .confirm-ok-btn:hover{background:rgba(232,72,85,0.15);}
   .confirm-cancel-btn{flex:1;background:#0a0a1e;border:1px solid #252548;color:#666;padding:9px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
   .confirm-cancel-btn:hover{color:#aaa;border-color:#4a4a7a;}
+  /* UX Phase 2 — Structure */
+  /* Mode pills */
+  #hud-mode-pills{display:flex;gap:0;background:rgba(5,5,15,0.8);border:1px solid #252548;border-radius:20px;overflow:hidden;margin-left:8px;}
+  .hud-mode-pill{background:transparent;border:none;color:#3a3a6a;font-family:monospace;font-size:10px;padding:3px 11px;cursor:pointer;transition:background .15s,color .15s;}
+  .hud-mode-pill.active{background:rgba(74,158,234,0.18);color:#4a9eea;}
+  .hud-mode-pill:hover:not(.active){color:#7090b8;}
+  /* Board cards: chat CTA overlay + absolute edit btn */
+  .board-card{position:relative;overflow:hidden;}
+  .board-card-edit-btn{position:absolute!important;top:8px;right:8px;display:none;margin-top:0!important;font-size:9px;color:#4a6a8a;border:1px solid #1a3a5a;background:rgba(5,5,15,0.95);padding:2px 6px;border-radius:3px;cursor:pointer;font-family:monospace;}
+  .board-card:hover .board-card-edit-btn{display:inline;}
+  .board-card-chat-cta{display:none;position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(10,40,70,0.9),transparent);border-radius:0 0 8px 8px;padding:14px 12px 8px;font-size:10px;color:#4a9eea;font-family:monospace;text-align:right;pointer-events:none;}
+  .board-card:hover .board-card-chat-cta{display:block;}
+  /* Run Swarm pulse highlight after brief save */
+  @keyframes pulse-cta{0%,100%{box-shadow:none;}50%{box-shadow:0 0 14px rgba(74,206,160,0.7),0 0 28px rgba(74,206,160,0.35);}}
+  #swarm-run-btn.pulse-cta{animation:pulse-cta 0.9s ease-in-out 3;}
+  /* Swarm Control Panel (Director mode) */
+  #swarm-control-panel{display:none;flex-direction:column;flex:1;overflow-y:auto;background:#07071a;}
+  #swarm-control-panel.open{display:flex;}
+  .swc-header{padding:18px 18px 12px;border-bottom:1px solid #101025;flex-shrink:0;}
+  .swc-title{font-size:14px;font-weight:bold;color:#a78bfa;letter-spacing:0.5px;}
+  .swc-subtitle{font-size:10px;color:#3a3a6a;margin-top:5px;line-height:1.5;}
+  .swc-section{padding:12px 18px;border-bottom:1px solid #0d0d20;flex-shrink:0;}
+  .swc-label{font-size:9px;color:#3a3a6a;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:7px;}
+  .swc-brief-box{font-size:11px;color:#8888bb;line-height:1.6;background:#060614;border:1px solid #151528;border-radius:5px;padding:9px 11px;cursor:pointer;transition:border-color .15s;}
+  .swc-brief-box:hover{border-color:#4a9eea;}.swc-brief-box.empty{color:#333;font-style:italic;}
+  .swc-run-btn{width:100%;padding:13px;background:linear-gradient(135deg,rgba(74,206,160,0.16),rgba(74,206,160,0.07));border:1px solid rgba(74,206,160,0.45);color:#4acea0;font-family:monospace;font-size:13px;font-weight:bold;border-radius:6px;cursor:pointer;transition:background .2s,border-color .2s;letter-spacing:0.5px;}
+  .swc-run-btn:hover{background:linear-gradient(135deg,rgba(74,206,160,0.26),rgba(74,206,160,0.12));border-color:#4acea0;}
+  .swc-run-btn.running{background:rgba(232,136,136,0.1);border-color:rgba(232,136,136,0.4);color:#e88888;}
+  .swc-wave-list{display:flex;flex-direction:column;gap:5px;}
+  .swc-wave{display:flex;align-items:flex-start;gap:7px;font-size:10px;color:#555;line-height:1.4;}
+  .swc-wave-dot{width:6px;height:6px;border-radius:50%;background:#252548;flex-shrink:0;margin-top:3px;}
+  .swc-info{font-size:10px;color:#3a3a6a;line-height:1.6;}
   #llm-settings-btn{position:fixed;top:10px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#556;width:32px;height:32px;cursor:pointer;font-size:15px;border-radius:6px;z-index:2000;backdrop-filter:blur(6px);transition:border-color 0.15s,color 0.15s;display:flex;align-items:center;justify-content:center;}
   #llm-settings-btn:hover{border-color:#4a9eea;color:#4a9eea;}
   #llm-settings-btn.connected{color:#4abc6a;border-color:rgba(74,188,106,0.5);}
@@ -144,10 +176,8 @@
   .llm-field input{width:100%;background:#060614;border:1px solid #252548;color:#ccc;padding:8px 10px;font-size:12px;font-family:monospace;border-radius:4px;box-sizing:border-box;}.llm-field input:focus{outline:none;border-color:#4a9eea;}
   #llm-status{font-size:11px;margin:6px 0 10px;min-height:14px;font-family:monospace;}#llm-status.ok{color:#4abc6a;}#llm-status.err{color:#e84855;}
   #llm-save-btn{background:#0a2a1a;border:1px solid #2a5a3a;color:#4abc6a;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;width:100%;}#llm-save-btn:hover{background:#1a4a2a;}
-  #chat-agent-model{background:transparent;border:none;color:var(--agent-color,#4a9eea);font-size:10px;
-    font-family:monospace;padding:0;cursor:pointer;flex-shrink:0;max-width:130px;
-    opacity:.75;transition:opacity .15s;}
-  #chat-agent-model:hover{opacity:1;}
+  #chat-agent-model{background:rgba(74,158,234,0.07);border:1px solid rgba(74,158,234,0.2);color:var(--agent-color,#4a9eea);font-size:10px;font-family:monospace;padding:2px 8px;cursor:pointer;flex-shrink:0;max-width:150px;border-radius:10px;outline:none;transition:border-color .15s,background .15s;}
+  #chat-agent-model:hover{border-color:var(--agent-color,#4a9eea);background:rgba(74,158,234,0.12);}
   #chat-agent-model option{background:#0a0a1e;color:#ccc;}
   /* Phase 2 — Project Brief */
   #game-hud .h-brief{color:#4a9eea;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;pointer-events:auto;}
@@ -1597,6 +1627,12 @@ async function sendChatMessage(){
 }
 
 function openChat(agent){
+  // Director intercept — show Swarm Control panel instead of chat
+  if(agent.id==='lead'){openSwarmControl(agent);return;}
+  // Ensure control panel is hidden and chat UI is restored
+  document.getElementById('swarm-control-panel')?.classList.remove('open');
+  ['chat-messages','chat-controls','chat-input-area','chat-agent-sep','chat-agent-model']
+    .forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='';});
   window._chatAgent=agent;
   window._chatHistory=window._agentSessions[agent.id]||[];
   const panel=document.getElementById('chat-panel');
@@ -1623,10 +1659,68 @@ function openChat(agent){
 function closeChat(){
   const panel=document.getElementById('chat-panel');
   if(panel)panel.classList.remove('open');
+  // Restore any elements hidden for Director mode
+  const els=['chat-messages','chat-controls','chat-input-area','chat-agent-sep','chat-agent-model'];
+  els.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='';});
+  document.getElementById('swarm-control-panel')?.classList.remove('open');
   const artArea=document.getElementById('chat-artifact-area');
   if(artArea)artArea.style.display='none';
   window._chatAgent=null;
   if(window.speechSynthesis)window.speechSynthesis.cancel();
+}
+
+// ── UX Phase 2: Director Swarm Control Panel ──────────────────────────────────
+function openSwarmControl(agent){
+  window._chatAgent=agent;
+  const panel=document.getElementById('chat-panel');
+  if(!panel)return;
+  panel.style.setProperty('--agent-color','#a78bfa');
+  document.getElementById('chat-agent-dot').style.background='#a78bfa';
+  document.getElementById('chat-agent-dot').style.boxShadow='0 0 7px #a78bfa88';
+  document.getElementById('chat-agent-name').textContent=agent.name;
+  document.getElementById('chat-agent-role').textContent='Sprint Director';
+  // Hide chat UI, show control panel
+  const hide=['chat-messages','chat-controls','chat-input-area','chat-agent-sep','chat-agent-model'];
+  hide.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  document.getElementById('chat-artifact-area').style.display='none';
+  updateSwarmControl();
+  document.getElementById('swarm-control-panel').classList.add('open');
+  panel.classList.add('open');
+}
+
+function updateSwarmControl(){
+  const briefEl=document.getElementById('swc-brief');
+  if(briefEl){
+    if(window._projectBrief){
+      briefEl.textContent=window._projectBrief;
+      briefEl.className='swc-brief-box';
+    }else{
+      briefEl.textContent='No brief set — click to add one';
+      briefEl.className='swc-brief-box empty';
+    }
+  }
+  const runBtn=document.getElementById('swc-run-btn');
+  if(runBtn){
+    runBtn.textContent=window._swarmRunning?'◼ Stop Sprint':'▶ Start Sprint';
+    runBtn.className='swc-run-btn'+(window._swarmRunning?' running':'');
+  }
+  const planSection=document.getElementById('swc-plan-section');
+  const waveList=document.getElementById('swc-wave-list');
+  if(planSection&&waveList){
+    const plan=window._sprintPlan;
+    if(plan&&plan.waves&&plan.waves.length){
+      planSection.style.display='block';
+      waveList.innerHTML='';
+      plan.waves.forEach(w=>{
+        const d=document.createElement('div');
+        d.className='swc-wave';
+        d.innerHTML='<span class="swc-wave-dot"></span><span>'+w.name+' — '+w.agents.join(', ')+'</span>';
+        waveList.appendChild(d);
+      });
+    }else{
+      planSection.style.display='none';
+    }
+  }
 }
 
 function initChatPanel(){
@@ -2496,10 +2590,11 @@ function renderBoardGrid(){
     if(isChatting){badge.className+=' board-status-chatting';badge.textContent='chatting';}
     else if(art){badge.className+=' board-status-output';badge.textContent='has output';}
     else{badge.className+=' board-status-idle';badge.textContent='idle';}
-    // Edit button
+    // Edit button (absolute top-right, shown on hover via CSS)
     const editBtn=document.createElement('button');
     editBtn.className='board-card-edit-btn';
-    editBtn.textContent='✎ Edit';
+    editBtn.textContent='✎';
+    editBtn.title='Edit agent';
     editBtn.addEventListener('click',e=>{
       e.stopPropagation();
       closeBoard();
@@ -2507,13 +2602,17 @@ function renderBoardGrid(){
       const agentData=scene&&scene.agents&&scene.agents.find(ag=>ag.id===a.id);
       if(agentData)openEditor(agentData,scene);
     });
+    // Chat CTA overlay (shown on hover via CSS)
+    const ctaEl=document.createElement('div');
+    ctaEl.className='board-card-chat-cta';
+    ctaEl.textContent=a.id==='lead'?'Open Sprint Control →':'Open Chat →';
     card.appendChild(header);card.appendChild(roleEl);card.appendChild(zoneEl);
     if(art)card.appendChild(preview);
     card.appendChild(badge);
     card.appendChild(editBtn);
+    card.appendChild(ctaEl);
     card.addEventListener('click',()=>{
       closeBoard();
-      // Find agent data from scene and open chat
       const scene=window._game&&window._game.scene.getScene('GameScene');
       const agentData=scene&&scene.agents&&scene.agents.find(ag=>ag.id===a.id);
       if(agentData)openChat(agentData);
@@ -2702,9 +2801,17 @@ function copyShareUrl(){
   });
 }
 
+function updateModePills(sprintActive){
+  const chat=document.getElementById('hud-mode-chat');
+  const sprint=document.getElementById('hud-mode-sprint');
+  if(chat)chat.classList.toggle('active',!sprintActive);
+  if(sprint)sprint.classList.toggle('active',sprintActive);
+}
+
 function openBoard(){
   window._boardOpen=true;
   window._unreadFeed=0;
+  updateModePills(true);
   // Always open on Agents tab, reset badge
   switchBoardTab('agents');
   // Update brief display
@@ -2716,6 +2823,7 @@ function openBoard(){
 
 function closeBoard(){
   window._boardOpen=false;
+  updateModePills(false);
   document.getElementById('board-overlay').classList.remove('active');
 }
 
@@ -2736,6 +2844,9 @@ function initBoard(){
   document.getElementById('board-hud-btn').addEventListener('click',()=>{
     window._boardOpen?closeBoard():openBoard();
   });
+  // Mode pills
+  document.getElementById('hud-mode-chat')?.addEventListener('click',()=>{if(window._boardOpen)closeBoard();});
+  document.getElementById('hud-mode-sprint')?.addEventListener('click',()=>{if(!window._boardOpen)openBoard();});
   document.getElementById('board-overlay').addEventListener('click',e=>{
     if(e.target===document.getElementById('board-overlay'))closeBoard();
   });
@@ -2901,8 +3012,14 @@ function initBrief(){
     if(!text)return;
     saveBrief(text);
     closeBriefModal();
-    if(!window._projectBrief||window._projectBrief===text)
-      showToast('Brief set! Press Tab → ▶ Run Swarm to start',4000);
+    showToast('Brief set — opening Board',2000);
+    setTimeout(()=>{
+      if(!window._boardOpen)openBoard();
+      setTimeout(()=>{
+        const btn=document.getElementById('swarm-run-btn');
+        if(btn){btn.classList.add('pulse-cta');setTimeout(()=>btn.classList.remove('pulse-cta'),2700);}
+      },300);
+    },300);
   }
   document.getElementById('brief-save-btn').addEventListener('click',_saveBrief);
   document.getElementById('brief-skip-btn').addEventListener('click',closeBriefModal);
@@ -3572,6 +3689,8 @@ function updateSwarmBtn(){
     hudBtn.style.borderColor=running?'rgba(232,136,136,0.4)':'rgba(74,206,160,0.4)';
   }
   if(pulse)pulse.style.display=running?'inline':'none';
+  // Sync Director panel if open
+  if(window._chatAgent&&window._chatAgent.id==='lead')updateSwarmControl();
 }
 
 // Phase 16b — Sprint Battle Map Visualizer
@@ -4390,6 +4509,10 @@ function saveAgent(){
   <span class="h-brief" id="hud-brief" style="display:none" title="Click to edit brief"></span>
   <span id="hud-memory-count" style="display:none;margin-left:8px;font-size:10px;color:#a78bfa;cursor:default;font-family:monospace" title="Memories from past projects">◈ <span id="hud-memory-num">0</span> mem</span>
   <span id="hud-swarm-pulse">⟳ Running…</span>
+  <span id="hud-mode-pills">
+    <button id="hud-mode-chat" class="hud-mode-pill active" title="Chat with agents individually">◎ Chat</button>
+    <button id="hud-mode-sprint" class="hud-mode-pill" title="Open Board to run sprint (Tab)">▶ Sprint</button>
+  </span>
 </div>
 <div id="game-zoom-btns">
   <button id="btn-zoom-out" title="Zoom out (−)">−</button>
@@ -4418,6 +4541,28 @@ function saveAgent(){
     <button id="chat-close" title="Close (E)">✕</button>
   </div>
   <div id="chat-messages"></div>
+  <!-- UX Phase 2: Director Swarm Control Panel -->
+  <div id="swarm-control-panel">
+    <div class="swc-header">
+      <div class="swc-title">◈ Director</div>
+      <div class="swc-subtitle">Orchestrates the design sprint across all 14 agents.</div>
+    </div>
+    <div class="swc-section">
+      <div class="swc-label">Current Brief</div>
+      <div id="swc-brief" class="swc-brief-box empty" onclick="closeChat();openBriefModal(true)">No brief set — click to add one</div>
+    </div>
+    <div class="swc-section">
+      <button id="swc-run-btn" class="swc-run-btn" onclick="closeChat();runSwarm()">▶ Start Sprint</button>
+    </div>
+    <div class="swc-section" id="swc-plan-section" style="display:none">
+      <div class="swc-label">Sprint Plan</div>
+      <div id="swc-wave-list" class="swc-wave-list"></div>
+    </div>
+    <div class="swc-section">
+      <div class="swc-label">How it works</div>
+      <div class="swc-info">The Director analyzes your brief and chooses which agents to run and in what order. All 14 agent outputs will appear in the Board.</div>
+    </div>
+  </div>
   <div id="chat-controls">
     <button id="chat-voice-toggle" title="Toggle voice output">🔊</button>
     <button id="chat-clear" title="Clear session history">🗑</button>
