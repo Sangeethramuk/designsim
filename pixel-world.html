@@ -418,6 +418,48 @@
   .sprint-done .sprint-card-check{display:inline;}
   .sprint-done .sprint-card-dot{background:#3a7a4a!important;}
   @keyframes sprint-pulse{0%,100%{border-opacity:1;}50%{opacity:0.75;}}
+  /* Phase 16b Sprint live output strip */
+  #sprint-live-strip{border-top:1px solid #0d0d1e;padding:8px 12px;flex-shrink:0;max-height:110px;overflow-y:auto;background:#03030a;}
+  #sprint-live-strip::-webkit-scrollbar{width:3px;}#sprint-live-strip::-webkit-scrollbar-thumb{background:#1a1a2e;}
+  .sprint-live-entry{font-size:9px;color:#2e4e3e;line-height:1.6;margin-bottom:3px;padding-left:7px;border-left:2px solid #1a3a2a;}
+  .sprint-live-entry-name{color:#4a9a6a;font-weight:bold;}
+  /* UX Phase 3 — Discovery */
+  /* #18 Floating sprint close */
+  #sprint-close-floating{display:none;position:fixed;top:12px;right:335px;z-index:8700;background:rgba(5,5,15,0.9);color:#666;border:1px solid #252548;font-family:monospace;font-size:11px;padding:4px 10px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px);transition:right 0.3s ease,color 0.15s,border-color 0.15s;}
+  #sprint-close-floating:hover{color:#a78bfa;border-color:rgba(167,139,250,0.5);}
+  #sprint-close-floating.visible{display:block;}
+  /* #9 Board relay button */
+  .board-card-relay-btn{font-size:9px;color:#4a6a8a;border:1px solid #1a3a5a;background:#040410;padding:2px 7px;border-radius:3px;cursor:pointer;font-family:monospace;margin-top:4px;align-self:flex-start;}
+  .board-card-relay-btn:hover{color:#4acea0;border-color:rgba(74,206,160,0.6);}
+  /* #10 Memory empty state */
+  .mem-empty-state{padding:22px 14px;text-align:center;}
+  .mem-empty-icon{font-size:22px;color:#2a2a4a;margin-bottom:8px;}
+  .mem-empty-title{font-size:11px;color:#4a4a6a;font-weight:bold;margin-bottom:6px;}
+  .mem-empty-body{font-size:10px;color:#2a2a4a;line-height:1.6;}
+  .mem-empty-body strong{color:#3a3a5a;}
+  /* #21 Voice hint tooltip */
+  #voice-hint-tooltip{display:none;position:fixed;bottom:56px;right:328px;z-index:8900;background:#0a0a1e;border:1px solid rgba(167,139,250,0.4);color:#7a7aaa;font-family:monospace;font-size:10px;padding:9px 12px 9px 12px;border-radius:6px;max-width:190px;line-height:1.55;box-shadow:0 4px 20px rgba(0,0,0,0.7);}
+  #voice-hint-tooltip.show{display:block;}
+  #voice-hint-close{display:block;margin-top:6px;background:none;border:none;color:#444;font-size:10px;cursor:pointer;font-family:monospace;text-align:left;padding:0;}
+  #voice-hint-close:hover{color:#a78bfa;}
+  /* Phase 4 — Command Palette */
+  #cmd-palette-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:9500;display:none;align-items:flex-start;justify-content:center;padding-top:14vh;}
+  #cmd-palette-overlay.active{display:flex;}
+  #cmd-palette-panel{background:#08081a;border:1px solid #2a2a52;border-radius:10px;width:480px;max-height:420px;display:flex;flex-direction:column;font-family:monospace;box-shadow:0 20px 70px rgba(0,0,0,0.95);overflow:hidden;}
+  #cmd-palette-input-wrap{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #181830;gap:10px;flex-shrink:0;}
+  #cmd-palette-icon{font-size:14px;color:#a78bfa;flex-shrink:0;line-height:1;}
+  #cmd-palette-input{flex:1;background:none;border:none;color:#ddd;font-family:monospace;font-size:13px;outline:none;}
+  #cmd-palette-input::placeholder{color:#2a2a4a;}
+  #cmd-palette-results{flex:1;overflow-y:auto;padding:6px;}
+  #cmd-palette-results::-webkit-scrollbar{width:3px;}#cmd-palette-results::-webkit-scrollbar-thumb{background:#252548;}
+  .cmd-result{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background .1s;}
+  .cmd-result:hover,.cmd-result.selected{background:#121228;}
+  .cmd-result-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .cmd-result-name{font-size:12px;color:#ccc;font-weight:bold;}
+  .cmd-result-zone{font-size:9px;color:#3a3a5a;margin-top:1px;}
+  .cmd-result-role{font-size:10px;color:#444;flex-shrink:0;}
+  .cmd-palette-empty{padding:24px;text-align:center;color:#333;font-size:11px;}
+  #cmd-palette-hint{padding:7px 16px;border-top:1px solid #0e0e20;font-size:9px;color:#252545;display:flex;gap:16px;flex-shrink:0;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js" integrity="sha384-bcpiSslshEqIfUoxXWFNw7kqGDrRhwSYbr2IHOzGmD5dX3pDoM89ZGkqW9qFP0Ks" crossorigin="anonymous"></script>
 <!-- Phase 10: Supabase -->
@@ -1654,6 +1696,12 @@ function openChat(agent){
   }
   panel.classList.add('open');
   renderArtifactPanel();
+  // Phase 3 #21 — one-time voice onboarding tooltip
+  if(!localStorage.getItem('voice_hint_shown')){
+    localStorage.setItem('voice_hint_shown','1');
+    const tooltip=document.getElementById('voice-hint-tooltip');
+    if(tooltip){tooltip.classList.add('show');}
+  }
 }
 
 function closeChat(){
@@ -2606,9 +2654,24 @@ function renderBoardGrid(){
     const ctaEl=document.createElement('div');
     ctaEl.className='board-card-chat-cta';
     ctaEl.textContent=a.id==='lead'?'Open Sprint Control →':'Open Chat →';
+    // Relay button — only shown when artifact exists
+    const relayBtn=document.createElement('button');
+    relayBtn.className='board-card-relay-btn';
+    relayBtn.textContent='Relay →';
+    relayBtn.title='Relay this artifact to another agent';
+    relayBtn.style.display=art?'':'none';
+    relayBtn.addEventListener('click',e=>{
+      e.stopPropagation();
+      closeBoard();
+      const scene=window._game&&window._game.scene.getScene('GameScene');
+      const agentData=scene&&scene.agents&&scene.agents.find(ag=>ag.id===a.id);
+      window._chatAgent=agentData||a;
+      if(typeof openRelayModal==='function')openRelayModal();
+    });
     card.appendChild(header);card.appendChild(roleEl);card.appendChild(zoneEl);
     if(art)card.appendChild(preview);
     card.appendChild(badge);
+    card.appendChild(relayBtn);
     card.appendChild(editBtn);
     card.appendChild(ctaEl);
     card.addEventListener('click',()=>{
@@ -2776,7 +2839,7 @@ async function shareDossier(){
     // ── Option B: Blob URL fallback (works without Supabase, but only in this tab session)
     const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
     if(urlInput)urlInput.value=blobUrl;
-    if(statusEl)statusEl.textContent='⚠ Temporary link — only works while this tab is open. Use ⬇ HTML to save permanently, or connect Supabase for a permanent link.';
+    if(statusEl)statusEl.textContent='⚠ Temporary — works only in this tab. For a permanent link: (1) connect Supabase in ⚙ settings, (2) create a public storage bucket named "dossiers", then reshare.';
     navigator.clipboard.writeText(blobUrl).catch(()=>{});
     showToast('Preview link copied (temporary)');
   }catch(e){
@@ -3274,7 +3337,8 @@ function renderMemoryCards(){
   detail.innerHTML='<div style="color:#333;font-size:11px;font-family:monospace;padding:20px">Select a memory to view details</div>';
   const mems=window._memories||[];
   if(mems.length===0){
-    list.innerHTML='<div style="color:#333;font-size:11px;font-family:monospace;padding:20px;line-height:1.8">No memories yet.<br>Use ✦ New Project to archive a project.</div>';
+    list.innerHTML='<div class="mem-empty-state"><div class="mem-empty-icon">◈</div><div class="mem-empty-title">No memories yet</div><div class="mem-empty-body">Run a sprint, then click <strong>✦ New Project</strong> to archive it here. Past briefs, artifacts &amp; relay counts will appear as cards.</div></div>';
+    detail.innerHTML='<div style="color:#2a2a4a;font-size:11px;font-family:monospace;padding:20px;line-height:1.7">Select a memory card to view the full brief and per-agent artifact previews.</div>';
     return;
   }
   mems.forEach((mem,i)=>{
@@ -3543,6 +3607,7 @@ async function runSwarmAgent(agent, customPrompt){
   window._agentSessions[agent.id]=newHistory;
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(agent.id,newHistory.slice()));
   if(!_swarmErrored)storeArtifact(agent,response); // don't store error sentinels as artifacts
+  if(!_swarmErrored&&window._sprintVizOpen)appendSprintOutput(agent,response);
   if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
   if(window._chatAgent&&window._chatAgent.id===agent.id){
     appendMessage('agent',response,agent);
@@ -3701,6 +3766,12 @@ function openSprintViz(plan,totalAgents){
   const countEl=document.getElementById('sprint-agent-count');
   if(!panel||!body)return;
   body.innerHTML='';
+  // Clear live strip
+  const strip=document.getElementById('sprint-live-strip');
+  if(strip)strip.innerHTML='';
+  // Show floating close button
+  const floatBtn=document.getElementById('sprint-close-floating');
+  if(floatBtn)floatBtn.classList.add('visible');
   if(countEl)countEl.textContent=totalAgents+' agents';
   // Director rationale
   if(plan&&plan.rationale){
@@ -3760,6 +3831,21 @@ function closeSprintViz(){
   window._sprintVizOpen=false;
   const panel=document.getElementById('sprint-panel');
   if(panel)panel.classList.remove('active');
+  const floatBtn=document.getElementById('sprint-close-floating');
+  if(floatBtn)floatBtn.classList.remove('visible');
+}
+
+// Phase 3 #6 — Append live output snippet to sprint strip
+function appendSprintOutput(agent,content){
+  const strip=document.getElementById('sprint-live-strip');
+  if(!strip)return;
+  const entry=document.createElement('div');
+  entry.className='sprint-live-entry';
+  const clean=content.replace(/```[\s\S]*?```/g,'[code]').replace(/\s+/g,' ').trim();
+  const snippet=clean.slice(0,90)+(clean.length>90?'…':'');
+  entry.innerHTML='<span class="sprint-live-entry-name">'+escHtml(agent.name)+'</span> '+escHtml(snippet);
+  strip.appendChild(entry);
+  strip.scrollTop=strip.scrollHeight;
 }
 
 function updateSprintCards(ids,status){
@@ -3771,6 +3857,102 @@ function updateSprintCards(ids,status){
       card.scrollIntoView({behavior:'smooth',block:'nearest'});
     }
   });
+}
+
+// ── Phase 4: Command Palette (⌘K / Ctrl+K) ───────────────────────────────────
+let _cmdResults=[];
+let _cmdSelectedIdx=0;
+
+function openCmdPalette(){
+  const overlay=document.getElementById('cmd-palette-overlay');
+  const input=document.getElementById('cmd-palette-input');
+  if(!overlay||!input)return;
+  overlay.classList.add('active');
+  input.value='';
+  _cmdSelectedIdx=0;
+  renderCmdResults('');
+  requestAnimationFrame(()=>input.focus());
+}
+
+function closeCmdPalette(){
+  const overlay=document.getElementById('cmd-palette-overlay');
+  if(overlay)overlay.classList.remove('active');
+}
+
+function renderCmdResults(query){
+  const list=document.getElementById('cmd-palette-results');
+  if(!list)return;
+  const q=query.trim().toLowerCase();
+  _cmdResults=q
+    ?AGENTS.filter(a=>
+        a.name.toLowerCase().includes(q)||
+        a.role.toLowerCase().includes(q)||
+        (a.zone||'').toLowerCase().includes(q))
+    :[...AGENTS];
+  _cmdSelectedIdx=Math.min(_cmdSelectedIdx,Math.max(_cmdResults.length-1,0));
+  if(_cmdResults.length===0){
+    list.innerHTML='<div class="cmd-palette-empty">No agents match "'+escHtml(q)+'"</div>';
+    return;
+  }
+  list.innerHTML='';
+  _cmdResults.forEach((a,i)=>{
+    const item=document.createElement('div');
+    item.className='cmd-result'+(i===_cmdSelectedIdx?' selected':'');
+    item.innerHTML=
+      '<span class="cmd-result-dot" style="background:#'+a.zc.toString(16).padStart(6,'0')+'"></span>'+
+      '<div style="flex:1;min-width:0"><div class="cmd-result-name">'+escHtml(a.name)+'</div>'+
+      '<div class="cmd-result-zone">'+escHtml(a.zone||'')+'</div></div>'+
+      '<span class="cmd-result-role">'+escHtml(a.role)+'</span>';
+    item.addEventListener('click',()=>selectCmdResult(i));
+    list.appendChild(item);
+  });
+}
+
+function selectCmdResult(idx){
+  const agent=_cmdResults[idx];
+  if(!agent)return;
+  closeCmdPalette();
+  // Teleport player to agent tile position
+  const scene=window._game&&window._game.scene.getScene('GameScene');
+  if(scene&&scene.player){
+    scene.pTX=agent.tx;scene.pTY=agent.ty;
+    scene.targX=agent.tx*TILE+TILE/2;scene.targY=agent.ty*TILE+TILE/2;
+    scene.player.x=scene.targX;scene.player.y=scene.targY;
+    scene.cameras.main.centerOn(scene.targX,scene.targY);
+  }
+  // Open chat for this agent
+  const agentData=scene&&scene.agents&&scene.agents.find(ag=>ag.id===agent.id);
+  if(agentData)openChat(agentData);
+}
+
+function initCmdPalette(){
+  const overlay=document.getElementById('cmd-palette-overlay');
+  const input=document.getElementById('cmd-palette-input');
+  if(!overlay||!input)return;
+  // Global shortcut ⌘K / Ctrl+K
+  document.addEventListener('keydown',e=>{
+    if((e.metaKey||e.ctrlKey)&&e.key==='k'){
+      e.preventDefault();
+      if(overlay.classList.contains('active'))closeCmdPalette();
+      else openCmdPalette();
+      return;
+    }
+    if(!overlay.classList.contains('active'))return;
+    if(e.key==='Escape'){e.preventDefault();closeCmdPalette();return;}
+    if(e.key==='Enter'){e.preventDefault();selectCmdResult(_cmdSelectedIdx);return;}
+    if(e.key==='ArrowDown'){
+      e.preventDefault();
+      _cmdSelectedIdx=Math.min(_cmdSelectedIdx+1,_cmdResults.length-1);
+      renderCmdResults(input.value);return;
+    }
+    if(e.key==='ArrowUp'){
+      e.preventDefault();
+      _cmdSelectedIdx=Math.max(_cmdSelectedIdx-1,0);
+      renderCmdResults(input.value);return;
+    }
+  });
+  input.addEventListener('input',e=>{_cmdSelectedIdx=0;renderCmdResults(e.target.value);});
+  overlay.addEventListener('click',e=>{if(e.target===overlay)closeCmdPalette();});
 }
 
 // --- SCENE ---
@@ -3931,6 +4113,7 @@ class GameScene extends Phaser.Scene{
     initBoard();
     initFeed();
     initMemoryBrowser();
+    initCmdPalette();
   }
 
   // --- Popover ---
@@ -4164,9 +4347,33 @@ class GameScene extends Phaser.Scene{
       if(inRange){
         a.thoughtTimer=(a.thoughtTimer||0)+delta;
         if(a.thoughtTimer>5000){
-          const thoughts=AGENT_THOUGHTS[a.id]||['...'];
-          a.thoughtIdx=((a.thoughtIdx||0)+1)%thoughts.length;
-          if(a.bubbleTxt)a.bubbleTxt.setText(thoughts[a.thoughtIdx]);
+          let bubbleText;
+          if(window._swarmRunning){
+            // During swarm: show "working…" or current wave name
+            const plan=window._sprintPlan;
+            if(plan&&plan.waves){
+              const waveNames=plan.waves.map(w=>w.name);
+              const wi=((a.thoughtIdx||0))%waveNames.length;
+              bubbleText='sprint: '+waveNames[wi];
+            }else{
+              bubbleText='working…';
+            }
+          }else{
+            const art=window._agentArtifacts&&window._agentArtifacts[a.id];
+            if(art&&art.content){
+              // Rotate through artifact text
+              const clean=art.content.replace(/```[\s\S]*?```/g,'').replace(/\s+/g,' ').trim();
+              const words=clean.split(' ').filter(w=>w.length>0);
+              const start=(((a.thoughtIdx||0)*6)%Math.max(words.length,1));
+              bubbleText=words.slice(start,start+6).join(' ')+(words.length>start+6?'…':'');
+            }else{
+              const thoughts=AGENT_THOUGHTS[a.id]||['...'];
+              a.thoughtIdx=((a.thoughtIdx||0)+1)%thoughts.length;
+              bubbleText=thoughts[a.thoughtIdx];
+            }
+          }
+          a.thoughtIdx=((a.thoughtIdx||0)+1);
+          if(a.bubbleTxt)a.bubbleTxt.setText(bubbleText);
           a.thoughtTimer=0;
         }
       }
@@ -4524,7 +4731,7 @@ function saveAgent(){
 <div id="swarm-progress-bar-wrap"><div id="swarm-progress-bar"></div></div>
 <button id="new-project-btn" onclick="confirmNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
 <button id="mem-browser-btn" title="Browse past project memories" style="position:fixed;bottom:66px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">◈ Memories</button>
-<div id="game-hint">WASD · E: chat · Tab: board · click agent</div>
+<div id="game-hint">WASD · E: chat · Tab: board · ⌘K: search agents</div>
 
 <!-- Chat Panel -->
 <div id="chat-panel">
@@ -4778,6 +4985,27 @@ function saveAgent(){
     <button class="llm-close-btn" onclick="closeSprintViz()" title="Close sprint panel">✕</button>
   </div>
   <div id="sprint-body"></div>
+  <div id="sprint-live-strip"></div>
+</div>
+<!-- Phase 3 #18: Floating sprint close -->
+<button id="sprint-close-floating" onclick="closeSprintViz()" title="Close sprint panel">✕ Sprint</button>
+<!-- Phase 3 #21: Voice I/O hint tooltip -->
+<div id="voice-hint-tooltip">
+  🎙 Voice I/O available<br>Click <strong>mic</strong> to speak, <strong>♪</strong> to hear responses.<br>
+  <button id="voice-hint-close" onclick="document.getElementById('voice-hint-tooltip').classList.remove('show')">Got it ✕</button>
+</div>
+<!-- Phase 4: Command Palette -->
+<div id="cmd-palette-overlay">
+  <div id="cmd-palette-panel">
+    <div id="cmd-palette-input-wrap">
+      <span id="cmd-palette-icon">⌘</span>
+      <input id="cmd-palette-input" placeholder="Search agents by name, role, or zone…" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="cmd-palette-results"></div>
+    <div id="cmd-palette-hint">
+      <span>↑↓ navigate</span><span>↵ open chat</span><span>esc close</span>
+    </div>
+  </div>
 </div>
 
 <!-- UX Phase 1: Confirmation Dialog -->
