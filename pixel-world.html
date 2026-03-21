@@ -3926,10 +3926,13 @@ class GameScene extends Phaser.Scene{
     // --- Player ---
     if(!this.moving){
       let dx=0,dy=0,dir=this.pDir;
-      if(this.cursors.left.isDown||this.wasd.left.isDown){dx=-1;dir='left';}
-      else if(this.cursors.right.isDown||this.wasd.right.isDown){dx=1;dir='right';}
-      else if(this.cursors.up.isDown||this.wasd.up.isDown){dy=-1;dir='up';}
-      else if(this.cursors.down.isDown||this.wasd.down.isDown){dy=1;dir='down';}
+      // Only move when no text input/textarea has keyboard focus
+      if(!isTyping()){
+        if(this.cursors.left.isDown||this.wasd.left.isDown){dx=-1;dir='left';}
+        else if(this.cursors.right.isDown||this.wasd.right.isDown){dx=1;dir='right';}
+        else if(this.cursors.up.isDown||this.wasd.up.isDown){dy=-1;dir='up';}
+        else if(this.cursors.down.isDown||this.wasd.down.isDown){dy=1;dir='down';}
+      }
       this.pDir=dir;
       if(dx||dy){
         const nx=this.pTX+dx,ny=this.pTY+dy;
@@ -4050,6 +4053,37 @@ window._game=new Phaser.Game({
     autoCenter:Phaser.Scale.CENTER_BOTH
   }
 });
+
+// Returns true when the user is typing in any text field / textarea / contenteditable.
+// Used to suppress WASD/arrow movement so keys reach the input normally.
+function isTyping(){
+  const a=document.activeElement;
+  if(!a||a===document.body)return false;
+  const t=a.tagName;
+  return t==='INPUT'||t==='TEXTAREA'||a.isContentEditable;
+}
+
+// When a text input gains focus, tell Phaser to stop capturing keyboard events
+// so arrow keys / space work normally inside the field and aren't preventDefault'd.
+// Re-enable capture when the field loses focus so game controls resume.
+(function(){
+  function phaserKb(){
+    const s=window._game&&window._game.scene.scenes[0];
+    return s&&s.input&&s.input.keyboard;
+  }
+  document.addEventListener('focusin',e=>{
+    const t=e.target.tagName;
+    if(t==='INPUT'||t==='TEXTAREA'||e.target.isContentEditable){
+      const kb=phaserKb();if(kb)kb.disableGlobalCapture();
+    }
+  });
+  document.addEventListener('focusout',e=>{
+    const t=e.target.tagName;
+    if(t==='INPUT'||t==='TEXTAREA'||e.target.isContentEditable){
+      const kb=phaserKb();if(kb)kb.enableGlobalCapture();
+    }
+  });
+})();
 
 // --- Editor Functions ---
 let currentEditAgent=null;
