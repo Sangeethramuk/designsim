@@ -3105,19 +3105,19 @@ function initBrief(){
 // --- Phase 10c: Supabase Persistence (replaces IndexedDB) ---
 function sbSaveSession(agentId,messages){
   if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('sessions').upsert({user_id:window._sbUser.id,agent_id:agentId,messages:messages,updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).catch(()=>{});
+  window._sbClient.from('sessions').upsert({user_id:window._sbUser.id,agent_id:agentId,messages:messages,updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).then(null,e=>console.warn('[SB] session save:',e?.message));
 }
 function sbSaveArtifact(agentId,artifact){
   if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('artifacts').upsert({user_id:window._sbUser.id,agent_id:agentId,type:artifact.type||null,lang:artifact.lang||null,content:artifact.content||null,agent_name:artifact.agentName||null,timestamp:artifact.timestamp||Date.now(),updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).catch(()=>{});
+  window._sbClient.from('artifacts').upsert({user_id:window._sbUser.id,agent_id:agentId,type:artifact.type||null,lang:artifact.lang||null,content:artifact.content||null,agent_name:artifact.agentName||null,timestamp:artifact.timestamp||Date.now(),updated_at:new Date().toISOString()},{onConflict:'user_id,agent_id'}).then(null,e=>console.warn('[SB] artifact save:',e?.message));
 }
 function sbAppendRelayEntry(entry){
   if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('relay_log').insert({user_id:window._sbUser.id,from_id:entry.from||null,from_name:entry.fromName||null,to_id:entry.to||null,preview:entry.preview||null,timestamp:entry.timestamp||Date.now()}).catch(()=>{});
+  window._sbClient.from('relay_log').insert({user_id:window._sbUser.id,from_id:entry.from||null,from_name:entry.fromName||null,to_id:entry.to||null,preview:entry.preview||null,timestamp:entry.timestamp||Date.now()}).then(null,e=>console.warn('[SB] relay save:',e?.message));
 }
 function sbSaveBrief(text){
   if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('briefs').upsert({user_id:window._sbUser.id,content:text||null,updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
+  window._sbClient.from('briefs').upsert({user_id:window._sbUser.id,content:text||null,updated_at:new Date().toISOString()},{onConflict:'user_id'}).then(null,e=>console.warn('[SB] brief save:',e?.message));
 }
 function sbLoadAll(){
   if(!window._sbClient||!window._sbUser)return Promise.resolve();
@@ -3170,11 +3170,11 @@ function sbClearAllData(){
   if(!window._sbClient||!window._sbUser)return Promise.resolve();
   const uid=window._sbUser.id;
   return Promise.all([
-    window._sbClient.from('sessions').delete().eq('user_id',uid),
-    window._sbClient.from('artifacts').delete().eq('user_id',uid),
-    window._sbClient.from('relay_log').delete().eq('user_id',uid),
-    window._sbClient.from('briefs').delete().eq('user_id',uid)
-  ]).catch(()=>{});
+    window._sbClient.from('sessions').delete().eq('user_id',uid).then(null,()=>{}),
+    window._sbClient.from('artifacts').delete().eq('user_id',uid).then(null,()=>{}),
+    window._sbClient.from('relay_log').delete().eq('user_id',uid).then(null,()=>{}),
+    window._sbClient.from('briefs').delete().eq('user_id',uid).then(null,()=>{})
+  ]);
 }
 
 // --- Phase 12: Cross-Project Memory ---
@@ -3236,7 +3236,7 @@ async function sbLoadUserProfile(){
 }
 function sbSaveUserProfile(profileText){
   if(window._sbClient&&window._sbUser){
-    window._sbClient.from('user_profile').upsert({user_id:window._sbUser.id,profile_text:profileText||'',updated_at:new Date().toISOString()},{onConflict:'user_id'}).catch(()=>{});
+    window._sbClient.from('user_profile').upsert({user_id:window._sbUser.id,profile_text:profileText||'',updated_at:new Date().toISOString()},{onConflict:'user_id'}).then(null,e=>console.warn('[SB] user_profile save:',e?.message));
   }else{
     // localStorage fallback
     try{
@@ -3475,10 +3475,10 @@ async function openNewProject(){
     // ── Clear Supabase current project rows (keep memories & user_profile) ──
     if(window._sbClient&&window._sbUser){
       const uid=window._sbUser.id;
-      window._sbClient.from('sessions').delete().eq('user_id',uid).catch(()=>{});
-      window._sbClient.from('artifacts').delete().eq('user_id',uid).catch(()=>{});
-      window._sbClient.from('relay_log').delete().eq('user_id',uid).catch(()=>{});
-      window._sbClient.from('briefs').delete().eq('user_id',uid).catch(()=>{});
+      window._sbClient.from('sessions').delete().eq('user_id',uid).then(null,()=>{});
+      window._sbClient.from('artifacts').delete().eq('user_id',uid).then(null,()=>{});
+      window._sbClient.from('relay_log').delete().eq('user_id',uid).then(null,()=>{});
+      window._sbClient.from('briefs').delete().eq('user_id',uid).then(null,()=>{});
     }
 
     // ── Reset chat + artifact UIs ────────────────────────────────────────────
@@ -4530,7 +4530,7 @@ function sbSaveAgentConfig(agentsData,formatMap){
     agents_json:agentsData,
     format_map_json:formatMap,
     updated_at:new Date().toISOString()
-  },{onConflict:'user_id'}).catch(()=>{});
+  },{onConflict:'user_id'}).then(null,e=>console.warn('[SB] agent_config save:',e?.message));
 }
 // Load custom agent config from Supabase (called in sbLoadAll)
 async function sbLoadAgentConfig(){
