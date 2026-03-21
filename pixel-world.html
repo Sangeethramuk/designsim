@@ -3024,38 +3024,74 @@ function initMemoryBrowser(){
   });
 }
 async function openNewProject(){
-  const hasArtifacts=Object.keys(window._agentArtifacts||{}).length>0;
-  if(!window._projectBrief&&!hasArtifacts){openBriefModal();return;}
-  const mem=captureMemory();
-  await sbSaveMemory(mem);
-  if(!window._memories)window._memories=[];
-  window._memories.unshift({...mem,created_at:new Date().toISOString()});
-  updateMemoryHUD();
-  // Clear current project state
-  window._projectBrief='';
-  window._agentArtifacts={};
-  window._agentSessions={};
-  window._agentMessages={};
-  window._relayLog=[];
-  try{localStorage.removeItem('project_brief');}catch(e){}
-  // Clear Supabase current project rows (keep memories)
-  if(window._sbClient&&window._sbUser){
-    const uid=window._sbUser.id;
-    window._sbClient.from('sessions').delete().eq('user_id',uid).catch(()=>{});
-    window._sbClient.from('artifacts').delete().eq('user_id',uid).catch(()=>{});
-    window._sbClient.from('relay_log').delete().eq('user_id',uid).catch(()=>{});
-    window._sbClient.from('briefs').delete().eq('user_id',uid).catch(()=>{});
-  }
-  // Reset chat UIs
-  AGENTS.forEach(a=>{
-    const pane=document.getElementById('msgs-'+a.id);
-    if(pane)pane.innerHTML='';
-    const artArea=document.getElementById('artifact-area-'+a.id);
+  // Guard against double-click / re-entrant calls
+  if(window._newProjectBusy)return;
+  window._newProjectBusy=true;
+
+  try{
+    const hasArtifacts=Object.keys(window._agentArtifacts||{}).length>0;
+    if(!window._projectBrief&&!hasArtifacts){openBriefModal();return;}
+
+    // ── Stop any running swarm immediately ──────────────────────────────────
+    if(window._swarmRunning){
+      window._swarmAbort=true;
+      showToast('Stopping swarm…');
+      // Give it up to 1.5s to wind down before we reset state
+      await new Promise(r=>setTimeout(r,1500));
+    }
+
+    // ── Close any open overlays ─────────────────────────────────────────────
+    if(window._boardOpen)closeBoard();
+    if(window._sprintVizOpen)closeSprintViz();
+    if(window._memBrowserOpen)closeMemoryBrowser();
+
+    // ── Archive current project (with 4s timeout so UI never hangs) ─────────
+    const mem=captureMemory();
+    await Promise.race([
+      sbSaveMemory(mem),
+      new Promise(r=>setTimeout(r,4000)) // timeout fallback
+    ]);
+    if(!window._memories)window._memories=[];
+    window._memories.unshift({...mem,created_at:new Date().toISOString()});
+    updateMemoryHUD();
+
+    // ── Full state reset ─────────────────────────────────────────────────────
+    window._projectBrief='';
+    window._agentArtifacts={};
+    window._agentSessions={};
+    window._agentMessages={};
+    window._relayLog=[];
+    window._sprintPlan=null;
+    window._swarmRunning=false;
+    window._swarmAbort=false;
+    window._sprintVizOpen=false;
+    window._boardOpen=false;
+    try{localStorage.removeItem('project_brief');}catch(e){}
+
+    // ── Clear Supabase current project rows (keep memories & user_profile) ──
+    if(window._sbClient&&window._sbUser){
+      const uid=window._sbUser.id;
+      window._sbClient.from('sessions').delete().eq('user_id',uid).catch(()=>{});
+      window._sbClient.from('artifacts').delete().eq('user_id',uid).catch(()=>{});
+      window._sbClient.from('relay_log').delete().eq('user_id',uid).catch(()=>{});
+      window._sbClient.from('briefs').delete().eq('user_id',uid).catch(()=>{});
+    }
+
+    // ── Reset chat + artifact UIs ────────────────────────────────────────────
+    const msgPane=document.getElementById('chat-messages');
+    if(msgPane)msgPane.innerHTML='';
+    const artArea=document.getElementById('chat-artifact-area');
     if(artArea)artArea.style.display='none';
-  });
-  updateBriefHUD();
-  showToast('Project archived to memory ◈');
-  setTimeout(()=>openBriefModal(),600);
+
+    updateBriefHUD();
+    updateSwarmBtn();
+    showToast('Project archived ◈ — starting fresh');
+    setTimeout(()=>openBriefModal(),600);
+
+  }finally{
+    // Always release the guard so the button works again
+    window._newProjectBusy=false;
+  }
 }
 
 // --- Phase 16d: Figma Integration ---
