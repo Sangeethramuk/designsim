@@ -2218,8 +2218,8 @@ function detectArtifact(text){
   if(listLines.length>=4)return{type:'list',lang:'',content:text.trim()};
   // 4. Markdown heading structure (H1, H2, or H3 anywhere in text)
   if(/^#{1,3}\s/m.test(text))return{type:'text',lang:'md',content:text.trim()};
-  // 5. Substantial prose fallback (>250 chars) — capture even unstructured agent outputs
-  if(text.trim().length>250)return{type:'text',lang:'text',content:text.trim()};
+  // 5. Substantial prose fallback (>80 chars) — capture even short agent outputs
+  if(text.trim().length>80)return{type:'text',lang:'text',content:text.trim()};
   return null;
 }
 
@@ -2745,9 +2745,18 @@ function generateDossierHTML(){
   const brief=window._projectBrief||'';
   const arts=window._agentArtifacts||{};
   const log=window._relayLog||[];
+  const sess=window._agentSessions||{};
   let agentSections='';let hasAny=false;
   AGENTS.forEach(a=>{
-    const art=arts[a.id];if(!art)return;hasAny=true;
+    // Primary: use stored artifact; fallback: use last assistant reply from session
+    let art=arts[a.id];
+    if(!art){
+      const lastReply=(sess[a.id]||[]).filter(m=>m.role==='assistant').pop();
+      if(lastReply&&lastReply.content&&!lastReply.content.startsWith('⚠[swarm-error]')){
+        art={type:'text',lang:'text',content:lastReply.content.trim()};
+      }
+    }
+    if(!art)return;hasAny=true;
     const typeLabel=escHtml(art.type+(art.lang&&art.lang!==art.type?' / '+art.lang:''));
     let contentHtml='';
     if(art.type==='code'){
@@ -3840,7 +3849,18 @@ async function runSwarmAgent(agent, customPrompt){
   }
   window._agentSessions[agent.id]=newHistory;
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(agent.id,newHistory.slice()));
-  if(!_swarmErrored)storeArtifact(agent,response); // don't store error sentinels as artifacts
+  // Always store swarm output — fall back to plain text if detectArtifact finds no structure
+  if(!_swarmErrored&&response&&response.trim().length>0){
+    const stored=storeArtifact(agent,response);
+    if(!stored){
+      // detectArtifact returned null (response is short/unstructured) — force-store as plain text
+      const art={type:'text',lang:'text',content:response.trim(),
+        timestamp:Date.now(),agentId:agent.id,agentName:agent.name};
+      window._agentArtifacts[agent.id]=art;
+      window._sbReady&&window._sbReady.then(user=>user&&sbSaveArtifact(agent.id,art));
+      if(typeof addFeedEntry==='function')addFeedEntry('artifact',agent.id,agent.name+' produced text');
+    }
+  }
   if(!_swarmErrored&&window._sprintVizOpen)appendSprintOutput(agent,response);
   if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
   if(window._chatAgent&&window._chatAgent.id===agent.id){
