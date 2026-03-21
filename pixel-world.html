@@ -3133,7 +3133,11 @@ function sbLoadAll(){
     if(relays)relays.forEach(r=>{window._relayLog.push({from:r.from_id,fromName:r.from_name,to:r.to_id,preview:r.preview,timestamp:r.timestamp});});
     if(brief&&brief.content){window._projectBrief=brief.content;if(typeof updateBriefHUD==='function')updateBriefHUD();}
     rebuildAgentMessages(); // rebuild chat HTML safely from sessions (replaces innerHTML restore)
-  }).then(()=>sbLoadMemories()).then(()=>sbLoadUserProfile()).catch(()=>{});
+  }).catch(e=>{console.warn('sbLoadAll main chain failed:',e);})
+  // Load memories, profile, and agent config independently so a main-chain error can't block them
+  .finally(()=>sbLoadMemories().catch(e=>console.warn('sbLoadMemories failed:',e)))
+  .finally(()=>sbLoadUserProfile().catch(e=>console.warn('sbLoadUserProfile failed:',e)))
+  .finally(()=>sbLoadAgentConfig().catch(e=>console.warn('sbLoadAgentConfig failed:',e)));
 }
 // Rebuild per-agent chat HTML from session data using safe DOM methods (no innerHTML from DB)
 function rebuildAgentMessages(){
@@ -4466,6 +4470,8 @@ function saveAgentsToStorage(){
       shirt:a.shirt,hair:a.hair,tx:a.tx,ty:a.ty,facing:a.facing,idle:a.idle}));
     localStorage.setItem('custom_agents',JSON.stringify(data));
     localStorage.setItem('custom_format_map',JSON.stringify(AGENT_FORMAT_MAP));
+    // Also sync to Supabase so custom agents survive on other devices
+    sbSaveAgentConfig(data,AGENT_FORMAT_MAP);
   }catch(e){}
 }
 function loadAgentsFromStorage(){
@@ -4475,6 +4481,34 @@ function loadAgentsFromStorage(){
     const fmtRaw=localStorage.getItem('custom_format_map');
     if(fmtRaw)Object.assign(AGENT_FORMAT_MAP,JSON.parse(fmtRaw));
   }catch(e){}
+}
+// Sync custom agent config to Supabase (called on every editor save)
+function sbSaveAgentConfig(agentsData,formatMap){
+  if(!window._sbClient||!window._sbUser)return;
+  window._sbClient.from('agent_config').upsert({
+    user_id:window._sbUser.id,
+    agents_json:agentsData,
+    format_map_json:formatMap,
+    updated_at:new Date().toISOString()
+  },{onConflict:'user_id'}).catch(()=>{});
+}
+// Load custom agent config from Supabase (called in sbLoadAll)
+async function sbLoadAgentConfig(){
+  if(!window._sbClient||!window._sbUser)return;
+  const{data}=await window._sbClient.from('agent_config')
+    .select('agents_json,format_map_json').eq('user_id',window._sbUser.id).maybeSingle()
+    .catch(()=>({data:null}));
+  if(!data)return;
+  try{
+    if(data.agents_json&&Array.isArray(data.agents_json)){
+      data.agents_json.forEach(s=>{const i=AGENTS.findIndex(a=>a.id===s.id);if(i>=0)Object.assign(AGENTS[i],s);});
+      localStorage.setItem('custom_agents',JSON.stringify(data.agents_json));
+    }
+    if(data.format_map_json&&typeof data.format_map_json==='object'){
+      Object.assign(AGENT_FORMAT_MAP,data.format_map_json);
+      localStorage.setItem('custom_format_map',JSON.stringify(data.format_map_json));
+    }
+  }catch(e){console.warn('sbLoadAgentConfig parse error:',e);}
 }
 
 function openEditor(agent,scene){
