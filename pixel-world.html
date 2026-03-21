@@ -228,11 +228,26 @@
   #board-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;}
   #board-title{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;letter-spacing:0.5px;}
   #board-brief-text{font-size:11px;color:#666;margin-top:4px;max-width:540px;line-height:1.5;}
-  #board-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;}
+  #board-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap;}
   .board-action-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:7px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
   .board-action-btn:hover{background:#102030;border-color:#4a9eea;}
   #board-download-btn{background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;}
   #board-download-btn:hover{background:#0d2818;border-color:#4acea0;}
+  #board-preview-btn{background:#0a1e12;border:1px solid rgba(74,206,160,0.4);color:#4acea0;}
+  #board-preview-btn:hover{background:#0d2818;border-color:#4acea0;}
+  #board-share-btn{background:#0a1220;border:1px solid rgba(99,179,237,0.4);color:#63b3ed;}
+  #board-share-btn:hover{background:#0d1828;border-color:#63b3ed;}
+  #board-share-btn:disabled{opacity:0.5;cursor:wait;}
+  /* Share link modal */
+  #share-link-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:9700;align-items:center;justify-content:center;}
+  #share-link-modal.active{display:flex;}
+  #share-link-panel{background:#0a0a1e;border:1px solid #4a9eea;border-radius:10px;padding:24px;width:480px;max-width:90vw;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.7);}
+  #share-link-panel h3{color:#e8edf5;font-size:13px;margin:0 0 6px;}
+  #share-link-panel p{font-size:11px;color:#556;margin:0 0 14px;}
+  #share-url-input{width:100%;background:#060614;border:1px solid #252548;color:#4acea0;padding:8px 10px;font-size:11px;font-family:monospace;border-radius:4px;cursor:text;}
+  #share-url-input:focus{outline:none;border-color:#4a9eea;}
+  .share-actions{display:flex;gap:8px;margin-top:12px;}
+  .share-actions button{padding:7px 14px;border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;border:1px solid;}
   #board-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;}
   .board-card{background:#0a0a1e;border:1px solid #1e1e3a;border-radius:8px;padding:12px;cursor:pointer;transition:border-color 0.15s,background 0.15s;display:flex;flex-direction:column;gap:4px;}
   .board-card:hover{border-color:#4a9eea;background:#0d0d28;}
@@ -2577,6 +2592,85 @@ function downloadDossier(){
   showToast('Dossier downloaded');
 }
 
+// Open dossier as a live preview in a new browser tab (instant, no upload needed)
+function openDossierPreview(){
+  const html=generateDossierHTML();
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const win=window.open(url,'_blank');
+  if(!win){showToast('Pop-up blocked — use ⬇ HTML instead');return;}
+  // Revoke after the new tab has had time to load
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+  showToast('Dossier opened in new tab');
+}
+
+// Upload dossier HTML to Supabase Storage and return a permanent public URL
+async function shareDossier(){
+  const btn=document.getElementById('board-share-btn');
+  const statusEl=document.getElementById('share-status');
+  const urlInput=document.getElementById('share-url-input');
+  const modal=document.getElementById('share-link-modal');
+
+  // Show modal immediately with loading state
+  if(urlInput)urlInput.value='';
+  if(statusEl)statusEl.textContent='Generating…';
+  if(modal)modal.classList.add('active');
+  if(btn)btn.disabled=true;
+
+  try{
+    const html=generateDossierHTML();
+
+    // ── Option A: Supabase Storage (if connected + signed in)
+    if(window._sbClient&&window._sbUser){
+      const d=new Date();
+      const fileName='dossiers/'+window._sbUser.id+'/dossier-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'-'+Date.now()+'.html';
+      const {error}=await window._sbClient.storage
+        .from('dossiers')
+        .upload(fileName,new Blob([html],{type:'text/html;charset=utf-8'}),{upsert:true,cacheControl:'3600'});
+      if(!error){
+        const {data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
+        if(pub&&pub.publicUrl){
+          if(urlInput)urlInput.value=pub.publicUrl;
+          if(statusEl)statusEl.textContent='✓ Uploaded to Supabase Storage. Link is permanent.';
+          // Auto-copy to clipboard
+          navigator.clipboard.writeText(pub.publicUrl).catch(()=>{});
+          showToast('🔗 Share link copied to clipboard');
+          if(btn)btn.disabled=false;
+          return;
+        }
+      }
+      // Fall through to blob URL if storage fails
+      if(statusEl)statusEl.textContent='Storage upload failed — using temporary link instead.';
+    }
+
+    // ── Option B: Blob URL fallback (works without Supabase, but only in this tab session)
+    const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+    if(urlInput)urlInput.value=blobUrl;
+    if(statusEl)statusEl.textContent='⚠ Temporary link — only works while this tab is open. Use ⬇ HTML to save permanently, or connect Supabase for a permanent link.';
+    navigator.clipboard.writeText(blobUrl).catch(()=>{});
+    showToast('Preview link copied (temporary)');
+  }catch(e){
+    if(statusEl)statusEl.textContent='✗ Error: '+e.message;
+    showToast('Share failed: '+e.message);
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
+// Copy the URL from the share modal to the clipboard
+function copyShareUrl(){
+  const input=document.getElementById('share-url-input');
+  if(!input||!input.value)return;
+  navigator.clipboard.writeText(input.value).then(()=>{
+    showToast('Link copied!');
+    const btn=document.getElementById('share-copy-btn');
+    if(btn){const orig=btn.textContent;btn.textContent='✓ Copied';setTimeout(()=>btn.textContent=orig,2000);}
+  }).catch(()=>{
+    input.select();document.execCommand('copy');
+    showToast('Link copied!');
+  });
+}
+
 function openBoard(){
   window._boardOpen=true;
   // Update brief display
@@ -2596,6 +2690,13 @@ function initBoard(){
   document.getElementById('board-close-btn').addEventListener('click',closeBoard);
   document.getElementById('board-copy-btn').addEventListener('click',exportDossier);
   document.getElementById('board-download-btn').addEventListener('click',downloadDossier);
+  document.getElementById('board-preview-btn').addEventListener('click',openDossierPreview);
+  document.getElementById('board-share-btn').addEventListener('click',shareDossier);
+  // Close share modal on backdrop click
+  document.getElementById('share-link-modal').addEventListener('click',e=>{
+    if(e.target===document.getElementById('share-link-modal'))
+      document.getElementById('share-link-modal').classList.remove('active');
+  });
   document.getElementById('board-hud-btn').addEventListener('click',()=>{
     window._boardOpen?closeBoard():openBoard();
   });
@@ -4316,6 +4417,8 @@ function saveAgent(){
         <button class="board-action-btn" onclick="addNewAgent()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e">+ Agent</button>
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
+        <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
+        <button id="board-share-btn" class="board-action-btn">🔗 Share</button>
         <button class="board-action-btn" onclick="pushToFigma()" style="color:#e879f9;border-color:rgba(232,121,249,0.35);background:#120a18">⟶ Figma</button>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
       </div>
@@ -4402,6 +4505,21 @@ function saveAgent(){
     <button class="llm-close-btn" onclick="closeSprintViz()" title="Close sprint panel">✕</button>
   </div>
   <div id="sprint-body"></div>
+</div>
+
+<!-- Share Link Modal -->
+<div id="share-link-modal">
+  <div id="share-link-panel">
+    <h3>🔗 Shareable Dossier Link</h3>
+    <p>Anyone with this link can view your project dossier as a standalone HTML page.</p>
+    <input id="share-url-input" type="text" readonly placeholder="Generating link…">
+    <div class="share-actions">
+      <button id="share-copy-btn" onclick="copyShareUrl()" style="background:#0a1a2a;color:#4acea0;border-color:rgba(74,206,160,0.5)">Copy Link</button>
+      <button onclick="window.open(document.getElementById('share-url-input').value,'_blank')" style="background:#05050f;color:#63b3ed;border-color:rgba(99,179,237,0.5)">Open ↗</button>
+      <button onclick="document.getElementById('share-link-modal').classList.remove('active')" style="background:#05050f;color:#556;border-color:#252548;margin-left:auto">Close</button>
+    </div>
+    <div id="share-status" style="font-size:10px;color:#556;margin-top:10px"></div>
+  </div>
 </div>
 </body>
 </html>
