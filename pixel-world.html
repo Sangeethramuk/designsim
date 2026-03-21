@@ -219,8 +219,7 @@
   .feed-type-artifact .feed-content{color:#2a5a7a;}
   .feed-type-relay .feed-content{color:#5a3a7a;}
   .feed-type-brief .feed-content{color:#6a5a2a;}
-  #feed-toggle-btn{position:fixed;bottom:44px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#8090c8;font-family:monospace;font-size:11px;padding:5px 10px;cursor:pointer;border-radius:4px;z-index:3600;backdrop-filter:blur(4px);}
-  #feed-toggle-btn:hover,#feed-toggle-btn.active{border-color:#4a9eea;color:#4a9eea;}
+  /* feed-toggle-btn removed — activity is now in Board › Activity tab */
   /* Phase 5 — Project Board */
   #board-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:9000;display:none;flex-direction:column;align-items:center;justify-content:flex-start;padding:24px 16px;overflow-y:auto;}
   #board-overlay.active{display:flex;}
@@ -248,6 +247,16 @@
   #share-url-input:focus{outline:none;border-color:#4a9eea;}
   .share-actions{display:flex;gap:8px;margin-top:12px;}
   .share-actions button{padding:7px 14px;border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;border:1px solid;}
+  /* Board tabs (Agents / Activity) */
+  #board-tabs{display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid #1a2a4a;}
+  .board-tab{background:none;border:none;border-bottom:2px solid transparent;color:#4a6a8a;font-family:monospace;font-size:11px;padding:8px 18px;cursor:pointer;margin-bottom:-1px;letter-spacing:0.5px;transition:color 0.15s;}
+  .board-tab.active{color:#4a9eea;border-bottom-color:#4a9eea;}
+  .board-tab:hover:not(.active){color:#8ab8e8;}
+  #board-tab-badge{background:#4a9eea;color:#001020;font-size:9px;font-weight:bold;padding:1px 5px;border-radius:8px;margin-left:5px;display:none;vertical-align:middle;}
+  #board-tab-badge.show{display:inline;}
+  #board-activity-list{display:none;flex-direction:column;max-height:62vh;overflow-y:auto;}
+  #board-activity-list.active{display:flex;}
+  #board-grid.board-hidden{display:none;}
   #board-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;}
   .board-card{background:#0a0a1e;border:1px solid #1e1e3a;border-radius:8px;padding:12px;cursor:pointer;transition:border-color 0.15s,background 0.15s;display:flex;flex-direction:column;gap:4px;}
   .board-card:hover{border-color:#4a9eea;background:#0d0d28;}
@@ -2679,6 +2688,9 @@ function copyShareUrl(){
 
 function openBoard(){
   window._boardOpen=true;
+  window._unreadFeed=0;
+  // Always open on Agents tab, reset badge
+  switchBoardTab('agents');
   // Update brief display
   const briefEl=document.getElementById('board-brief-text');
   if(briefEl)briefEl.textContent=window._projectBrief||'No brief set. Press Tab again or click the brief in the HUD to add one.';
@@ -2693,6 +2705,8 @@ function closeBoard(){
 
 function initBoard(){
   window._boardOpen=false;
+  window._boardTab='agents';
+  window._unreadFeed=0;
   document.getElementById('board-close-btn').addEventListener('click',closeBoard);
   document.getElementById('board-copy-btn').addEventListener('click',exportDossier);
   document.getElementById('board-download-btn').addEventListener('click',downloadDossier);
@@ -2720,10 +2734,8 @@ function initBoard(){
   updateSwarmBtn();
 }
 
-// --- Phase 8: Collaboration Feed ---
-function prependFeedDOM(entry){
-  const list=document.getElementById('feed-list');
-  if(!list)return;
+// --- Phase 8: Collaboration Feed (now embedded in Board › Activity tab) ---
+function buildFeedEntryEl(entry){
   const div=document.createElement('div');
   div.className='feed-entry feed-type-'+entry.type;
   const top=document.createElement('div');top.className='feed-entry-top';
@@ -2738,9 +2750,25 @@ function prependFeedDOM(entry){
   const content=document.createElement('div');content.className='feed-content';
   content.textContent=entry.content;
   div.appendChild(top);div.appendChild(content);
-  list.insertBefore(div,list.firstChild);
-  // Trim to 100 entries
-  while(list.children.length>100)list.removeChild(list.lastChild);
+  return div;
+}
+function prependFeedDOM(entry){
+  // Legacy feed-list (kept in DOM but hidden — Board Activity tab is the primary UI)
+  const list=document.getElementById('feed-list');
+  if(list){list.insertBefore(buildFeedEntryEl(entry),list.firstChild);while(list.children.length>100)list.removeChild(list.lastChild);}
+  // Also update Board Activity tab if currently visible
+  const actList=document.getElementById('board-activity-list');
+  if(actList&&window._boardTab==='activity'){
+    actList.insertBefore(buildFeedEntryEl(entry),actList.firstChild);
+    while(actList.children.length>100)actList.removeChild(actList.lastChild);
+  } else {
+    // Board is open on Agents tab or closed — increment unread badge
+    if(window._boardOpen){
+      window._unreadFeed=(window._unreadFeed||0)+1;
+      const badge=document.getElementById('board-tab-badge');
+      if(badge){badge.textContent=window._unreadFeed;badge.classList.add('show');}
+    }
+  }
 }
 
 function addFeedEntry(type,agentId,content){
@@ -2771,8 +2799,34 @@ function toggleFeed(){
 function initFeed(){
   window._feedLog=[];
   window._feedOpen=false;
-  document.getElementById('feed-close').addEventListener('click',toggleFeed);
-  document.getElementById('feed-toggle-btn').addEventListener('click',toggleFeed);
+  const closeBtn=document.getElementById('feed-close');
+  if(closeBtn)closeBtn.addEventListener('click',toggleFeed);
+  // feed-toggle-btn has been removed from HUD; activity is now in Board › Activity tab
+}
+
+function syncFeedToBoard(){
+  const actList=document.getElementById('board-activity-list');
+  if(!actList)return;
+  actList.innerHTML='';
+  (window._feedLog||[]).forEach(entry=>actList.appendChild(buildFeedEntryEl(entry)));
+}
+
+function switchBoardTab(tab){
+  window._boardTab=tab;
+  const agentsBtn=document.getElementById('tab-agents');
+  const actBtn=document.getElementById('tab-activity');
+  const grid=document.getElementById('board-grid');
+  const actList=document.getElementById('board-activity-list');
+  const badge=document.getElementById('board-tab-badge');
+  if(agentsBtn)agentsBtn.classList.toggle('active',tab==='agents');
+  if(actBtn)actBtn.classList.toggle('active',tab==='activity');
+  if(grid)grid.classList.toggle('board-hidden',tab==='activity');
+  if(actList)actList.classList.toggle('active',tab==='activity');
+  if(tab==='activity'){
+    syncFeedToBoard();
+    window._unreadFeed=0;
+    if(badge){badge.textContent='';badge.classList.remove('show');}
+  }
 }
 
 // --- Phase 2: Project Brief ---
@@ -3152,11 +3206,11 @@ async function openNewProject(){
     if(window._sprintVizOpen)closeSprintViz();
     if(window._memBrowserOpen)closeMemoryBrowser();
 
-    // ── Archive current project (with 4s timeout so UI never hangs) ─────────
+    // ── Archive current project (timeout + error-safe so UI never hangs) ──────
     const mem=captureMemory();
     await Promise.race([
-      sbSaveMemory(mem),
-      new Promise(r=>setTimeout(r,4000)) // timeout fallback
+      sbSaveMemory(mem).catch(()=>{}), // rejection must not block the reset below
+      new Promise(r=>setTimeout(r,4000))
     ]);
     if(!window._memories)window._memories=[];
     window._memories.unshift({...mem,created_at:new Date().toISOString()});
@@ -4331,22 +4385,20 @@ function saveAgent(){
 <div id="llm-settings-modal">
   <div id="llm-settings-panel">
     <h3>⚡ LLM Settings <button class="llm-close-btn" id="llm-settings-close">✕</button></h3>
-    <details id="llm-advanced-details">
-      <summary style="cursor:pointer;color:#888;font-size:11px;margin-bottom:8px;user-select:none;">▸ Advanced (Direct LLM — for local/dev use only)</summary>
-      <div class="llm-field">
-        <label>Base URL</label>
-        <input id="llm-base-url" type="text" placeholder="https://api.openai.com"/>
-      </div>
-      <div class="llm-field">
-        <label>API Key</label>
-        <input id="llm-api-key" type="password" placeholder="sk-..."/>
-      </div>
-      <div id="llm-status"></div>
-      <div style="display:flex;gap:8px;">
-        <button id="llm-save-btn" style="flex:1;">Save & Connect</button>
-        <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
-      </div>
-    </details>
+    <div class="sb-section-title" style="margin-top:0">⚙ Direct LLM (local / dev)</div>
+    <div class="llm-field">
+      <label>Base URL</label>
+      <input id="llm-base-url" type="text" placeholder="https://api.openai.com"/>
+    </div>
+    <div class="llm-field">
+      <label>API Key</label>
+      <input id="llm-api-key" type="password" placeholder="sk-..."/>
+    </div>
+    <div id="llm-status"></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button id="llm-save-btn" style="flex:1;">Save & Connect</button>
+      <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
+    </div>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #252548;">
       <button id="llm-clear-data-btn" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#555;padding:7px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;margin-bottom:10px;">Clear Session Data</button>
       <div style="font-size:9px;color:#555;line-height:1.5;">
@@ -4429,19 +4481,20 @@ function saveAgent(){
         <button class="llm-close-btn" id="board-close-btn">✕</button>
       </div>
     </div>
+    <div id="board-tabs">
+      <button class="board-tab active" id="tab-agents" onclick="switchBoardTab('agents')">⊞ Agents</button>
+      <button class="board-tab" id="tab-activity" onclick="switchBoardTab('activity')">◎ Activity<span id="board-tab-badge"></span></button>
+    </div>
     <div id="board-grid"></div>
+    <div id="board-activity-list"></div>
   </div>
 </div>
 
-<!-- Phase 8: Collaboration Feed -->
-<div id="feed-panel">
-  <div id="feed-header">
-    <span id="feed-title">Activity Feed</span>
-    <button id="feed-close">✕</button>
-  </div>
+<!-- Phase 8: Collaboration Feed — panel hidden; activity lives in Board › Activity tab -->
+<div id="feed-panel" style="display:none">
+  <div id="feed-header"><span id="feed-title">Activity Feed</span><button id="feed-close">✕</button></div>
   <div id="feed-list"></div>
 </div>
-<button id="feed-toggle-btn" title="Activity Feed">◎ Feed</button>
 
 <!-- Phase 4: Relay Modal -->
 <div id="relay-modal">
