@@ -3179,15 +3179,44 @@ function sbClearAllData(){
 
 // --- Phase 12: Cross-Project Memory ---
 async function sbSaveMemory(mem){
-  if(!window._sbClient||!window._sbUser)return;
-  await window._sbClient.from('memories')
-    .insert({user_id:window._sbUser.id,brief:mem.brief||null,artifacts:mem.artifacts||{},relay_count:mem.relay_count||0})
-    .catch(()=>{});
+  if(!window._sbClient){console.warn('[Memory] sbSaveMemory: no Supabase client');return false;}
+  if(!window._sbUser){console.warn('[Memory] sbSaveMemory: no authenticated user — memory not saved');return false;}
+  try{
+    const{error}=await window._sbClient.from('memories')
+      .insert({user_id:window._sbUser.id,brief:mem.brief||null,artifacts:mem.artifacts||{},relay_count:mem.relay_count||0});
+    if(error){
+      console.error('[Memory] sbSaveMemory INSERT failed:',error.code,error.message,error.details);
+      return false;
+    }
+    console.log('[Memory] sbSaveMemory: saved successfully for user',window._sbUser.id.slice(0,8));
+    return true;
+  }catch(e){
+    console.error('[Memory] sbSaveMemory exception:',e.message);
+    return false;
+  }
 }
 async function sbLoadMemories(){
-  if(!window._sbClient||!window._sbUser){window._memories=[];return;}
-  const{data}=await window._sbClient.from('memories').select('*').eq('user_id',window._sbUser.id).order('created_at',{ascending:false}).limit(10).catch(()=>({data:[]}));
-  window._memories=data||[];
+  if(!window._sbClient||!window._sbUser){
+    console.warn('[Memory] sbLoadMemories: no client or user — skipping');
+    window._memories=[];
+    updateMemoryHUD();
+    return;
+  }
+  try{
+    const{data,error}=await window._sbClient.from('memories')
+      .select('*').eq('user_id',window._sbUser.id)
+      .order('created_at',{ascending:false}).limit(10);
+    if(error){
+      console.error('[Memory] sbLoadMemories SELECT failed:',error.code,error.message);
+      window._memories=[];
+    }else{
+      window._memories=data||[];
+      console.log('[Memory] sbLoadMemories: loaded',window._memories.length,'memories for user',window._sbUser.id.slice(0,8));
+    }
+  }catch(e){
+    console.error('[Memory] sbLoadMemories exception:',e.message);
+    window._memories=[];
+  }
   updateMemoryHUD();
 }
 
@@ -3411,10 +3440,21 @@ async function openNewProject(){
 
     // ── Archive current project (timeout + error-safe so UI never hangs) ──────
     const mem=captureMemory();
-    await Promise.race([
-      sbSaveMemory(mem).catch(()=>{}), // rejection must not block the reset below
-      new Promise(r=>setTimeout(r,4000))
-    ]);
+    let memorySaved=false;
+    if(!window._sbUser){
+      showToast('⚠ Not signed in — memory only saved locally',3000);
+    }else{
+      try{
+        const saveResult=await Promise.race([
+          sbSaveMemory(mem),
+          new Promise(r=>setTimeout(()=>r(false),4000)) // 4s timeout → false
+        ]);
+        memorySaved=saveResult===true;
+        if(!memorySaved)showToast('⚠ Memory save failed — check console for details',3000);
+      }catch(e){
+        console.error('[Memory] openNewProject save error:',e.message);
+      }
+    }
     if(!window._memories)window._memories=[];
     window._memories.unshift({...mem,created_at:new Date().toISOString()});
     updateMemoryHUD();
