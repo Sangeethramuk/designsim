@@ -1561,7 +1561,7 @@ async function sendChatMessage(){
   if(msgs&&window._chatAgent&&window._chatAgent.id===agent.id){
     window._agentMessages[agent.id]=msgs.innerHTML;
   }
-
+  scheduleAutosave();
   if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
   if(storeArtifact(agent,response)){
     const art=window._agentArtifacts[agent.id];
@@ -1643,7 +1643,10 @@ function initChatPanel(){
   initSpeechRecognition();
   initArtifactPanel();
   initRelayModal();
-  // Hydrate persisted state once DB is ready
+  // Restore from localStorage first (instant, no network needed).
+  // Gives back all agent outputs immediately even without Supabase.
+  restoreLocalSession();
+  // Then hydrate from Supabase (authoritative — overwrites local if signed in)
   window._sbReady&&window._sbReady.then(user=>user&&sbLoadAll());
 }
 
@@ -2048,6 +2051,7 @@ function storeArtifact(agent,rawText){
     timestamp:Date.now(),agentId:agent.id,agentName:agent.name};
   window._agentArtifacts[agent.id]=art;
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveArtifact(agent.id,art));
+  scheduleAutosave();
   if(typeof addFeedEntry==='function')addFeedEntry('artifact',agent.id,agent.name+' produced '+( art.lang||art.type));
   return true;
 }
@@ -2592,6 +2596,65 @@ function downloadDossier(){
   showToast('Dossier downloaded');
 }
 
+// ── Local session persistence (survives page refresh without Supabase) ────────
+// Saves all agent state to localStorage['swarm_session'] after every change.
+// On page load, this is restored before Supabase connects — giving instant UX.
+// Supabase sbLoadAll() will overwrite with authoritative server data if connected.
+let _autosaveTimer=null;
+function scheduleAutosave(){
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer=setTimeout(autosaveSession,500);
+}
+function autosaveSession(){
+  try{
+    // Save session data: artifacts, message histories, relay log, sprint plan, brief
+    // Skip _agentMessages (rendered HTML) — it's rebuilt from _agentSessions on restore
+    const snap={
+      brief:window._projectBrief||'',
+      agentArtifacts:window._agentArtifacts||{},
+      agentSessions:window._agentSessions||{},
+      relayLog:window._relayLog||[],
+      sprintPlan:window._sprintPlan||null,
+      savedAt:Date.now()
+    };
+    localStorage.setItem('swarm_session',JSON.stringify(snap));
+  }catch(e){
+    // Silently handle QuotaExceededError or circular-ref errors
+    console.warn('Session autosave failed:',e.message);
+  }
+}
+function restoreLocalSession(){
+  try{
+    const raw=localStorage.getItem('swarm_session');
+    if(!raw)return false;
+    const snap=JSON.parse(raw);
+    if(!snap||typeof snap!=='object')return false;
+    // Hydrate all state objects (init functions have already set them to empty)
+    if(snap.agentArtifacts&&typeof snap.agentArtifacts==='object')
+      window._agentArtifacts=snap.agentArtifacts;
+    if(snap.agentSessions&&typeof snap.agentSessions==='object')
+      window._agentSessions=snap.agentSessions;
+    if(snap.relayLog&&Array.isArray(snap.relayLog))
+      window._relayLog=snap.relayLog;
+    if(snap.sprintPlan)
+      window._sprintPlan=snap.sprintPlan;
+    if(snap.brief&&!window._projectBrief){
+      window._projectBrief=snap.brief;
+      try{localStorage.setItem('project_brief',snap.brief);}catch(e){}
+      if(typeof updateBriefHUD==='function')updateBriefHUD();
+    }
+    // Rebuild rendered chat HTML from raw session data
+    if(typeof rebuildAgentMessages==='function')rebuildAgentMessages();
+    const agentCount=Object.keys(snap.agentSessions||{}).length;
+    if(agentCount>0)console.info('[session] Restored '+agentCount+' agent sessions from localStorage');
+    return agentCount>0;
+  }catch(e){
+    console.warn('Session restore failed:',e.message);
+    return false;
+  }
+}
+// ── End local session persistence ─────────────────────────────────────────────
+
 // Open dossier as a live preview in a new browser tab (instant, no upload needed)
 function openDossierPreview(){
   const html=generateDossierHTML();
@@ -2875,6 +2938,7 @@ function sbLoadAll(){
     if(relays)relays.forEach(r=>{window._relayLog.push({from:r.from_id,fromName:r.from_name,to:r.to_id,preview:r.preview,timestamp:r.timestamp});});
     if(brief&&brief.content){window._projectBrief=brief.content;if(typeof updateBriefHUD==='function')updateBriefHUD();}
     rebuildAgentMessages(); // rebuild chat HTML safely from sessions (replaces innerHTML restore)
+    scheduleAutosave(); // sync Supabase data back to localStorage so next refresh restores faster
   }).then(()=>sbLoadMemories()).then(()=>sbLoadUserProfile()).catch(()=>{});
 }
 // Rebuild per-agent chat HTML from session data using safe DOM methods (no innerHTML from DB)
@@ -3167,7 +3231,7 @@ async function openNewProject(){
     window._swarmAbort=false;
     window._sprintVizOpen=false;
     window._boardOpen=false;
-    try{localStorage.removeItem('project_brief');}catch(e){}
+    try{localStorage.removeItem('project_brief');localStorage.removeItem('swarm_session');}catch(e){}
 
     // ── Clear Supabase current project rows (keep memories & user_profile) ──
     if(window._sbClient&&window._sbUser){
@@ -3324,6 +3388,7 @@ async function runSwarmAgent(agent, customPrompt){
   }
   window._agentSessions[agent.id]=newHistory;
   window._sbReady&&window._sbReady.then(user=>user&&sbSaveSession(agent.id,newHistory.slice()));
+  scheduleAutosave();
   if(!_swarmErrored)storeArtifact(agent,response); // don't store error sentinels as artifacts
   if(typeof addFeedEntry==='function')addFeedEntry('chat',agent.id,agent.name+': '+response.slice(0,60));
   if(window._chatAgent&&window._chatAgent.id===agent.id){
