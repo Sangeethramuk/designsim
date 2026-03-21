@@ -116,6 +116,22 @@
   #game-zoom-btns button:hover{border-color:#4a9eea;background:rgba(74,158,234,0.15);}
   #game-hint{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.55);color:#787878;font-family:monospace;font-size:11px;padding:4px 16px;border-radius:4px;z-index:1000;pointer-events:none;transition:opacity 1.4s ease;white-space:nowrap;}
   #game-hint.hidden{opacity:0;}
+  /* UX Phase 1 — Signal improvements */
+  #hud-swarm-pulse{display:none;font-size:10px;color:#4acea0;margin-left:6px;font-family:monospace;animation:hud-swarm-pulse 1.2s ease-in-out infinite;}
+  @keyframes hud-swarm-pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+  #hud-run-btn{position:fixed;bottom:10px;right:130px;z-index:8001;background:rgba(10,10,30,0.88);color:#4acea0;border:1px solid rgba(74,206,160,0.4);font-family:monospace;font-size:11px;padding:4px 10px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px);}
+  #hud-run-btn:hover{background:rgba(74,206,160,0.12);border-color:#4acea0;}
+  #swarm-progress-bar-wrap{display:none;position:fixed;bottom:0;left:0;right:0;height:3px;z-index:9999;}
+  #swarm-progress-bar{height:100%;background:linear-gradient(90deg,#4acea0,#a78bfa);width:0%;transition:width 0.5s ease;}
+  #confirm-modal{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:9500;display:none;align-items:center;justify-content:center;}
+  #confirm-modal.active{display:flex;}
+  #confirm-panel{background:#0a0a1e;border:1px solid #252548;border-radius:10px;padding:24px 28px;width:320px;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.7);}
+  #confirm-panel p{font-size:12px;color:#ccc;line-height:1.6;margin:0 0 20px;}
+  .confirm-btns{display:flex;gap:8px;}
+  .confirm-ok-btn{flex:1;background:#1a0a0a;border:1px solid rgba(232,72,85,0.5);color:#e84855;padding:9px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
+  .confirm-ok-btn:hover{background:rgba(232,72,85,0.15);}
+  .confirm-cancel-btn{flex:1;background:#0a0a1e;border:1px solid #252548;color:#666;padding:9px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
+  .confirm-cancel-btn:hover{color:#aaa;border-color:#4a4a7a;}
   #llm-settings-btn{position:fixed;top:10px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#556;width:32px;height:32px;cursor:pointer;font-size:15px;border-radius:6px;z-index:2000;backdrop-filter:blur(6px);transition:border-color 0.15s,color 0.15s;display:flex;align-items:center;justify-content:center;}
   #llm-settings-btn:hover{border-color:#4a9eea;color:#4a9eea;}
   #llm-settings-btn.connected{color:#4abc6a;border-color:rgba(74,188,106,0.5);}
@@ -2228,13 +2244,13 @@ function initArtifactPanel(){
 }
 
 // --- Phase 4: Relay Chaining ---
-function showToast(msg){
+function showToast(msg,duration){
   const t=document.getElementById('relay-toast');
   if(!t)return;
   t.textContent=msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer=setTimeout(()=>t.classList.remove('show'),2500);
+  t._timer=setTimeout(()=>t.classList.remove('show'),duration||2500);
 }
 
 function fireRelayAnimation(fromAgent,toAgentId){
@@ -2867,7 +2883,7 @@ function openBriefModal(editMode){
   const modal=document.getElementById('brief-modal');
   const input=document.getElementById('brief-input');
   const subtitle=document.getElementById('brief-subtitle');
-  subtitle.textContent=editMode?'Update the project brief below.':'What are you designing? Describe it in 1–3 sentences.';
+  subtitle.textContent=editMode?'Update the brief to refocus the agents.':'What are you designing? Your brief focuses all 14 AI agents.';
   input.value=window._projectBrief||'';
   modal.classList.add('active');
   setTimeout(()=>input.focus(),80);
@@ -2880,20 +2896,22 @@ function closeBriefModal(){
 function initBrief(){
   loadBrief();
   updateBriefHUD();
-  document.getElementById('brief-save-btn').addEventListener('click',()=>{
+  function _saveBrief(){
     const text=document.getElementById('brief-input').value.trim();
-    if(text){saveBrief(text);closeBriefModal();}
-  });
+    if(!text)return;
+    saveBrief(text);
+    closeBriefModal();
+    if(!window._projectBrief||window._projectBrief===text)
+      showToast('Brief set! Press Tab → ▶ Run Swarm to start',4000);
+  }
+  document.getElementById('brief-save-btn').addEventListener('click',_saveBrief);
   document.getElementById('brief-skip-btn').addEventListener('click',closeBriefModal);
   document.getElementById('brief-modal-close').addEventListener('click',closeBriefModal);
   document.getElementById('brief-modal').addEventListener('click',e=>{
     if(e.target===document.getElementById('brief-modal'))closeBriefModal();
   });
   document.getElementById('brief-input').addEventListener('keydown',e=>{
-    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){
-      const text=document.getElementById('brief-input').value.trim();
-      if(text){saveBrief(text);closeBriefModal();}
-    }
+    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))_saveBrief();
   });
   const hudBrief=document.getElementById('hud-brief');
   if(hudBrief)hudBrief.addEventListener('click',()=>openBriefModal(true));
@@ -3255,6 +3273,29 @@ async function openNewProject(){
   }
 }
 
+// --- UX Phase 1: Confirm Dialog + New Project gate ---
+function showConfirm(msg,okLabel,onOk){
+  const modal=document.getElementById('confirm-modal');
+  if(!modal)return onOk&&onOk();
+  document.getElementById('confirm-msg').textContent=msg;
+  const okBtn=document.getElementById('confirm-ok');
+  okBtn.textContent=okLabel||'Confirm';
+  modal.classList.add('active');
+  const close=()=>modal.classList.remove('active');
+  okBtn.onclick=()=>{close();if(onOk)onOk();};
+  document.getElementById('confirm-cancel').onclick=close;
+  modal.onclick=e=>{if(e.target===modal)close();};
+}
+
+function confirmNewProject(){
+  const hasContent=window._projectBrief||(Object.keys(window._agentArtifacts||{}).length>0);
+  if(hasContent){
+    showConfirm('Archive this project to memory and start a fresh brief?','Archive & Start Fresh',openNewProject);
+  }else{
+    openNewProject();
+  }
+}
+
 // --- Phase 16d: Figma Integration ---
 
 function loadFigmaConfig(){
@@ -3420,8 +3461,10 @@ async function runSwarm(){
   window._swarmRunning=true;window._swarmAbort=false;
   updateSwarmBtn();
   let done=0;
-  const prog=document.getElementById('swarm-progress');
-  if(prog){prog.style.display='inline';prog.textContent='Director planning…';}
+  const progWrap=document.getElementById('swarm-progress-bar-wrap');
+  const progBar=document.getElementById('swarm-progress-bar');
+  if(progWrap)progWrap.style.display='block';
+  if(progBar)progBar.style.width='2%';
 
   // ── Phase 1: Director decides which agents and in what order ──────────────
   showToast('Director is planning the sprint…');
@@ -3443,7 +3486,7 @@ async function runSwarm(){
   const completedIds=[];
   for(const wave of activeWaves){
     if(window._swarmAbort)break;
-    if(prog)prog.textContent=done+'/'+totalAgents+' '+wave.name+'…';
+    if(progBar&&totalAgents)progBar.style.width=Math.max(2,Math.round(done/totalAgents*90))+'%';
     // Inject outputs from all previous waves into this wave's agents
     if(completedIds.length){
       const ctx=collectWaveOutputs(completedIds);
@@ -3460,7 +3503,7 @@ async function runSwarm(){
       const agentPrompt=(wave.prompt||'')+'\n\nYour specific focus: apply your role as '+ag.role+' specialist. Do not duplicate what your colleagues in this wave will cover.';
       await runSwarmAgent(ag,agentPrompt);
       done++;
-      if(prog)prog.textContent=done+'/'+totalAgents;
+      if(progBar&&totalAgents)progBar.style.width=Math.max(2,Math.round(done/totalAgents*90))+'%';
       updateSprintCards([id],'done');
     }));
     completedIds.push(...wave.agents);
@@ -3475,7 +3518,7 @@ async function runSwarm(){
     // Fire handoff animation from last wave's agents to Director
     const lastWave=activeWaves[activeWaves.length-1];
     if(lastWave)fireHandoffAnimations(lastWave.agents,['lead']);
-    if(prog)prog.textContent=done+'/'+totalAgents+' Director…';
+    if(progBar)progBar.style.width='92%';
     updateSprintCards(['lead'],'active');
     const lead=AGENTS.find(a=>a.id==='lead');
     if(lead){
@@ -3499,8 +3542,10 @@ async function runSwarm(){
 
 function _swarmEnd(done){
   window._swarmRunning=false;
-  const prog=document.getElementById('swarm-progress');
-  if(prog)prog.style.display='none';
+  const progWrap=document.getElementById('swarm-progress-bar-wrap');
+  const progBar=document.getElementById('swarm-progress-bar');
+  if(progBar)progBar.style.width='100%';
+  setTimeout(()=>{if(progWrap)progWrap.style.display='none';if(progBar)progBar.style.width='0%';},700);
   updateSwarmBtn();
   rebuildAgentMessages();
   showToast(window._swarmAbort?'Swarm stopped':'✦ Swarm complete — '+done+' agents ran');
@@ -3512,17 +3557,21 @@ function _swarmEnd(done){
   if(window._swarmAbort)closeSprintViz();
 }
 function updateSwarmBtn(){
+  const running=!!window._swarmRunning;
   const btn=document.getElementById('swarm-run-btn');
-  if(!btn)return;
-  if(window._swarmRunning){
-    btn.textContent='◼ Stop';
-    btn.style.color='#e88888';
-    btn.style.borderColor='rgba(232,136,136,0.4)';
-  }else{
-    btn.textContent='▶ Run Swarm';
-    btn.style.color='#4acea0';
-    btn.style.borderColor='rgba(74,206,160,0.35)';
+  const hudBtn=document.getElementById('hud-run-btn');
+  const pulse=document.getElementById('hud-swarm-pulse');
+  if(btn){
+    btn.textContent=running?'◼ Stop':'▶ Run Swarm';
+    btn.style.color=running?'#e88888':'#4acea0';
+    btn.style.borderColor=running?'rgba(232,136,136,0.4)':'rgba(74,206,160,0.35)';
   }
+  if(hudBtn){
+    hudBtn.textContent=running?'◼ Stop':'▶ Swarm';
+    hudBtn.style.color=running?'#e88888':'#4acea0';
+    hudBtn.style.borderColor=running?'rgba(232,136,136,0.4)':'rgba(74,206,160,0.4)';
+  }
+  if(pulse)pulse.style.display=running?'inline':'none';
 }
 
 // Phase 16b — Sprint Battle Map Visualizer
@@ -3730,6 +3779,7 @@ class GameScene extends Phaser.Scene{
         if(d<minDist){minDist=d;nearest=a;}
       });
       if(nearest)openChat(nearest);
+      else showToast('Walk up to an agent first ↑');
     });
 
     // Day overlay — large enough to cover camera at any zoom (scrollFactor 0 = screen-space)
@@ -3746,12 +3796,6 @@ class GameScene extends Phaser.Scene{
     document.getElementById('btn-zoom-in').addEventListener('click',()=>this.setZoom(this.currentZoom+this.zoomSpeed));
     document.getElementById('btn-zoom-out').addEventListener('click',()=>this.setZoom(this.currentZoom-this.zoomSpeed));
     document.getElementById('btn-zoom-reset').addEventListener('click',()=>this.setZoom(ZOOM));
-
-    // Fade hint bar after 7 s
-    setTimeout(()=>{
-      const h=document.getElementById('game-hint');
-      if(h)h.classList.add('hidden');
-    },7000);
 
     // Init HTML HUD
     document.getElementById('hud-zoom').textContent=(ZOOM*100)+'%';
@@ -4009,12 +4053,7 @@ class GameScene extends Phaser.Scene{
       }
     });
 
-    // --- HUD (HTML) ---
-    document.getElementById('hud-zone').textContent=getZone(this.pTX,this.pTY);
-    document.getElementById('hud-coord').textContent=this.pTX+','+this.pTY;
-    const hrs=Math.floor(this.dayTime*24),mins=Math.floor((this.dayTime*24-hrs)*60);
-    const h12=hrs%12||12,ap=hrs>=12?'PM':'AM';
-    document.getElementById('hud-time').textContent=h12+':'+String(mins).padStart(2,'0')+' '+ap;
+    // --- HUD (HTML) --- zone/coord/time removed in UX Phase 1
 
     // --- Update thought bubbles to follow agents ---
     this.agents.forEach(a=>{
@@ -4346,27 +4385,23 @@ function saveAgent(){
 <!-- HUD Overlay -->
 <div id="agent-labels"></div>
 <div id="game-hud">
-  <span class="h-zone" id="hud-zone">Corridor</span>
-  <span class="h-sep">·</span>
-  <span class="h-coord" id="hud-coord">13,6</span>
-  <span class="h-sep">·</span>
-  <span class="h-time" id="hud-time">—</span>
-  <span class="h-sep">·</span>
   <span class="h-zoom" id="hud-zoom">100%</span>
   <span class="h-sep" id="hud-brief-sep" style="display:none">·</span>
   <span class="h-brief" id="hud-brief" style="display:none" title="Click to edit brief"></span>
   <span id="hud-memory-count" style="display:none;margin-left:8px;font-size:10px;color:#a78bfa;cursor:default;font-family:monospace" title="Memories from past projects">◈ <span id="hud-memory-num">0</span> mem</span>
+  <span id="hud-swarm-pulse">⟳ Running…</span>
 </div>
 <div id="game-zoom-btns">
   <button id="btn-zoom-out" title="Zoom out (−)">−</button>
-  <button id="btn-zoom-reset" title="Reset zoom (R)">⊙</button>
+  <button id="btn-zoom-reset" title="Reset Zoom (R)">⊙</button>
   <button id="btn-zoom-in" title="Zoom in (+)">+</button>
 </div>
 <button id="board-hud-btn" title="Project Board (Tab)">⊞ Board</button>
-<span id="swarm-progress" style="display:none;position:fixed;bottom:10px;right:80px;z-index:8001;font-size:10px;color:#4acea0;font-family:monospace;background:rgba(10,10,30,0.88);padding:3px 8px;border-radius:3px;border:1px solid rgba(74,206,160,0.3)"></span>
-<button id="new-project-btn" onclick="openNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
+<button id="hud-run-btn" onclick="runSwarm()" title="Run design sprint with all agents">▶ Swarm</button>
+<div id="swarm-progress-bar-wrap"><div id="swarm-progress-bar"></div></div>
+<button id="new-project-btn" onclick="confirmNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
 <button id="mem-browser-btn" title="Browse past project memories" style="position:fixed;bottom:66px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">◈ Memories</button>
-<div id="game-hint">WASD / arrows · E: chat · click agent · scroll: zoom</div>
+<div id="game-hint">WASD · E: chat · Tab: board · click agent</div>
 
 <!-- Chat Panel -->
 <div id="chat-panel">
@@ -4598,6 +4633,17 @@ function saveAgent(){
     <button class="llm-close-btn" onclick="closeSprintViz()" title="Close sprint panel">✕</button>
   </div>
   <div id="sprint-body"></div>
+</div>
+
+<!-- UX Phase 1: Confirmation Dialog -->
+<div id="confirm-modal">
+  <div id="confirm-panel">
+    <p id="confirm-msg"></p>
+    <div class="confirm-btns">
+      <button class="confirm-cancel-btn" id="confirm-cancel">Cancel</button>
+      <button class="confirm-ok-btn" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <!-- Share Link Modal -->
