@@ -37,6 +37,17 @@
   .chip{background:#2a2a4e;padding:4px 8px;border-radius:12px;font-size:10px;color:#e0e0e0;display:flex;align-items:center;gap:4px}
   .chip-remove{cursor:pointer;color:#e84855;font-weight:bold}
   .chip-add{background:#1a1a2e;border:1px dashed #4a9eea;color:#4a9eea;cursor:pointer;padding:4px 8px;border-radius:12px;font-size:10px}
+  /* MD Skill chips */
+  .md-chip{background:linear-gradient(135deg,#1e2a1e,#1a2e1a);border:1px solid #3a6e3a;padding:5px 10px;border-radius:12px;font-size:10px;color:#7ecb7e;display:flex;align-items:center;gap:5px;max-width:200px}
+  .md-chip-icon{font-size:11px;flex-shrink:0}
+  .md-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .md-chip-size{color:#4a8e4a;font-size:9px;flex-shrink:0}
+  .md-chip-remove{cursor:pointer;color:#e84855;font-weight:bold;flex-shrink:0;margin-left:2px}
+  .md-upload-row{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .md-upload-btn{background:#1a1a2e;border:1px dashed #3a6e3a;color:#7ecb7e;cursor:pointer;padding:5px 10px;border-radius:12px;font-size:10px;display:flex;align-items:center;gap:5px;transition:background 0.15s}
+  .md-upload-btn:hover{background:#1e2a1e}
+  .md-upload-note{font-size:9px;color:#38385a;font-style:italic}
+  #md-file-input{display:none}
   #chat-agent-brain{font-size:9px;color:#4a9eea;opacity:0.7;font-family:monospace;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
   .chat-setting-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
   .chat-setting-label{font-size:10px;color:#555;min-width:52px;flex-shrink:0;}
@@ -624,6 +635,16 @@
       <div class="editor-section-title">Skills</div>
       <div class="chip-list" id="edit-skills-list"></div>
       <div class="chip-add" onclick="addSkill()">+ Add Skill</div>
+      <!-- MD Skills upload -->
+      <div style="margin-top:12px;font-size:10px;color:#5a5a80;letter-spacing:0.3px;margin-bottom:6px;">📄 Knowledge Files (.md)</div>
+      <div class="chip-list" id="edit-md-skills-list"></div>
+      <div class="md-upload-row">
+        <label class="md-upload-btn" for="md-file-input">
+          <span>⬆</span> Upload .md file
+        </label>
+        <span class="md-upload-note">Any markdown file — guidelines, frameworks, principles, references</span>
+      </div>
+      <input type="file" id="md-file-input" accept=".md,.txt" multiple onchange="handleMdUpload(event)">
     </div>
     <div class="editor-footer">
       <button class="btn btn-danger" onclick="deleteCurrentAgent()" style="margin-right:auto">✕ Delete Agent</button>
@@ -1599,6 +1620,12 @@ function buildAgentMessages(agent,message,history){
   if(!window._headlessMode){
     const fmt=getFormatInstruction(agent.id);
     if(fmt)sys+='\n\n## Required Output Format\n'+fmt;
+  }
+  // Inject uploaded MD knowledge files into system context
+  const mdSkills=agent.mdSkills||[];
+  if(mdSkills.length>0){
+    const mdCtx=mdSkills.map(s=>'### '+s.name+'\n'+s.content).join('\n\n---\n\n');
+    sys+='\n\n## Uploaded Knowledge Files\nThe following files have been uploaded as your domain knowledge. Apply their principles and guidelines in all your outputs:\n\n'+mdCtx;
   }
   sys+='\n\nBe direct, specific, and expert. Follow the output format strictly. Cite prior agent outputs by name when building on them.';
   const maxTokens=AGENT_MAX_TOKENS[agent.id]||800;
@@ -5094,7 +5121,10 @@ function openEditor(agent,scene){
   renderChips('edit-tools-list',agent.tools||[],AVAILABLE_TOOLS,removeTool);
   renderChips('edit-mcp-list',agent.mcp||[],AVAILABLE_MCP,removeMcp);
   renderChips('edit-skills-list',agent.skills||[],AVAILABLE_SKILLS,removeSkill);
-  
+  // Populate MD knowledge files
+  if(!currentEditAgent.mdSkills)currentEditAgent.mdSkills=[];
+  renderMdSkillChips();
+
   document.addEventListener('keydown',handleEsc);
 }
 
@@ -5224,6 +5254,59 @@ function removeTool(i){if(currentEditAgent){currentEditAgent.tools.splice(i,1);r
 function removeMcp(i){if(currentEditAgent){currentEditAgent.mcp.splice(i,1);renderChips('edit-mcp-list',currentEditAgent.mcp,AVAILABLE_MCP,removeMcp);}}
 function removeSkill(i){if(currentEditAgent){currentEditAgent.skills.splice(i,1);renderChips('edit-skills-list',currentEditAgent.skills,AVAILABLE_SKILLS,removeSkill);}}
 
+// ── MD Knowledge File upload ───────────────────────────────────────────────
+function handleMdUpload(event){
+  if(!currentEditAgent)return;
+  if(!currentEditAgent.mdSkills)currentEditAgent.mdSkills=[];
+  const files=Array.from(event.target.files||[]);
+  const MAX_SIZE=100*1024; // 100KB per file
+  let loaded=0;
+  files.forEach(file=>{
+    if(file.size>MAX_SIZE){
+      showToast('⚠ '+file.name+' too large (max 100KB)');return;
+    }
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const content=e.target.result||'';
+      // Replace existing file with same name
+      const existing=currentEditAgent.mdSkills.findIndex(s=>s.name===file.name);
+      const entry={name:file.name,content,size:file.size,addedAt:Date.now()};
+      if(existing>=0)currentEditAgent.mdSkills[existing]=entry;
+      else currentEditAgent.mdSkills.push(entry);
+      loaded++;
+      if(loaded===files.length)renderMdSkillChips();
+    };
+    reader.readAsText(file);
+  });
+  // Reset input so same file can be re-uploaded
+  event.target.value='';
+}
+
+function renderMdSkillChips(){
+  const container=document.getElementById('edit-md-skills-list');
+  if(!container)return;
+  container.innerHTML='';
+  const skills=currentEditAgent?.mdSkills||[];
+  skills.forEach((s,i)=>{
+    const chip=document.createElement('span');
+    chip.className='md-chip';
+    const kb=(s.size/1024).toFixed(1);
+    chip.innerHTML=
+      '<span class="md-chip-icon">📄</span>'+
+      '<span class="md-chip-name" title="'+escHtml(s.name)+'">'+escHtml(s.name)+'</span>'+
+      '<span class="md-chip-size">'+kb+'KB</span>'+
+      '<span class="md-chip-remove" onclick="removeMdSkill('+i+')">&times;</span>';
+    container.appendChild(chip);
+  });
+}
+
+function removeMdSkill(i){
+  if(!currentEditAgent||!currentEditAgent.mdSkills)return;
+  currentEditAgent.mdSkills.splice(i,1);
+  renderMdSkillChips();
+  showToast('Knowledge file removed');
+}
+
 function saveAgent(){
   if(!currentEditAgent||!currentEditScene)return;
   
@@ -5251,6 +5334,7 @@ function saveAgent(){
       zone:currentEditAgent.zone,zc:currentEditAgent.zc,brain:currentEditAgent.brain,
       systemPrompt:currentEditAgent.systemPrompt,tools:currentEditAgent.tools,
       mcp:currentEditAgent.mcp,skills:currentEditAgent.skills,
+      mdSkills:currentEditAgent.mdSkills||[],
       shirt:currentEditAgent.shirt,hair:currentEditAgent.hair,
       tx:currentEditAgent.tx,ty:currentEditAgent.ty,
       facing:currentEditAgent.facing,idle:currentEditAgent.idle
