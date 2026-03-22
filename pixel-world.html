@@ -475,6 +475,14 @@
   #sprint-live-strip::-webkit-scrollbar{width:3px;}#sprint-live-strip::-webkit-scrollbar-thumb{background:#1a1a2e;}
   .sprint-live-entry{font-size:9px;color:#2e4e3e;line-height:1.6;margin-bottom:3px;padding-left:7px;border-left:2px solid #1a3a2a;}
   .sprint-live-entry-name{color:#4a9a6a;font-weight:bold;}
+  /* Phase 2 — super-phase group headers in sprint viz */
+  .sprint-phase-header{display:flex;align-items:center;gap:6px;padding:5px 0 5px;margin-top:14px;margin-bottom:7px;border-bottom:1px solid #1a1a40;}
+  .sprint-phase-header:first-child{margin-top:0;}
+  .sprint-phase-icon{font-size:11px;color:#7070c0;}
+  .sprint-phase-label{font-size:9px;font-weight:bold;color:#5050a0;text-transform:uppercase;letter-spacing:2px;flex:1;}
+  .sprint-phase-badge{font-size:8px;padding:1px 5px;border-radius:8px;background:#0d0d28;color:#3a3a7a;border:1px solid #1a1a3a;}
+  .sprint-phase-divider{text-align:center;color:#1a1a3a;font-size:10px;letter-spacing:4px;margin:2px 0 2px;display:block;user-select:none;}
+  #sprint-phase-indicator{font-size:9px;color:#4040a0;margin-left:2px;letter-spacing:0.5px;}
   /* UX Phase 3 — Discovery */
   /* #18 Floating sprint close */
   #sprint-close-floating{display:none;position:fixed;top:12px;right:335px;z-index:8700;background:rgba(5,5,15,0.9);color:#666;border:1px solid #252548;font-family:monospace;font-size:11px;padding:4px 10px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px);transition:right 0.3s ease,color 0.15s,border-color 0.15s;}
@@ -1369,7 +1377,7 @@ function saveProxyConfig(val){
 // --- Swarm orchestration helpers ---
 
 // Collect outputs from a list of completed agent IDs into a context block
-function collectWaveOutputs(agentIds){
+function collectWaveOutputs(agentIds, recentIds=[]){
   const parts=[];
   agentIds.forEach(id=>{
     const a=AGENTS.find(x=>x.id===id);if(!a)return;
@@ -1379,8 +1387,10 @@ function collectWaveOutputs(agentIds){
     const content=art?art.content:lastReply?lastReply.content:null;
     // Skip swarm-error sentinels — don't pollute downstream context with failure messages
     if(!content||content.startsWith('⚠[swarm-error]'))return;
-    // Tag each block with agent ID so downstream agents can cite sources by name
-    parts.push('['+id+']\n### '+a.name+' ('+a.role+')\n'+content.slice(0,1400));
+    // Tiered compression: recent wave agents get 1400 chars, older waves get 500 chars
+    // This keeps token budget manageable for synthesis agents (up to 9 prior agents)
+    const maxLen=recentIds.includes(id)?1400:500;
+    parts.push('['+id+']\n### '+a.name+' ('+a.role+')\n'+content.slice(0,maxLen));
   });
   return parts.length
     ?'## Prior Wave Outputs — cite these by agent name when building on them\n\n'+parts.join('\n\n---\n\n')
@@ -4194,11 +4204,27 @@ const HARDCODED_WAVES=[
     prompt:'Read ALL research, design, specification, and critique outputs from prior waves in your context.\n\nCouncil: define 3 domain-appropriate reviewers (not hardcoded names). Score, cite specific concerns, surface conflicts between reviewers.\nWeaver: produce the authoritative handoff document — inventory, conflict map, final spec with verified decisions, and deferred items. Cite source agents.\nGate: make the final GO/CONDITIONAL PASS/FAIL call. List blocking issues and conditions explicitly.\nCheck: run the full 7-category validation scorecard. Compute readiness %. Give top 3 must-fix items.\n\nThis is the final wave — your combined output IS the deliverable.'},
 ];
 
+// ── Sprint super-phases — group waves visually into Research / Design / Review ──────────
+const SPRINT_PHASES=[
+  {name:'Research',icon:'◉',agents:['scout','scholar']},
+  {name:'Design',icon:'◈',agents:['palette','flow','blueprint','forge']},
+  {name:'Review',icon:'◎',agents:['lens','eye','mirror','council','weaver','gate','check']},
+];
+// Returns 0/1/2 for the super-phase index of a given agent, or -1 if unknown
+function getAgentSuperPhase(id){return SPRINT_PHASES.findIndex(p=>p.agents.includes(id));}
+// Returns the dominant super-phase index for a group of agents (-1 if none)
+function getWaveSuperPhase(agentIds){
+  const counts=[0,0,0];
+  agentIds.forEach(id=>{const p=getAgentSuperPhase(id);if(p>=0)counts[p]++;});
+  const max=Math.max(...counts);
+  return max>0?counts.indexOf(max):-1;
+}
+
 async function runSwarm(){
   if(!window._projectBrief){showToast('Set a project brief first');return;}
   if(window._swarmRunning){window._swarmAbort=true;return;}
   window._swarmRunning=true;window._swarmAbort=false;
-  window._revisionCount=0;window._critiqueScore=null;
+  window._revisionCount=0;window._critiqueScore=null;window._lastToastedPhase=-1;
   updateSwarmBtn();
   let done=0;
   const progWrap=document.getElementById('swarm-progress-bar-wrap');
@@ -4230,13 +4256,27 @@ async function runSwarm(){
     const wave=waveQueue[waveIdx];
     if(window._swarmAbort)break;
     if(progBar&&waveQueue.length)progBar.style.width=Math.max(2,Math.round(done/(waveQueue.reduce((s,w)=>s+w.agents.length,0)+1)*90))+'%';
-    // Inject outputs from all previous waves into this wave's agents
+    // Inject outputs from all previous waves — recent wave full (1400 chars), older waves compressed (500 chars)
     if(completedIds.length){
-      const ctx=collectWaveOutputs(completedIds);
+      const prevWaveAgents=waveIdx>0?waveQueue[waveIdx-1].agents:[];
+      const ctx=collectWaveOutputs(completedIds,prevWaveAgents);
       if(ctx)injectContextToAgents(wave.agents,ctx);
     }
     // Mark this wave's agents as active in the sprint viz
     updateSprintCards(wave.agents,'active');
+    // Phase transition toast — fire once per super-phase
+    const curSuperPhase=getWaveSuperPhase(wave.agents);
+    if(curSuperPhase>=0&&curSuperPhase!==window._lastToastedPhase){
+      window._lastToastedPhase=curSuperPhase;
+      const ph=SPRINT_PHASES[curSuperPhase];
+      showToast(ph.icon+' Phase '+(curSuperPhase+1)+'/3: '+ph.name,2500);
+      // Update phase badge in sprint viz
+      const badge=document.getElementById('sprint-phase-badge-'+curSuperPhase);
+      if(badge){badge.textContent='active';badge.style.color='#a78bfa';badge.style.borderColor='#4040a0';}
+      // Update header indicator
+      const indicator=document.getElementById('sprint-phase-indicator');
+      if(indicator)indicator.textContent=ph.icon+' P'+(curSuperPhase+1)+'/3';
+    }
     // Run all agents in this wave in parallel
     await Promise.all(wave.agents.map(async id=>{
       if(window._swarmAbort)return;
@@ -4249,6 +4289,12 @@ async function runSwarm(){
       updateSprintCards([id],'done');
     }));
     completedIds.push(...wave.agents);
+    // Mark super-phase badge as done when last wave of that phase finishes
+    const nextWavePhase=waveQueue[waveIdx+1]?getWaveSuperPhase(waveQueue[waveIdx+1].agents):-1;
+    if(curSuperPhase>=0&&(nextWavePhase!==curSuperPhase||waveIdx===waveQueue.length-1)){
+      const badge=document.getElementById('sprint-phase-badge-'+curSuperPhase);
+      if(badge){badge.textContent='done';badge.style.color='#3a8a5a';badge.style.borderColor='#1a4a2a';}
+    }
 
     // ── Critique-gate: score after critique wave, inject revision loop if score < 6 ──
     const isCritiqueWave=wave.agents.some(id=>['lens','eye','mirror'].includes(id));
@@ -4405,16 +4451,37 @@ function openSprintViz(plan,totalAgents){
     rat.textContent='"'+plan.rationale+'"';
     body.appendChild(rat);
   }
-  // Wave sections
+  // Wave sections — grouped under Research / Design / Review super-phase headers
   const waves=plan?plan.waves:HARDCODED_WAVES;
+  let lastSuperPhase=-1;
   waves.forEach(wave=>{
+    const waveAgents=wave.agents||[];
+    const superPhaseIdx=getWaveSuperPhase(waveAgents);
+    // Insert super-phase header when entering a new phase group
+    if(superPhaseIdx>=0&&superPhaseIdx!==lastSuperPhase){
+      if(lastSuperPhase>=0){
+        const div=document.createElement('div');
+        div.className='sprint-phase-divider';
+        div.textContent='⟶';
+        body.appendChild(div);
+      }
+      const ph=SPRINT_PHASES[superPhaseIdx];
+      const phHdr=document.createElement('div');
+      phHdr.className='sprint-phase-header';
+      phHdr.innerHTML=
+        '<span class="sprint-phase-icon">'+ph.icon+'</span>'+
+        '<span class="sprint-phase-label">Phase '+(superPhaseIdx+1)+' · '+ph.name+'</span>'+
+        '<span class="sprint-phase-badge" id="sprint-phase-badge-'+superPhaseIdx+'">queued</span>';
+      body.appendChild(phHdr);
+      lastSuperPhase=superPhaseIdx;
+    }
     const waveEl=document.createElement('div');
     waveEl.className='sprint-wave';
     const lbl=document.createElement('div');
     lbl.className='sprint-wave-label';
     lbl.textContent=wave.name;
     waveEl.appendChild(lbl);
-    (wave.agents||[]).forEach(id=>{
+    waveAgents.forEach(id=>{
       const ag=AGENTS.find(a=>a.id===id);
       if(!ag)return;
       const card=document.createElement('div');
@@ -5752,6 +5819,7 @@ function saveAgent(){
 <div id="sprint-panel">
   <div id="sprint-header">
     <span id="sprint-title">◈ Sprint</span>
+    <span id="sprint-phase-indicator"></span>
     <span id="sprint-agent-count"></span>
     <button class="llm-close-btn" onclick="closeSprintViz()" title="Close sprint panel">✕</button>
   </div>
