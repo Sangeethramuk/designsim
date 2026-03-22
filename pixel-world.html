@@ -238,6 +238,32 @@
   #brief-save-btn:hover{background:#1a4a2a;}
   #brief-skip-btn{background:#1a1a2e;border:1px solid #333;color:#666;padding:9px 12px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
   #brief-skip-btn:hover{color:#aaa;border-color:#555;}
+  /* Phase 4 — Iteration Mode */
+  #iterate-modal{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:8500;display:none;align-items:center;justify-content:center;}
+  #iterate-modal.active{display:flex;}
+  #iterate-panel{background:#0a0a1e;border:1px solid #a78bfa;border-radius:10px;padding:24px;width:460px;max-height:80vh;overflow-y:auto;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.75);}
+  #iterate-panel h3{color:#fff;font-size:13px;margin:0 0 4px;display:flex;align-items:center;justify-content:space-between;}
+  .iterate-sub{font-size:10px;color:#666;margin:0 0 14px;letter-spacing:0.3px;}
+  .iterate-arts-label{font-size:9px;color:#3a3a6a;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;}
+  .iterate-summary{background:#060614;border:1px solid #1a1a3a;border-radius:6px;padding:10px;margin-bottom:14px;max-height:140px;overflow-y:auto;}
+  .iter-art-item{display:flex;flex-direction:column;gap:1px;padding:4px 0;border-bottom:1px solid #0d0d20;}
+  .iter-art-item:last-child{border-bottom:none;}
+  .iter-art-name{font-size:10px;font-weight:bold;color:#a78bfa;}
+  .iter-art-preview{font-size:9px;color:#3a4a6a;line-height:1.4;}
+  .iterate-label{display:block;font-size:10px;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;}
+  .iterate-textarea{width:100%;background:#060614;border:1px solid #252548;color:#ccc;padding:8px 10px;font-size:12px;font-family:monospace;border-radius:4px;resize:vertical;box-sizing:border-box;}
+  .iterate-textarea:focus{outline:none;border-color:#a78bfa;}
+  .iterate-run-btn{flex:1;background:#1a0a2e;border:1px solid #5a3a9a;color:#a78bfa;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;}
+  .iterate-run-btn:hover{background:#2a1a4e;border-color:#a78bfa;}
+  .board-sprint-badge{font-size:9px;padding:2px 8px;background:#0d0d28;border:1px solid #2a2a5a;color:#6868c0;border-radius:8px;margin-left:8px;font-family:monospace;vertical-align:middle;}
+  /* Sprint history tab */
+  #board-history-list{display:none;flex-direction:column;gap:8px;max-height:62vh;overflow-y:auto;padding:4px 0;}
+  #board-history-list.active{display:flex;}
+  .sprint-hist-card{background:#0a0a1e;border:1px solid #1e1e3a;border-radius:6px;padding:10px 14px;}
+  .sprint-hist-n{font-size:11px;font-weight:bold;color:#a78bfa;margin-bottom:3px;}
+  .sprint-hist-brief{font-size:10px;color:#4a6a8a;line-height:1.5;margin-bottom:3px;}
+  .sprint-hist-note{font-size:9px;color:#5a4a8a;font-style:italic;margin-bottom:3px;}
+  .sprint-hist-meta{font-size:9px;color:#2a2a4a;}
   /* Phase 3 — Artifact Panel */
   #chat-artifact-area{border-top:1px solid #111;background:#050510;flex-shrink:0;}
   #chat-artifact-header{display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;user-select:none;}
@@ -1676,6 +1702,19 @@ function buildAgentMessages(agent,message,history){
   if(mdSkills.length>0){
     const mdCtx=mdSkills.map(s=>'### '+s.name+'\n'+s.content).join('\n\n---\n\n');
     sys+='\n\n## Uploaded Knowledge Files\nThe following files have been uploaded as your domain knowledge. Apply their principles and guidelines in all your outputs:\n\n'+mdCtx;
+  }
+  // Phase 4 — Iteration context: inject previous sprint output so agent refines, not restarts
+  if(window._iterationNote&&(window._sprintNumber||1)>1){
+    const prevN=(window._sprintNumber||1)-1;
+    const prevSnap=(window._sprintHistory||[]).find(s=>s.n===prevN);
+    const prevOut=prevSnap&&prevSnap.artifacts&&prevSnap.artifacts[agent.id]||null;
+    sys+='\n\n## ITERATION — Sprint '+(window._sprintNumber||1)+'\n'+
+      'This is Sprint '+(window._sprintNumber||1)+'. You are REFINING Sprint '+prevN+', NOT starting over.\n\n'+
+      'Refinement directive: "'+window._iterationNote+'"\n\n'+
+      (prevOut
+        ?'Your Sprint '+prevN+' output (reference — keep what worked, change what the directive targets):\n'+prevOut.slice(0,1200)+
+          '\n\nInstructions: Keep what worked. Directly apply the refinement directive. Explicitly state what changed and why. Do not reproduce unchanged sections verbatim.'
+        :'Apply the refinement directive to your specialist domain. Build on the overall sprint direction. Be specific about what you are changing from the prior approach.');
   }
   sys+='\n\nBe direct, specific, and expert. Follow the output format strictly. Cite prior agent outputs by name when building on them.';
   const maxTokens=AGENT_MAX_TOKENS[agent.id]||800;
@@ -3389,9 +3428,10 @@ function openBoard(){
   updateModePills(true);
   // Always open on Agents tab, reset badge
   switchBoardTab('agents');
-  // Update brief display
+  // Update brief display + sprint badge
   const briefEl=document.getElementById('board-brief-text');
   if(briefEl)briefEl.textContent=window._projectBrief||'No brief set. Press Tab again or click the brief in the HUD to add one.';
+  updateSprintBadge();
   renderBoardGrid();
   document.getElementById('board-overlay').classList.add('active');
 }
@@ -3517,18 +3557,128 @@ function switchBoardTab(tab){
   window._boardTab=tab;
   const agentsBtn=document.getElementById('tab-agents');
   const actBtn=document.getElementById('tab-activity');
+  const histBtn=document.getElementById('tab-history');
   const grid=document.getElementById('board-grid');
   const actList=document.getElementById('board-activity-list');
+  const histList=document.getElementById('board-history-list');
   const badge=document.getElementById('board-tab-badge');
   if(agentsBtn)agentsBtn.classList.toggle('active',tab==='agents');
   if(actBtn)actBtn.classList.toggle('active',tab==='activity');
-  if(grid)grid.classList.toggle('board-hidden',tab==='activity');
+  if(histBtn)histBtn.classList.toggle('active',tab==='history');
+  if(grid)grid.classList.toggle('board-hidden',tab!=='agents');
   if(actList)actList.classList.toggle('active',tab==='activity');
+  if(histList)histList.classList.toggle('active',tab==='history');
   if(tab==='activity'){
     syncFeedToBoard();
     window._unreadFeed=0;
     if(badge){badge.textContent='';badge.classList.remove('show');}
   }
+  if(tab==='history')renderSprintHistoryTab();
+}
+
+// --- Phase 4: Sprint Versioning & Iteration Mode ---
+function loadSprintHistory(){
+  try{window._sprintNumber=parseInt(localStorage.getItem('swarm_sprint_number')||'1');}
+  catch(e){window._sprintNumber=1;}
+  try{window._sprintHistory=JSON.parse(localStorage.getItem('swarm_sprint_history')||'[]');}
+  catch(e){window._sprintHistory=[];}
+  window._iterationNote=null;
+}
+
+function saveSprintSnapshot(){
+  if(!window._agentArtifacts)return;
+  const arts={};
+  AGENTS.forEach(a=>{
+    const art=window._agentArtifacts[a.id];
+    if(art&&art.content)arts[a.id]=art.content.slice(0,2000);
+  });
+  if(!Object.keys(arts).length)return; // nothing to save
+  const snap={n:window._sprintNumber||1,brief:window._projectBrief||'',
+    iterationNote:window._iterationNote||null,timestamp:Date.now(),artifacts:arts};
+  window._sprintHistory=(window._sprintHistory||[]).filter(s=>s.n!==snap.n);
+  window._sprintHistory.push(snap);
+  if(window._sprintHistory.length>5)window._sprintHistory=window._sprintHistory.slice(-5);
+  try{localStorage.setItem('swarm_sprint_history',JSON.stringify(window._sprintHistory));}catch(e){}
+  try{localStorage.setItem('swarm_sprint_number',String(window._sprintNumber||1));}catch(e){}
+}
+
+function updateSprintBadge(){
+  const n=window._sprintNumber||1;
+  const el=document.getElementById('board-sprint-badge');
+  if(el)el.textContent='Sprint '+n;
+  const titleEl=document.getElementById('sprint-title');
+  if(titleEl)titleEl.textContent='◈ Sprint '+n;
+}
+
+function openIterateModal(){
+  if(!window._agentArtifacts||!Object.values(window._agentArtifacts).some(a=>a&&a.content)){
+    showToast('Run a swarm sprint first — nothing to iterate on');return;
+  }
+  const n=window._sprintNumber||1;
+  const nextN=n+1;
+  const titleEl=document.getElementById('iterate-modal-title');
+  if(titleEl)titleEl.innerHTML='↩ Sprint '+nextN+' — Iterate <button class="llm-close-btn" onclick="closeIterateModal()">✕</button>';
+  const subEl=document.getElementById('iterate-modal-sub');
+  if(subEl)subEl.textContent='Refining Sprint '+n+' outputs · What should change?';
+  const runBtn=document.getElementById('iterate-run-btn');
+  if(runBtn)runBtn.textContent='Run Sprint '+nextN+' →';
+  const artsLabel=document.getElementById('iterate-arts-label');
+  if(artsLabel)artsLabel.textContent='Sprint '+n+' Artifacts';
+  const sumEl=document.getElementById('iterate-sprint-summary');
+  if(sumEl){
+    const arts=window._agentArtifacts||{};
+    const items=AGENTS.filter(a=>arts[a.id]&&arts[a.id].content).slice(0,6).map(a=>
+      '<div class="iter-art-item"><span class="iter-art-name">'+escHtml(a.name)+'</span>'+
+      '<span class="iter-art-preview">'+escHtml((arts[a.id].content||'').slice(0,90))+'…</span></div>'
+    ).join('');
+    sumEl.innerHTML=items||'<span style="color:#3a3a6a;font-size:10px;">No artifacts from Sprint '+n+'</span>';
+  }
+  const noteEl=document.getElementById('iterate-note');
+  if(noteEl)noteEl.value='';
+  document.getElementById('iterate-modal').classList.add('active');
+  setTimeout(()=>{if(noteEl)noteEl.focus();},100);
+}
+
+function closeIterateModal(){
+  const m=document.getElementById('iterate-modal');
+  if(m)m.classList.remove('active');
+}
+
+function startIteration(){
+  const note=(document.getElementById('iterate-note')?.value||'').trim();
+  if(!note){showToast('Describe what should change in Sprint '+(( window._sprintNumber||1)+1));return;}
+  closeIterateModal();
+  // Save current sprint snapshot BEFORE clearing artifacts
+  saveSprintSnapshot();
+  // Advance sprint number
+  window._sprintNumber=(window._sprintNumber||1)+1;
+  window._iterationNote=note;
+  try{localStorage.setItem('swarm_sprint_number',String(window._sprintNumber));}catch(e){}
+  // Clear artifacts so new sprint output is fresh (sessions preserved for agent memory)
+  window._agentArtifacts={};
+  closeBoard();
+  showToast('↩ Sprint '+window._sprintNumber+' — '+note.slice(0,45)+(note.length>45?'…':''),3000);
+  setTimeout(()=>runSwarm(),400);
+}
+
+function renderSprintHistoryTab(){
+  const list=document.getElementById('board-history-list');
+  if(!list)return;
+  const hist=(window._sprintHistory||[]).slice().reverse();
+  if(!hist.length){
+    list.innerHTML='<div style="font-size:11px;color:#2a2a4a;padding:18px;text-align:center;font-family:monospace;">No sprint history yet.<br>Complete a swarm sprint to begin.</div>';
+    return;
+  }
+  list.innerHTML=hist.map(s=>{
+    const date=new Date(s.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const artCount=Object.keys(s.artifacts||{}).length;
+    return'<div class="sprint-hist-card">'+
+      '<div class="sprint-hist-n">Sprint '+s.n+(s.iterationNote?' · iteration':' · initial run')+'</div>'+
+      '<div class="sprint-hist-brief">'+escHtml((s.brief||'No brief set').slice(0,100))+'</div>'+
+      (s.iterationNote?'<div class="sprint-hist-note">↩ '+escHtml(s.iterationNote.slice(0,80))+'</div>':'')+
+      '<div class="sprint-hist-meta">'+artCount+' artifacts · '+escHtml(date)+'</div>'+
+      '</div>';
+  }).join('');
 }
 
 // --- Phase 2: Project Brief ---
@@ -3581,6 +3731,7 @@ function closeBriefModal(){
 
 function initBrief(){
   loadBrief();
+  loadSprintHistory(); // Phase 4 — restore sprint counter + history from localStorage
   updateBriefHUD();
   function _saveBrief(){
     const text=document.getElementById('brief-input').value.trim();
@@ -4398,8 +4549,11 @@ function _swarmEnd(done){
   setTimeout(()=>{if(progWrap)progWrap.style.display='none';if(progBar)progBar.style.width='0%';},700);
   updateSwarmBtn();
   rebuildAgentMessages();
-  showToast(window._swarmAbort?'Swarm stopped':'✦ Swarm complete — '+done+' agents ran');
+  const sprintN=window._sprintNumber||1;
+  showToast(window._swarmAbort?'Swarm stopped':'✦ Sprint '+sprintN+' complete — '+done+' agents ran');
   if(!window._swarmAbort){
+    saveSprintSnapshot(); // persist sprint artifacts + iteration note
+    window._iterationNote=null; // clear for next run
     setTimeout(()=>{if(!window._boardOpen)openBoard();},800);
     setTimeout(()=>openSprintPreviewTab(),1500); // auto-open dossier preview in new tab
     setTimeout(()=>updateUserProfile(),4000); // non-blocking: distil learnings after board opens
@@ -4444,6 +4598,8 @@ function openSprintViz(plan,totalAgents){
   const floatBtn=document.getElementById('sprint-close-floating');
   if(floatBtn)floatBtn.classList.add('visible');
   if(countEl)countEl.textContent=totalAgents+' agents';
+  // Update sprint title to show current sprint number
+  updateSprintBadge();
   // Director rationale
   if(plan&&plan.rationale){
     const rat=document.createElement('div');
@@ -5718,12 +5874,13 @@ function saveAgent(){
   <div id="board-panel">
     <div id="board-header">
       <div>
-        <div id="board-title">Design Swarm — Project Board</div>
+        <div id="board-title">Design Swarm — Project Board <span id="board-sprint-badge" class="board-sprint-badge">Sprint 1</span></div>
         <div id="board-brief-text"></div>
       </div>
       <div id="board-actions">
         <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
-        <button class="board-action-btn" onclick="addNewAgent()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e">+ Agent</button>
+        <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint with a new directive">↩ Iterate</button>
+        <button class="board-action-btn" onclick="addNewAgent()" style="color:#666;border-color:rgba(100,100,100,0.3)">+ Agent</button>
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
         <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
@@ -5735,9 +5892,27 @@ function saveAgent(){
     <div id="board-tabs">
       <button class="board-tab active" id="tab-agents" onclick="switchBoardTab('agents')">⊞ Agents</button>
       <button class="board-tab" id="tab-activity" onclick="switchBoardTab('activity')">◎ Activity<span id="board-tab-badge"></span></button>
+      <button class="board-tab" id="tab-history" onclick="switchBoardTab('history')">⏱ History</button>
     </div>
     <div id="board-grid"></div>
     <div id="board-activity-list"></div>
+    <div id="board-history-list"></div>
+  </div>
+</div>
+
+<!-- Phase 4 (product): Iteration Mode Modal -->
+<div id="iterate-modal">
+  <div id="iterate-panel">
+    <h3 id="iterate-modal-title">↩ Sprint 2 — Iterate <button class="llm-close-btn" onclick="closeIterateModal()">✕</button></h3>
+    <p id="iterate-modal-sub" class="iterate-sub">Refining Sprint 1 outputs · What should change?</p>
+    <div id="iterate-arts-label" class="iterate-arts-label">Sprint 1 Artifacts</div>
+    <div id="iterate-sprint-summary" class="iterate-summary"></div>
+    <label class="iterate-label" for="iterate-note">What should change in this sprint?</label>
+    <textarea id="iterate-note" class="iterate-textarea" rows="3" placeholder="e.g. Make it more minimal — 3 screens max, simplify the nav, remove the modal onboarding flow"></textarea>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button id="iterate-run-btn" class="iterate-run-btn" onclick="startIteration()">Run Sprint 2 →</button>
+      <button class="brief-skip-btn" onclick="closeIterateModal()">Cancel</button>
+    </div>
   </div>
 </div>
 
