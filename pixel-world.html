@@ -113,6 +113,17 @@
   #chat-send:hover{opacity:1;}
   #chat-send:disabled{opacity:.3;cursor:default;}
   #chat-send:hover{background:#0a3a2a;}
+  /* Phase 3 — Visual Input */
+  #chat-image-preview{display:none;padding:5px 10px 2px;background:#050510;border-top:1px solid #0a0a20;align-items:center;gap:8px;flex-shrink:0;}
+  #chat-image-preview.show{display:flex;}
+  #chat-image-thumb{width:40px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #1e1e38;cursor:pointer;}
+  .chat-img-info{font-size:9px;color:#3a4a6a;font-family:monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .chat-img-remove{background:none;border:none;color:#3a3a5a;cursor:pointer;font-size:16px;padding:0 2px;line-height:1;flex-shrink:0;transition:color .15s;}
+  .chat-img-remove:hover{color:#e84855;}
+  #chat-attach{background:transparent;border:1px solid #1e1e38;border-radius:6px;color:#3a3a5a;padding:6px 8px;cursor:pointer;font-size:13px;flex-shrink:0;transition:color .15s,border-color .15s;}
+  #chat-attach:hover{color:#a78bfa;border-color:#5a3a9a;}
+  #chat-attach.has-image{color:#a78bfa;border-color:#5a3a9a;background:#0e0a1e;}
+  .msg-user-image{display:block;max-width:180px;max-height:120px;border-radius:4px;border:1px solid #1e2a3a;margin-top:4px;object-fit:cover;}
   /* HTML HUD overlay */
   #game-hud{position:fixed;top:10px;left:10px;display:flex;gap:10px;align-items:center;background:rgba(10,10,30,0.8);border:1px solid rgba(100,100,180,0.18);border-radius:6px;padding:5px 12px;font-family:monospace;font-size:12px;z-index:1000;pointer-events:none;user-select:none;backdrop-filter:blur(6px);}
   #game-hud .h-zone{color:#f0d890;font-weight:bold;letter-spacing:0.5px;}
@@ -1291,7 +1302,7 @@ function renderMarkdown(text){
   return s;
 }
 
-function appendMessage(type,text,agent){
+function appendMessage(type,text,agent,imageDataUrl){
   const msgs=document.getElementById('chat-messages');
   if(!msgs)return;
   const div=document.createElement('div');
@@ -1306,7 +1317,15 @@ function appendMessage(type,text,agent){
     body.innerHTML=renderMarkdown(text);
     div.appendChild(body);
   }else{
-    div.textContent=text;
+    if(text)div.textContent=text;
+    // Phase 3: show attached image thumbnail in user bubble
+    if(imageDataUrl){
+      const img=document.createElement('img');
+      img.src=imageDataUrl;
+      img.className='msg-user-image';
+      img.title='Attached image';
+      div.appendChild(img);
+    }
   }
   msgs.appendChild(div);
   msgs.scrollTop=msgs.scrollHeight;
@@ -1721,8 +1740,14 @@ function buildAgentMessages(agent,message,history){
   const temperature=AGENT_TEMPERATURE[agent.id]??0.5;
   // Build real OpenAI-format tools array from agent.tools list
   const agentTools=(agent.tools||[]).filter(t=>TOOL_DEFS[t]).map(t=>TOOL_DEFS[t]);
+  // Phase 3: vision content — if image pending, wrap last user message as array
+  const pendingImg=window._pendingVisionImage;
+  const userContent=pendingImg
+    ?[{type:'text',text:message||'What do you see in this image?'},
+      {type:'image_url',image_url:{url:`data:${pendingImg.mimeType};base64,${pendingImg.base64}`}}]
+    :message;
   return{model:(agent.brain||'kimi-latest').replace('litellm/',''),maxTokens,temperature,
-    messages:[{role:'system',content:sys},...history,{role:'user',content:message}],
+    messages:[{role:'system',content:sys},...history,{role:'user',content:userContent}],
     tools:agentTools.length?agentTools:null};
 }
 
@@ -1893,14 +1918,68 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   return'No response after tool calls.';
 }
 
+// --- Phase 3: Visual Input (image paste / upload) ---
+function handleChatImageUpload(e){
+  const file=e.target.files?.[0];
+  if(file)attachChatImage(file);
+  e.target.value=''; // reset so same file can be re-attached
+}
+
+function attachChatImage(file){
+  if(!file.type.startsWith('image/')){showToast('Only image files supported');return;}
+  if(file.size>5*1024*1024){showToast('Image too large — max 5 MB');return;}
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const dataUrl=ev.target.result;
+    const base64=dataUrl.split(',')[1];
+    window._chatAttachedImage={base64,mimeType:file.type,dataUrl,name:file.name};
+    const thumb=document.getElementById('chat-image-thumb');
+    const info=document.getElementById('chat-img-info-text');
+    const preview=document.getElementById('chat-image-preview');
+    const attachBtn=document.getElementById('chat-attach');
+    if(thumb)thumb.src=dataUrl;
+    if(info)info.textContent=file.name+(file.size?' · '+(Math.round(file.size/1024))+'KB':'');
+    if(preview)preview.classList.add('show');
+    if(attachBtn)attachBtn.classList.add('has-image');
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearChatImage(){
+  window._chatAttachedImage=null;
+  const preview=document.getElementById('chat-image-preview');
+  const attachBtn=document.getElementById('chat-attach');
+  if(preview)preview.classList.remove('show');
+  if(attachBtn)attachBtn.classList.remove('has-image');
+}
+
+function handleChatInputPaste(e){
+  const items=e.clipboardData&&e.clipboardData.items;
+  if(!items)return;
+  for(let i=0;i<items.length;i++){
+    if(items[i].type.startsWith('image/')){
+      e.preventDefault();
+      const file=items[i].getAsFile();
+      if(file)attachChatImage(file);
+      return;
+    }
+  }
+}
+
 async function sendChatMessage(){
   const input=document.getElementById('chat-input');
   const btn=document.getElementById('chat-send');
   const msg=input.value.trim();
-  if(!msg||!window._chatAgent)return;
+  if(!msg&&!window._chatAttachedImage)return;
+  if(!window._chatAgent)return;
   const agent=window._chatAgent; // capture — may change if user opens another chat
 
-  appendMessage('user',msg);
+  // Phase 3: capture attached image before clearing
+  const attachedImg=window._chatAttachedImage||null;
+  clearChatImage(); // clear preview strip immediately
+  window._pendingVisionImage=attachedImg; // consumed by buildAgentMessages once
+
+  appendMessage('user',msg||'',agent,attachedImg?.dataUrl);
   input.value='';
   if(btn){btn.disabled=true;btn.textContent='…';}
 
@@ -1945,8 +2024,13 @@ async function sendChatMessage(){
   }
 
   // --- Post-response: session, persistence, feed, artifacts ---
+  window._pendingVisionImage=null; // clear after response — consumed by buildAgentMessages
   window._chatHistory=window._chatHistory||[];
-  window._chatHistory.push({role:'user',content:msg},{role:'assistant',content:response});
+  // Store user message: vision format if image was attached, plain string otherwise
+  const userContent=attachedImg
+    ?[{type:'text',text:msg||'What do you see in this image?'},{type:'image_url',image_url:{url:`data:${attachedImg.mimeType};base64,${attachedImg.base64}`}}]
+    :msg;
+  window._chatHistory.push({role:'user',content:userContent},{role:'assistant',content:response});
   if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
   window._agentSessions[agent.id]=window._chatHistory;
   const _sid=agent.id;const _sh=window._chatHistory.slice();
@@ -2087,6 +2171,8 @@ function initChatPanel(){
   document.getElementById('chat-close').addEventListener('click',closeChat);
   document.getElementById('chat-send').addEventListener('click',sendChatMessage);
   document.getElementById('chat-input').addEventListener('keydown',e=>{if(e.key==='Enter')sendChatMessage();});
+  document.getElementById('chat-input').addEventListener('paste',handleChatInputPaste);
+  document.getElementById('chat-attach').addEventListener('click',()=>document.getElementById('chat-file-input').click());
   document.getElementById('chat-mic').addEventListener('click',toggleMic);
   document.getElementById('chat-voice-toggle').addEventListener('click',()=>{
     window._voiceEnabled=!window._voiceEnabled;
@@ -5739,8 +5825,16 @@ function saveAgent(){
       </div>
     </div>
   </div>
+  <!-- Phase 3: Image preview strip above input -->
+  <div id="chat-image-preview">
+    <img id="chat-image-thumb" src="" alt="attached image"/>
+    <span class="chat-img-info" id="chat-img-info-text"></span>
+    <button class="chat-img-remove" onclick="clearChatImage()" title="Remove image">✕</button>
+  </div>
   <div id="chat-input-area">
-    <input id="chat-input" type="text" placeholder="Message…"/>
+    <button id="chat-attach" title="Attach image (or paste)">📎</button>
+    <input id="chat-file-input" type="file" accept="image/*" style="display:none" onchange="handleChatImageUpload(event)"/>
+    <input id="chat-input" type="text" placeholder="Message… (paste image with ⌘V)"/>
     <button id="chat-mic" title="Voice input">⊙</button>
     <button id="chat-send" title="Send (Enter)">↑</button>
   </div>
