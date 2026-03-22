@@ -522,11 +522,16 @@
   .sprint-rationale{font-size:9px;color:#4a4a7a;font-style:italic;line-height:1.6;margin-bottom:12px;padding:8px 10px;border:1px solid #111128;border-radius:4px;background:#070716;}
   .sprint-wave{margin-bottom:14px;}
   .sprint-wave-label{font-size:9px;color:#3a3a6a;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid #0d0d20;}
-  .sprint-agent-card{display:flex;align-items:center;gap:7px;padding:6px 9px;border-radius:5px;border:1px solid #111120;margin-bottom:4px;transition:border-color .2s,background .2s,opacity .2s;}
+  .sprint-agent-card{display:flex;flex-direction:column;padding:6px 9px;border-radius:5px;border:1px solid #111120;margin-bottom:4px;transition:border-color .2s,background .2s,opacity .2s;}
+  .sprint-card-main{display:flex;align-items:center;gap:7px;}
   .sprint-card-dot{width:6px;height:6px;border-radius:50%;background:var(--ac,#888);flex-shrink:0;transition:box-shadow .2s;}
   .sprint-card-name{font-size:10px;font-weight:bold;color:#888;flex:1;transition:color .2s;}
   .sprint-card-role{font-size:8px;color:#2a2a4a;text-align:right;max-width:90px;line-height:1.3;}
   .sprint-card-check{font-size:9px;color:#3a8a5a;display:none;flex-shrink:0;font-weight:bold;}
+  /* Streaming token preview strip inside active cards */
+  .sprint-card-preview{font-size:7.5px;font-family:monospace;color:#2a2a50;line-height:1.3;max-height:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transition:max-height 0.2s ease,padding-top 0.2s ease;padding-top:0;}
+  .sprint-active .sprint-card-preview{max-height:16px;padding-top:3px;color:#5a5a9a;}
+  .sprint-done .sprint-card-preview{max-height:0;padding-top:0;}
   /* States */
   .sprint-queued{background:#04040e;border-color:#0d0d1e;opacity:0.55;}
   .sprint-queued .sprint-card-name{color:#2a2a4a;}
@@ -4575,11 +4580,38 @@ async function runSwarmAgent(agent, customPrompt){
   const history=window._agentSessions[agent.id]||[];
   let response;
   let _swarmErrored=false;
+
+  // ── Live token preview in sprint panel ──────────────────────────────────────
+  // Strip leading whitespace/newlines, keep only the trailing 72 chars so the
+  // narrow card column doesn't overflow. Only runs when sprint viz is open.
+  const _sprintPreviewEl=()=>{
+    const card=document.getElementById('sprint-card-'+agent.id);
+    return card?card.querySelector('.sprint-card-preview'):null;
+  };
+  const _onToken=(_tok,acc)=>{
+    if(!window._sprintVizOpen)return;
+    const el=_sprintPreviewEl();
+    if(el)el.textContent=acc.replace(/[\r\n]+/g,' ').trimStart().slice(-72);
+  };
+
+  // Agents with active tools must use the non-streaming path (multi-round calls)
+  const hasTools=(agent.tools||[]).length>0;
+
   try{
     if(window._sbClient&&loadProxyConfig()){
-      response=await getProxyResponse(agent,msg,history);
+      if(hasTools){
+        // Tool-using agents (e.g. scout/forge): non-streaming, handles tool rounds
+        response=await getProxyResponse(agent,msg,history);
+      }else{
+        // All other agents: stream tokens → live preview in sprint card
+        response=await getProxyResponseStream(agent,msg,history,_onToken);
+      }
     }else if(window._llmBaseUrl){
-      response=await getAgentResponse(agent,msg,history,window._llmBaseUrl,window._llmApiKey);
+      if(hasTools){
+        response=await getAgentResponse(agent,msg,history,window._llmBaseUrl,window._llmApiKey);
+      }else{
+        response=await getAgentResponseStream(agent,msg,history,window._llmBaseUrl,window._llmApiKey,_onToken);
+      }
     }else{
       response=getScriptedResponse(agent,msg);
     }
@@ -4588,6 +4620,9 @@ async function runSwarmAgent(agent, customPrompt){
     response='⚠[swarm-error] '+agent.name+' unavailable: '+e.message;
     console.warn('Swarm agent error ('+agent.id+'):',e.message);
   }
+  // Clear preview once done (card transitions to sprint-done hides it via CSS)
+  const _p=_sprintPreviewEl();
+  if(_p)_p.textContent='';
   let newHistory=[...history,{role:'user',content:msg},{role:'assistant',content:response}];
   if(newHistory.length>30){
     // Preserve system messages (injected context); trim oldest chat turns only
@@ -4931,10 +4966,13 @@ function openSprintViz(plan,totalAgents){
       card.id='sprint-card-'+id;
       card.style.setProperty('--ac','#'+ag.zc.toString(16).padStart(6,'0'));
       card.innerHTML=
+        '<div class="sprint-card-main">'+
         '<span class="sprint-card-dot"></span>'+
         '<span class="sprint-card-name">'+ag.name+'</span>'+
         '<span class="sprint-card-role">'+ag.role+'</span>'+
-        '<span class="sprint-card-check">✓</span>';
+        '<span class="sprint-card-check">✓</span>'+
+        '</div>'+
+        '<div class="sprint-card-preview"></div>';
       waveEl.appendChild(card);
     });
     body.appendChild(waveEl);
@@ -4951,10 +4989,13 @@ function openSprintViz(plan,totalAgents){
     card.id='sprint-card-lead';
     card.style.setProperty('--ac','#'+lead.zc.toString(16).padStart(6,'0'));
     card.innerHTML=
+      '<div class="sprint-card-main">'+
       '<span class="sprint-card-dot"></span>'+
       '<span class="sprint-card-name">'+lead.name+'</span>'+
       '<span class="sprint-card-role">'+lead.role+'</span>'+
-      '<span class="sprint-card-check">✓</span>';
+      '<span class="sprint-card-check">✓</span>'+
+      '</div>'+
+      '<div class="sprint-card-preview"></div>';
     waveEl.appendChild(card);
     body.appendChild(waveEl);
   }
