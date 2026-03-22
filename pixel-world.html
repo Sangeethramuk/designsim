@@ -275,6 +275,37 @@
   .sprint-hist-brief{font-size:10px;color:#4a6a8a;line-height:1.5;margin-bottom:3px;}
   .sprint-hist-note{font-size:9px;color:#5a4a8a;font-style:italic;margin-bottom:3px;}
   .sprint-hist-meta{font-size:9px;color:#2a2a4a;}
+  /* Phase 5 — Sprint Comparison */
+  #compare-modal{position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:8700;display:none;align-items:flex-start;justify-content:center;padding:32px 20px;overflow-y:auto;}
+  #compare-modal.active{display:flex;}
+  #compare-panel{background:#05050f;border:1px solid #1e1e40;border-radius:12px;width:100%;max-width:1080px;font-family:monospace;box-shadow:0 16px 60px rgba(0,0,0,0.8);overflow:hidden;flex-shrink:0;}
+  #compare-header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #111128;flex-wrap:wrap;}
+  #compare-title{font-size:13px;font-weight:bold;color:#a78bfa;flex:1;letter-spacing:0.5px;}
+  #compare-selectors{display:flex;align-items:center;gap:8px;}
+  .compare-select{background:#08081e;border:1px solid #252548;color:#c0c8d8;padding:5px 10px;font-family:monospace;font-size:11px;border-radius:4px;cursor:pointer;outline:none;}
+  .compare-vs{font-size:11px;color:#333358;font-weight:bold;}
+  .compare-run-btn{background:#1a0a2e;border:1px solid #5a3a9a;color:#a78bfa;padding:6px 14px;font-size:11px;font-family:monospace;border-radius:4px;cursor:pointer;transition:background .15s;}
+  .compare-run-btn:hover{background:#2a1a4e;}
+  #compare-summary{padding:9px 18px;background:#030309;border-bottom:1px solid #0d0d1e;display:flex;gap:18px;flex-wrap:wrap;align-items:center;}
+  .cmp-sum-item{font-size:10px;color:#3a5a7a;}.cmp-sum-val{font-weight:bold;color:#c0c8d8;}
+  .cmp-sum-delta{font-size:11px;font-weight:bold;padding:1px 7px;border-radius:8px;}
+  .cmp-sum-delta.pos{color:#4acea0;background:#0a2018;}.cmp-sum-delta.neg{color:#e84855;background:#180a0a;}.cmp-sum-delta.neu{color:#555;background:#101020;}
+  #compare-body{padding:14px 16px;max-height:72vh;overflow-y:auto;}
+  #compare-body::-webkit-scrollbar{width:3px;}#compare-body::-webkit-scrollbar-thumb{background:#252548;}
+  .cmp-agent-block{border:1px solid #0d0d28;border-radius:7px;margin-bottom:12px;overflow:hidden;}
+  .cmp-agent-hdr{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#070712;border-bottom:1px solid #0d0d20;}
+  .cmp-agent-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+  .cmp-agent-name{font-size:11px;font-weight:bold;color:#bbb;flex:1;}
+  .cmp-score-chip{font-size:9px;padding:1px 6px;border-radius:6px;background:#0a0a22;border:1px solid #1e1e3a;}
+  .cmp-delta-chip{font-size:10px;font-weight:bold;padding:1px 7px;border-radius:6px;margin-left:2px;}
+  .cmp-delta-chip.pos{color:#4acea0;background:#071610;}.cmp-delta-chip.neg{color:#e84855;background:#16080a;}.cmp-delta-chip.neu{color:#444;background:#101020;}
+  .cmp-cols{display:grid;grid-template-columns:1fr 1fr;}
+  .cmp-col{padding:9px 12px;font-size:10px;color:#4a6a8a;line-height:1.75;white-space:pre-wrap;word-break:break-word;min-height:50px;}
+  .cmp-col-a{background:#03030c;border-right:1px solid #0a0a1e;}
+  .cmp-col-b{background:#030309;}
+  .cmp-col-lbl{display:block;font-size:8px;color:#2a2a5a;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;}
+  .cmp-empty-col{color:#1e1e3a;font-style:italic;font-size:10px;}
+  .diff-add{background:rgba(74,206,160,0.1);color:#4ab88a;border-radius:2px;}
   /* Phase 3 — Artifact Panel */
   #chat-artifact-area{border-top:1px solid #111;background:#050510;flex-shrink:0;}
   #chat-artifact-header{display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;user-select:none;}
@@ -3767,6 +3798,114 @@ function renderSprintHistoryTab(){
   }).join('');
 }
 
+// --- Phase 5: Sprint Comparison ---
+function openCompareModal(){
+  const hist=window._sprintHistory||[];
+  if(!hist.length){showToast('Run at least one sprint to compare');return;}
+  const selA=document.getElementById('compare-sprint-a');
+  const selB=document.getElementById('compare-sprint-b');
+  if(!selA||!selB)return;
+  const opts=hist.map(s=>{
+    const label='Sprint '+s.n+(s.iterationNote?' (↩ '+s.iterationNote.slice(0,22)+'…)':' (initial)');
+    return'<option value="'+s.n+'">'+escHtml(label)+'</option>';
+  }).join('');
+  selA.innerHTML=opts;
+  selB.innerHTML=opts;
+  // Default: compare most recent two (or same sprint vs itself for single sprint)
+  if(hist.length>=2){
+    selA.value=String(hist[hist.length-2].n);
+    selB.value=String(hist[hist.length-1].n);
+  }else{
+    selA.value=selB.value=String(hist[0].n);
+  }
+  document.getElementById('compare-modal').classList.add('active');
+  runComparison();
+}
+
+function closeCompareModal(){
+  document.getElementById('compare-modal')?.classList.remove('active');
+}
+
+// Heuristic quality score 1–10 for an agent output text
+function computeQualityScore(text){
+  if(!text||text.length<20)return 1;
+  let s=4;
+  if(text.length>300)s++;if(text.length>700)s++;if(text.length>1200)s++;
+  const marks=['#','%','px','WCAG','component','screen','flow','state','variant','token','→','- ','1.'];
+  s+=Math.min(2,marks.filter(m=>text.includes(m)).length);
+  return Math.min(10,Math.max(1,s));
+}
+
+// Highlight lines in textB that don't exist in textA (additions shown in green)
+function diffHighlight(textA,textB){
+  if(!textA)return'<span class="diff-add">'+escHtml(textB||'')+'</span>';
+  if(!textB)return'';
+  const setA=new Set(textA.split('\n').map(l=>l.trim()).filter(Boolean));
+  return textB.split('\n').map(line=>{
+    const t=line.trim();if(!t)return'';
+    return setA.has(t)?escHtml(line):'<span class="diff-add">'+escHtml(line)+'</span>';
+  }).filter(Boolean).join('\n');
+}
+
+function runComparison(){
+  const hist=window._sprintHistory||[];
+  const nA=parseInt(document.getElementById('compare-sprint-a')?.value||'0');
+  const nB=parseInt(document.getElementById('compare-sprint-b')?.value||'0');
+  const snapA=hist.find(s=>s.n===nA)||null;
+  const snapB=hist.find(s=>s.n===nB)||null;
+  const body=document.getElementById('compare-body');
+  const summary=document.getElementById('compare-summary');
+  if(!body)return;
+  const artsA=snapA?.artifacts||{};
+  const artsB=snapB?.artifacts||{};
+  const sameRun=nA===nB;
+  // Collect all agent IDs with output in either sprint
+  const allIds=[...new Set([...Object.keys(artsA),...Object.keys(artsB)])];
+  if(!allIds.length){
+    body.innerHTML='<div style="padding:20px;text-align:center;color:#2a2a4a;font-size:11px;">No agent outputs found for selected sprints.</div>';
+    if(summary)summary.innerHTML='';return;
+  }
+  // Summary stats
+  let sumScoreA=0,sumScoreB=0,cnt=0;
+  allIds.forEach(id=>{sumScoreA+=computeQualityScore(artsA[id]||'');sumScoreB+=computeQualityScore(artsB[id]||'');cnt++;});
+  const avgA=cnt?(Math.round(sumScoreA/cnt*10)/10):0;
+  const avgB=cnt?(Math.round(sumScoreB/cnt*10)/10):0;
+  const delta=Math.round((avgB-avgA)*10)/10;
+  const deltaClass=delta>0?'pos':delta<0?'neg':'neu';
+  const deltaStr=delta===0?'=':(delta>0?'+'+delta:String(delta));
+  if(summary){
+    summary.innerHTML=
+      '<span class="cmp-sum-item">Sprint '+nA+' avg: <span class="cmp-sum-val">'+avgA+'/10</span></span>'+
+      (!sameRun?'<span class="cmp-sum-delta '+deltaClass+'">'+deltaStr+'</span>'+
+        '<span class="cmp-sum-item">Sprint '+nB+' avg: <span class="cmp-sum-val">'+avgB+'/10</span></span>':'')+
+      '<span class="cmp-sum-item">'+cnt+' agents</span>'+
+      (snapB?.iterationNote&&!sameRun?'<span class="cmp-sum-item" style="color:#5a4a8a">↩ '+escHtml(snapB.iterationNote.slice(0,60))+'</span>':'');
+  }
+  // Render per-agent blocks, ordered by AGENTS array
+  body.innerHTML=AGENTS.filter(a=>artsA[a.id]||artsB[a.id]).map(a=>{
+    const tA=artsA[a.id]||'';const tB=artsB[a.id]||'';
+    const sA=computeQualityScore(tA);const sB=computeQualityScore(tB);
+    const d=sB-sA;const dc=d>0?'pos':d<0?'neg':'neu';
+    const ds=d===0?'=':(d>0?'+'+d:String(d));
+    const ac='#'+(a.zc||0).toString(16).padStart(6,'0');
+    const dispA=tA?escHtml(tA.slice(0,500))+(tA.length>500?'…':''):'<span class="cmp-empty-col">No output for Sprint '+nA+'</span>';
+    const diffB=tB?(sameRun?escHtml(tB.slice(0,500))+(tB.length>500?'…':''):diffHighlight(tA,tB).slice(0,1400)):'<span class="cmp-empty-col">No output for Sprint '+nB+'</span>';
+    return'<div class="cmp-agent-block">'+
+      '<div class="cmp-agent-hdr">'+
+        '<span class="cmp-agent-dot" style="background:'+ac+'"></span>'+
+        '<span class="cmp-agent-name">'+escHtml(a.name)+' · '+escHtml(a.role)+'</span>'+
+        '<span class="cmp-score-chip" style="color:'+ac+'99">S'+nA+': '+sA+'/10</span>'+
+        (!sameRun?'<span class="cmp-delta-chip '+dc+'">'+ds+'</span>'+
+          '<span class="cmp-score-chip" style="color:'+ac+'">S'+nB+': '+sB+'/10</span>':'')+
+      '</div>'+
+      '<div class="cmp-cols"'+(!sameRun?'':' style="grid-template-columns:1fr"')+'>' +
+        '<div class="cmp-col cmp-col-a"><span class="cmp-col-lbl">Sprint '+nA+(snapA?.iterationNote?' · iteration':' · initial')+'</span>'+dispA+'</div>'+
+        (!sameRun?'<div class="cmp-col cmp-col-b"><span class="cmp-col-lbl">Sprint '+nB+(snapB?.iterationNote?' · iteration':' · initial')+(d>0?' ↑':d<0?' ↓':' →')+'</span>'+diffB+'</div>':'')+
+      '</div>'+
+    '</div>';
+  }).join('')||'<div style="padding:20px;text-align:center;color:#2a2a4a;font-size:11px;">No matching agents found.</div>';
+}
+
 // --- Phase 2: Project Brief ---
 function loadBrief(){
   try{window._projectBrief=localStorage.getItem('project_brief')||null;}
@@ -5974,6 +6113,7 @@ function saveAgent(){
       <div id="board-actions">
         <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
         <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint with a new directive">↩ Iterate</button>
+        <button class="board-action-btn" onclick="openCompareModal()" style="color:#63b3ed;border-color:rgba(99,179,237,0.35);background:#05101e" title="Compare two sprints side-by-side">↔ Compare</button>
         <button class="board-action-btn" onclick="addNewAgent()" style="color:#666;border-color:rgba(100,100,100,0.3)">+ Agent</button>
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
@@ -6007,6 +6147,24 @@ function saveAgent(){
       <button id="iterate-run-btn" class="iterate-run-btn" onclick="startIteration()">Run Sprint 2 →</button>
       <button class="brief-skip-btn" onclick="closeIterateModal()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Phase 5: Sprint Comparison Modal -->
+<div id="compare-modal">
+  <div id="compare-panel">
+    <div id="compare-header">
+      <span id="compare-title">↔ Sprint Comparison</span>
+      <div id="compare-selectors">
+        <select id="compare-sprint-a" class="compare-select"></select>
+        <span class="compare-vs">vs</span>
+        <select id="compare-sprint-b" class="compare-select"></select>
+        <button class="compare-run-btn" onclick="runComparison()">Compare</button>
+      </div>
+      <button class="llm-close-btn" onclick="closeCompareModal()" title="Close">✕</button>
+    </div>
+    <div id="compare-summary"></div>
+    <div id="compare-body"></div>
   </div>
 </div>
 
