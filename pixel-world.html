@@ -119,8 +119,14 @@
   /* UX Phase 1 — Signal improvements */
   #hud-swarm-pulse{display:none;font-size:10px;color:#4acea0;margin-left:6px;font-family:monospace;animation:hud-swarm-pulse 1.2s ease-in-out infinite;}
   @keyframes hud-swarm-pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
-  #hud-run-btn{position:fixed;bottom:10px;right:130px;z-index:8001;background:rgba(10,10,30,0.88);color:#4acea0;border:1px solid rgba(74,206,160,0.4);font-family:monospace;font-size:11px;padding:4px 10px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px);}
-  #hud-run-btn:hover{background:rgba(74,206,160,0.12);border-color:#4acea0;}
+  /* Right action dock — replaces scattered bottom-right buttons */
+  #hud-action-dock{position:fixed;right:10px;top:52px;z-index:2000;display:flex;flex-direction:column;background:rgba(6,6,20,0.9);border:1px solid rgba(80,80,160,0.2);border-radius:10px;overflow:hidden;backdrop-filter:blur(10px);box-shadow:0 4px 28px rgba(0,0,0,0.55);}
+  .hud-dock-btn{display:flex;align-items:center;gap:8px;padding:10px 16px;background:none;border:none;border-bottom:1px solid rgba(80,80,160,0.1);font-family:monospace;font-size:11px;letter-spacing:0.3px;cursor:pointer;white-space:nowrap;text-align:left;width:100%;transition:background 0.15s,color 0.15s;}
+  .hud-dock-btn:last-child{border-bottom:none;}
+  #mem-browser-btn{color:#6050a0;}#mem-browser-btn:hover{color:#a78bfa;background:rgba(167,139,250,0.08);}
+  #new-project-btn{color:#6050a0;}#new-project-btn:hover{color:#a78bfa;background:rgba(167,139,250,0.08);}
+  #hud-run-btn{color:#2a7060;}#hud-run-btn:hover{color:#4acea0;background:rgba(74,206,160,0.08);}
+  #board-hud-btn{color:#2a4870;}#board-hud-btn:hover{color:#4a9eea;background:rgba(74,158,234,0.08);}
   #swarm-progress-bar-wrap{display:none;position:fixed;bottom:0;left:0;right:0;height:3px;z-index:9999;}
   #swarm-progress-bar{height:100%;background:linear-gradient(90deg,#4acea0,#a78bfa);width:0%;transition:width 0.5s ease;}
   #confirm-modal{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:9500;display:none;align-items:center;justify-content:center;}
@@ -353,9 +359,7 @@
   .board-status-idle{background:#111122;color:#333355;border:1px solid #222244;}
   .board-status-output{background:#0a2a1a;color:#3a8a5a;border:1px solid #1a4a2a;}
   .board-status-chatting{background:#1a1a0a;color:#8a8a3a;border:1px solid #3a3a1a;}
-  /* Board HUD button */
-  #board-hud-btn{position:fixed;bottom:10px;right:10px;background:rgba(10,10,30,0.85);border:1px solid rgba(100,100,180,0.25);color:#8090c8;font-family:monospace;font-size:12px;padding:5px 10px;cursor:pointer;border-radius:4px;z-index:1000;backdrop-filter:blur(4px);}
-  #board-hud-btn:hover{border-color:#4a9eea;color:#4a9eea;}
+  /* Board HUD button — positioned inside #hud-action-dock */
   /* Phase 10: Supabase settings section */
   .sb-section-title{font-size:10px;letter-spacing:1.5px;color:#4acea0;text-transform:uppercase;font-family:monospace;margin:14px 0 8px;border-top:1px solid #0d1e30;padding-top:12px;}
   #sb-url,#sb-anon-key{width:100%;background:#060c16;border:1px solid #0d1e30;color:#c0c8d8;padding:7px 10px;font-family:monospace;font-size:11px;border-radius:4px;margin-bottom:6px;box-sizing:border-box;}
@@ -4110,9 +4114,11 @@ function updateSwarmBtn(){
     btn.style.borderColor=running?'rgba(232,136,136,0.4)':'rgba(74,206,160,0.35)';
   }
   if(hudBtn){
-    hudBtn.textContent=running?'◼ Stop':'▶ Swarm';
-    hudBtn.style.color=running?'#e88888':'#4acea0';
-    hudBtn.style.borderColor=running?'rgba(232,136,136,0.4)':'rgba(74,206,160,0.4)';
+    // Update label — keep SVG icon, just swap text node
+    const svg=hudBtn.querySelector('svg');
+    hudBtn.textContent=running?'◼  Stop':'  Swarm';
+    if(svg)hudBtn.insertBefore(svg,hudBtn.firstChild);
+    hudBtn.style.color=running?'#e88888':'';
   }
   if(pulse)pulse.style.display=running?'inline':'none';
   // Sync Director panel if open
@@ -5117,11 +5123,26 @@ function saveAgent(){
   <button id="btn-zoom-reset" title="Reset Zoom (R)">⊙</button>
   <button id="btn-zoom-in" title="Zoom in (+)">+</button>
 </div>
-<button id="board-hud-btn" title="Project Board (Tab)">⊞ Board</button>
-<button id="hud-run-btn" onclick="runSwarm()" title="Run design sprint with all agents">▶ Swarm</button>
+<!-- Right-side action dock: Memories / New Project / Swarm / Board -->
+<div id="hud-action-dock">
+  <button id="mem-browser-btn" class="hud-dock-btn" title="Browse past project memories">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="6" cy="6" r="4"/><circle cx="6" cy="6" r="1.5"/></svg>
+    Memories
+  </button>
+  <button id="new-project-btn" class="hud-dock-btn" onclick="confirmNewProject()" title="Archive current project and start fresh">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg>
+    New Project
+  </button>
+  <button id="hud-run-btn" class="hud-dock-btn" onclick="runSwarm()" title="Run design sprint with all agents">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="2,1 11,6 2,11"/></svg>
+    Swarm
+  </button>
+  <button id="board-hud-btn" class="hud-dock-btn" title="Project Board (Tab)">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
+    Board
+  </button>
+</div>
 <div id="swarm-progress-bar-wrap"><div id="swarm-progress-bar"></div></div>
-<button id="new-project-btn" onclick="confirmNewProject()" title="Archive current project to memory and start fresh" style="position:fixed;bottom:38px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">✦ New Project</button>
-<button id="mem-browser-btn" title="Browse past project memories" style="position:fixed;bottom:66px;right:10px;z-index:8000;background:rgba(10,10,30,0.85);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);font-family:monospace;font-size:11px;padding:4px 9px;cursor:pointer;border-radius:4px;backdrop-filter:blur(4px)">◈ Memories</button>
 <div id="game-hint">WASD · E: chat · Tab: board · ⌘K: search agents</div>
 
 <!-- Chat Panel -->
