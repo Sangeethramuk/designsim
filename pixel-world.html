@@ -532,6 +532,12 @@
   .sprint-card-preview{font-size:7.5px;font-family:monospace;color:#2a2a50;line-height:1.3;max-height:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transition:max-height 0.2s ease,padding-top 0.2s ease;padding-top:0;}
   .sprint-active .sprint-card-preview{max-height:16px;padding-top:3px;color:#5a5a9a;}
   .sprint-done .sprint-card-preview{max-height:0;padding-top:0;}
+  /* Per-card output — appears when done */
+  .sprint-card-output{font-size:8px;color:#3a7a4a;line-height:1.4;max-height:0;overflow:hidden;font-family:monospace;white-space:pre-wrap;word-break:break-word;transition:max-height 0.3s ease,padding-top 0.3s ease;padding-top:0;cursor:pointer;border-top:0 solid #0d1a0d;}
+  .sprint-done .sprint-card-output{max-height:52px;padding-top:4px;overflow-y:auto;border-top-width:1px;border-top-color:#0d1a0d;}
+  .sprint-done .sprint-card-output.expanded{max-height:220px!important;}
+  .sprint-done .sprint-card-output::-webkit-scrollbar{width:2px;}
+  .sprint-done .sprint-card-output::-webkit-scrollbar-thumb{background:#1a3a2a;}
   /* States */
   .sprint-queued{background:#04040e;border-color:#0d0d1e;opacity:0.55;}
   .sprint-queued .sprint-card-name{color:#2a2a4a;}
@@ -4972,7 +4978,8 @@ function openSprintViz(plan,totalAgents){
         '<span class="sprint-card-role">'+ag.role+'</span>'+
         '<span class="sprint-card-check">✓</span>'+
         '</div>'+
-        '<div class="sprint-card-preview"></div>';
+        '<div class="sprint-card-preview"></div>'+
+        '<div class="sprint-card-output"></div>';
       waveEl.appendChild(card);
     });
     body.appendChild(waveEl);
@@ -4995,7 +5002,8 @@ function openSprintViz(plan,totalAgents){
       '<span class="sprint-card-role">'+lead.role+'</span>'+
       '<span class="sprint-card-check">✓</span>'+
       '</div>'+
-      '<div class="sprint-card-preview"></div>';
+      '<div class="sprint-card-preview"></div>'+
+      '<div class="sprint-card-output"></div>';
     waveEl.appendChild(card);
     body.appendChild(waveEl);
   }
@@ -5012,15 +5020,45 @@ function closeSprintViz(){
 
 // Phase 3 #6 — Append live output snippet to sprint strip
 function appendSprintOutput(agent,content){
+  // ── Live strip (shared feed at bottom) ──────────────────────────────────────
   const strip=document.getElementById('sprint-live-strip');
-  if(!strip)return;
-  const entry=document.createElement('div');
-  entry.className='sprint-live-entry';
-  const clean=content.replace(/```[\s\S]*?```/g,'[code]').replace(/\s+/g,' ').trim();
-  const snippet=clean.slice(0,90)+(clean.length>90?'…':'');
-  entry.innerHTML='<span class="sprint-live-entry-name">'+escHtml(agent.name)+'</span> '+escHtml(snippet);
-  strip.appendChild(entry);
-  strip.scrollTop=strip.scrollHeight;
+  if(strip){
+    const entry=document.createElement('div');
+    entry.className='sprint-live-entry';
+    const clean=content.replace(/```[\s\S]*?```/g,'[code]').replace(/\s+/g,' ').trim();
+    const snippet=clean.slice(0,90)+(clean.length>90?'…':'');
+    entry.innerHTML='<span class="sprint-live-entry-name">'+escHtml(agent.name)+'</span> '+escHtml(snippet);
+    strip.appendChild(entry);
+    strip.scrollTop=strip.scrollHeight;
+  }
+  // ── Per-card output section ──────────────────────────────────────────────────
+  // Show first ~300 chars (code blocks collapsed); click to expand full text.
+  const card=document.getElementById('sprint-card-'+agent.id);
+  if(card){
+    const outEl=card.querySelector('.sprint-card-output');
+    if(outEl&&outEl.textContent===''){
+      // Strip markdown fences to plain text summary, preserve newlines
+      const fullClean=content
+        .replace(/```[a-z]*\n([\s\S]*?)```/g,(_, c)=>c.trim())
+        .replace(/#{1,4} /g,'')
+        .replace(/\*{1,2}([^*]+)\*{1,2}/g,'$1')
+        .trim();
+      const preview=fullClean.slice(0,300)+(fullClean.length>300?'\n…tap to expand':'');
+      outEl.textContent=preview;
+      // Toggle expand/collapse on click
+      outEl.onclick=(e)=>{
+        e.stopPropagation();
+        if(outEl.classList.contains('expanded')){
+          outEl.classList.remove('expanded');
+          outEl.textContent=preview;
+        }else{
+          outEl.classList.add('expanded');
+          // Show full cleaned text (up to 2000 chars to avoid layout blowout)
+          outEl.textContent=fullClean.slice(0,2000)+(fullClean.length>2000?'\n…':'')+'\n\n[click to collapse]';
+        }
+      };
+    }
+  }
 }
 
 function updateSprintCards(ids,status){
