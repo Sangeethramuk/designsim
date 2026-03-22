@@ -169,9 +169,37 @@
   #llm-settings-btn.connected{color:#4abc6a;border-color:rgba(74,188,106,0.5);}
   #llm-settings-modal{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:8000;display:none;align-items:center;justify-content:center;}
   #llm-settings-modal.active{display:flex;}
-  #llm-settings-panel{background:#0a0a1e;border:1px solid #252548;border-radius:10px;padding:24px;width:340px;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.6);}
-  #llm-settings-panel h3{margin:0 0 20px;color:#fff;font-size:13px;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between;}
-  .llm-close-btn{background:none;border:none;color:#555;cursor:pointer;font-size:18px;line-height:1;padding:0;}.llm-close-btn:hover{color:#aaa;}
+  #llm-settings-panel{background:#08081a;border:1px solid #1e1e40;border-radius:12px;width:400px;font-family:monospace;box-shadow:0 12px 48px rgba(0,0,0,0.75);overflow:hidden;}
+  #settings-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;}
+  #settings-header h3{margin:0;color:#e8edf5;font-size:13px;letter-spacing:0.5px;display:flex;align-items:center;gap:8px;}
+  #settings-tabs{display:flex;margin:12px 0 0;border-bottom:1px solid #1a1a38;}
+  .settings-tab{flex:1;background:none;border:none;border-bottom:2px solid transparent;color:#484868;font-family:monospace;font-size:11px;padding:10px 4px;cursor:pointer;letter-spacing:0.4px;transition:color 0.15s,border-color 0.15s,background 0.15s;white-space:nowrap;}
+  .settings-tab:hover{color:#8888bb;background:rgba(100,100,200,0.05);}
+  .settings-tab.active{color:#4a9eea;border-bottom-color:#4a9eea;background:rgba(74,158,234,0.07);}
+  #settings-body{padding:20px;max-height:440px;overflow-y:auto;}
+  #settings-body::-webkit-scrollbar{width:4px;}#settings-body::-webkit-scrollbar-thumb{background:#1a1a40;border-radius:2px;}
+  .settings-pane{display:none;animation:stpane-in 0.15s ease;}.settings-pane.active{display:block;}
+  @keyframes stpane-in{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  .set-field{margin-bottom:13px;}.set-field label{display:block;font-size:9px;color:#44446a;margin-bottom:5px;letter-spacing:1px;text-transform:uppercase;}
+  .set-input{width:100%;background:#04040f;border:1px solid #1a1a36;color:#b0b8cc;padding:8px 10px;font-size:11px;font-family:monospace;border-radius:5px;box-sizing:border-box;outline:none;transition:border-color 0.15s;}
+  .set-input:focus{border-color:#4a9eea;background:#050510;}
+  .set-btn-row{display:flex;gap:8px;margin-top:2px;}
+  .set-btn{background:#0c0c20;border:1px solid #1e1e40;color:#8888bb;padding:8px 14px;cursor:pointer;font-size:11px;border-radius:5px;font-family:monospace;transition:all 0.15s;white-space:nowrap;}
+  .set-btn:hover{border-color:#4a9eea;color:#c0c8d8;}
+  .set-btn.s-green{background:#061610;border-color:#1a4a2a;color:#4acea0;flex:1;}.set-btn.s-green:hover{background:#0a2018;border-color:#4acea0;}
+  .set-btn.s-red{background:#100808;border-color:#3a1a1a;color:#e88888;}.set-btn.s-red:hover{background:#1c0c0c;border-color:#e84855;}
+  .set-btn.s-purple{background:#0a0820;border-color:#281a50;color:#a78bfa;flex:1;}.set-btn.s-purple:hover{background:#120e2a;border-color:#a78bfa;}
+  .set-btn.s-pink{background:#12081a;border-color:#3a1050;color:#e879f9;flex:1;}.set-btn.s-pink:hover{background:#1a0c22;border-color:#e879f9;}
+  .set-btn.s-full{width:100%;}.set-btn.s-dim{color:#404055;border-color:#141428;}.set-btn.s-dim:hover{color:#8888aa;border-color:#282848;}
+  .set-status{font-size:10px;font-family:monospace;margin-top:7px;min-height:14px;line-height:1.4;}
+  .set-status.ok{color:#4acea0;}.set-status.err{color:#e84855;}
+  .set-note{font-size:9px;color:#38385a;line-height:1.65;margin-top:9px;}
+  .set-note code{color:#4a9eea;background:rgba(74,158,234,0.1);padding:1px 4px;border-radius:2px;}
+  .set-divider{border:none;border-top:1px solid #0f0f28;margin:16px 0;}
+  .set-check-row{display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;background:#050510;border:1px solid #141430;border-radius:5px;margin-bottom:10px;}
+  .set-check-row input[type=checkbox]{accent-color:#4acea0;width:14px;height:14px;flex-shrink:0;}
+  .set-check-label{font-size:11px;color:#8888bb;line-height:1.4;}
+  .llm-close-btn{background:none;border:none;color:#484868;cursor:pointer;font-size:18px;line-height:1;padding:0;transition:color 0.15s;}.llm-close-btn:hover{color:#c0c8d8;}
   .llm-field{margin-bottom:14px;}.llm-field label{display:block;font-size:10px;color:#555;margin-bottom:5px;letter-spacing:0.8px;text-transform:uppercase;}
   .llm-field input{width:100%;background:#060614;border:1px solid #252548;color:#ccc;padding:8px 10px;font-size:12px;font-family:monospace;border-radius:4px;box-sizing:border-box;}.llm-field input:focus{outline:none;border-color:#4a9eea;}
   #llm-status{font-size:11px;margin:6px 0 10px;min-height:14px;font-family:monospace;}#llm-status.ok{color:#4abc6a;}#llm-status.err{color:#e84855;}
@@ -1915,6 +1943,15 @@ function initLLMSettings(){
     if(ta)ta.value='';
     showToast('User profile cleared');
   });
+}
+
+function switchSettingsTab(tab){
+  document.querySelectorAll('.settings-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.settings-tab').forEach(b=>b.classList.remove('active'));
+  const pane=document.getElementById('settings-pane-'+tab);
+  const btn=document.getElementById('stab-'+tab);
+  if(pane)pane.classList.add('active');
+  if(btn)btn.classList.add('active');
 }
 
 function loadCredentials(){
@@ -5155,81 +5192,103 @@ function saveAgent(){
 <!-- Global LLM Settings Modal -->
 <div id="llm-settings-modal">
   <div id="llm-settings-panel">
-    <h3>⚡ LLM Settings <button class="llm-close-btn" id="llm-settings-close">✕</button></h3>
-    <div class="sb-section-title" style="margin-top:0">⚙ Direct LLM (local / dev)</div>
-    <div class="llm-field">
-      <label>Base URL</label>
-      <input id="llm-base-url" type="text" placeholder="https://api.openai.com"/>
+
+    <!-- Header -->
+    <div id="settings-header">
+      <h3>⚡ Settings</h3>
+      <button class="llm-close-btn" id="llm-settings-close">✕</button>
     </div>
-    <div class="llm-field">
-      <label>API Key</label>
-      <input id="llm-api-key" type="password" placeholder="sk-..."/>
+
+    <!-- Tab bar -->
+    <div id="settings-tabs">
+      <button class="settings-tab active" onclick="switchSettingsTab('llm')" id="stab-llm">⚡ LLM</button>
+      <button class="settings-tab" onclick="switchSettingsTab('supabase')" id="stab-supabase">☁ Supabase</button>
+      <button class="settings-tab" onclick="switchSettingsTab('figma')" id="stab-figma">🎨 Figma</button>
+      <button class="settings-tab" onclick="switchSettingsTab('profile')" id="stab-profile">🧠 Profile</button>
     </div>
-    <div id="llm-status"></div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;">
-      <button id="llm-save-btn" style="flex:1;">Save & Connect</button>
-      <button id="llm-forget-btn" style="background:#3a1a1a;border:1px solid #5a2a2a;color:#e84855;padding:9px 16px;cursor:pointer;font-size:12px;border-radius:4px;font-family:monospace;">Forget</button>
-    </div>
-    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #252548;">
-      <button id="llm-clear-data-btn" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#555;padding:7px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;margin-bottom:10px;">Clear Session Data</button>
-      <div style="font-size:9px;color:#555;line-height:1.5;">
-        Credentials stored in browser localStorage only.<br>
-        Never written to files or sent to any server except your configured API.<br>
-        Use config.local.js for file-based config (see README).
+
+    <!-- Tab panes -->
+    <div id="settings-body">
+
+      <!-- ── LLM Tab ───────────────────────────────────────────────── -->
+      <div class="settings-pane active" id="settings-pane-llm">
+        <div class="set-field">
+          <label>Base URL</label>
+          <input id="llm-base-url" class="set-input" type="text" placeholder="https://api.openai.com"/>
+        </div>
+        <div class="set-field">
+          <label>API Key</label>
+          <input id="llm-api-key" class="set-input" type="password" placeholder="sk-…"/>
+        </div>
+        <div id="llm-status" class="set-status"></div>
+        <div class="set-btn-row" style="margin-bottom:16px;">
+          <button id="llm-save-btn" class="set-btn s-green">Save &amp; Connect</button>
+          <button id="llm-forget-btn" class="set-btn s-red">Forget</button>
+        </div>
+        <hr class="set-divider">
+        <button id="llm-clear-data-btn" class="set-btn s-full s-dim">Clear Session Data</button>
+        <p class="set-note" style="margin-top:10px;">Credentials stored in browser localStorage only. Never written to files or sent to any server except your configured API.</p>
       </div>
-    </div>
-    <!-- Phase 10: Supabase config -->
-    <div class="sb-section-title">☁ Supabase (Cloud Sync)</div>
-    <input id="sb-url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false">
-    <input id="sb-anon-key" placeholder="anon / public key" autocomplete="off" spellcheck="false">
-    <button id="sb-save-btn">Save &amp; Connect</button>
-    <div id="sb-status"></div>
-    <div style="font-size:9px;color:#555;line-height:1.5;margin-top:6px;">
-      Enter your Supabase project URL and anon key to enable cloud sync.<br>
-      All data is scoped to your user account via Row Level Security.
-    </div>
-    <!-- Phase 10e: LLM Proxy toggle -->
-    <div class="sb-section-title">⚡ LLM Proxy (Edge Function)</div>
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:#c0c8d8;margin-bottom:8px;">
-      <input type="checkbox" id="use-proxy-toggle" style="accent-color:#4acea0;width:14px;height:14px;">
-      Route LLM calls through Supabase (API key stays server-side)
-    </label>
-    <button id="proxy-test-btn" style="background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;padding:5px 12px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Test Proxy</button>
-    <div id="proxy-status" style="font-size:10px;font-family:monospace;margin-top:6px;min-height:14px;"></div>
-    <div style="font-size:9px;color:#555;line-height:1.5;margin-top:6px;">
-      Deploy <code style="color:#4acea0;">supabase/functions/llm-proxy/index.ts</code> then set<br>
-      <code style="color:#4acea0;">LLM_BASE_URL</code> + <code style="color:#4acea0;">LLM_API_KEY</code> as Edge Function secrets.
-    </div>
-  </div>
-  <!-- Figma Integration -->
-  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #151528;">
-    <div class="sb-section-title">🎨 Figma Integration</div>
-    <input id="figma-token" type="password" placeholder="Personal Access Token (figd_...)" autocomplete="off"
-      style="width:100%;background:#060614;border:1px solid #1a1a30;color:#c0c8d8;padding:7px 10px;font-family:monospace;font-size:11px;border-radius:4px;box-sizing:border-box;margin-bottom:6px;">
-    <input id="figma-file-key" placeholder="File key (from figma.com/file/KEY/...)"
-      style="width:100%;background:#060614;border:1px solid #1a1a30;color:#c0c8d8;padding:7px 10px;font-family:monospace;font-size:11px;border-radius:4px;box-sizing:border-box;margin-bottom:6px;">
-    <div style="display:flex;gap:6px;">
-      <button id="figma-save-btn" style="flex:1;background:#0a0a1e;border:1px solid #2a2a5a;color:#a78bfa;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Save</button>
-      <button id="figma-push-btn" style="flex:1;background:#1a0a1e;border:1px solid #4a1a5a;color:#e879f9;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">⟶ Push to Figma</button>
-    </div>
-    <div id="figma-status" style="font-size:10px;font-family:monospace;margin-top:6px;min-height:14px;color:#666;"></div>
-    <div style="font-size:9px;color:#444;line-height:1.5;margin-top:4px;">
-      Posts Blueprint spec + Director summary as a Figma comment.<br>
-      Pushes color tokens via Figma Variables API.
-    </div>
-  </div>
-  <!-- Phase 17: User Profile (Agent Learning) -->
-  <div style="margin-top:14px;padding-top:12px;border-top:1px solid #151528;">
-    <div class="sb-section-title">🧠 User Profile (Agent Learning)</div>
-    <div style="font-size:9px;color:#444;line-height:1.5;margin-bottom:8px;">
-      Auto-built after each swarm. Injected into every agent's system prompt so they improve over time based on your preferences.
-    </div>
-    <textarea id="user-profile-text" placeholder="No profile yet. Run a swarm to start building your profile…" rows="9"
-      style="width:100%;background:#060614;border:1px solid #1a1a30;color:#9090b8;padding:8px 10px;font-family:monospace;font-size:9px;border-radius:4px;box-sizing:border-box;resize:vertical;line-height:1.6;"></textarea>
-    <div style="display:flex;gap:6px;margin-top:6px;">
-      <button id="profile-save-btn" style="flex:1;background:#0a0a1e;border:1px solid #2a2a5a;color:#a78bfa;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Save Edits</button>
-      <button id="profile-clear-btn" style="flex:1;background:#1a0a0a;border:1px solid #5a2a2a;color:#e88888;padding:6px 10px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;">Clear Profile</button>
-    </div>
+
+      <!-- ── Supabase Tab ──────────────────────────────────────────── -->
+      <div class="settings-pane" id="settings-pane-supabase">
+        <div class="set-field">
+          <label>Project URL</label>
+          <input id="sb-url" class="set-input" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="set-field">
+          <label>Anon / Public Key</label>
+          <input id="sb-anon-key" class="set-input" placeholder="eyJ…" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="set-btn-row" style="margin-bottom:4px;">
+          <button id="sb-save-btn" class="set-btn s-green">Save &amp; Connect</button>
+        </div>
+        <div id="sb-status" class="set-status"></div>
+        <p class="set-note">All data is scoped to your account via Row Level Security. Sessions, artifacts, memories, and relay logs are synced.</p>
+
+        <hr class="set-divider">
+        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:10px;letter-spacing:0.3px;">LLM Proxy (Edge Function)</p>
+        <label class="set-check-row">
+          <input type="checkbox" id="use-proxy-toggle">
+          <span class="set-check-label">Route LLM calls through Supabase<br><span style="color:#38385a;font-size:9px;">API key stays server-side, hidden from browser</span></span>
+        </label>
+        <div class="set-btn-row">
+          <button id="proxy-test-btn" class="set-btn s-green">Test Proxy</button>
+        </div>
+        <div id="proxy-status" class="set-status"></div>
+        <p class="set-note">Deploy <code>supabase/functions/llm-proxy/index.ts</code> then set <code>LLM_BASE_URL</code> + <code>LLM_API_KEY</code> as Edge Function secrets.</p>
+      </div>
+
+      <!-- ── Figma Tab ─────────────────────────────────────────────── -->
+      <div class="settings-pane" id="settings-pane-figma">
+        <div class="set-field">
+          <label>Personal Access Token</label>
+          <input id="figma-token" class="set-input" type="password" placeholder="figd_…" autocomplete="off">
+        </div>
+        <div class="set-field">
+          <label>File Key</label>
+          <input id="figma-file-key" class="set-input" placeholder="from figma.com/file/KEY/…">
+        </div>
+        <div class="set-btn-row">
+          <button id="figma-save-btn" class="set-btn s-purple">Save</button>
+          <button id="figma-push-btn" class="set-btn s-pink">⟶ Push to Figma</button>
+        </div>
+        <div id="figma-status" class="set-status"></div>
+        <p class="set-note">Posts Blueprint spec + Director summary as a Figma comment. Pushes color tokens via Figma Variables API (Enterprise plan required for Variables).</p>
+      </div>
+
+      <!-- ── Profile Tab ───────────────────────────────────────────── -->
+      <div class="settings-pane" id="settings-pane-profile">
+        <p class="set-note" style="margin-bottom:10px;">Auto-built after each swarm. Injected into every agent's system prompt so outputs improve over time based on your design preferences.</p>
+        <textarea id="user-profile-text" placeholder="No profile yet. Run a swarm to start building your profile…" rows="10"
+          class="set-input" style="resize:vertical;line-height:1.65;font-size:9px;color:#9090c0;"></textarea>
+        <div class="set-btn-row" style="margin-top:10px;">
+          <button id="profile-save-btn" class="set-btn s-purple">Save Edits</button>
+          <button id="profile-clear-btn" class="set-btn s-red">Clear Profile</button>
+        </div>
+      </div>
+
+    </div><!-- /settings-body -->
   </div>
 </div>
 
