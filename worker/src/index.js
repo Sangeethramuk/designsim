@@ -52,6 +52,7 @@ export default {
         version: env.WORKER_VERSION || '1.0.0',
         llm: !!env.LLM_BASE_URL,
         figma: !!env.FIGMA_TOKEN,
+        brave: !!env.BRAVE_API_KEY,
       });
     }
 
@@ -63,6 +64,11 @@ export default {
     // ── Route: LLM Proxy ─────────────────────────────────────────────────────
     if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
       return handleLLM(req, env);
+    }
+
+    // ── Route: Brave Search tool ─────────────────────────────────────────────
+    if (url.pathname === '/tool/brave-search' && req.method === 'POST') {
+      return handleBraveSearch(req, env);
     }
 
     // ── Route: Webfetch tool ─────────────────────────────────────────────────
@@ -165,6 +171,61 @@ async function handleWebfetch(req, env) {
     return json({ content, url, ok: true });
   } catch (e) {
     return json({ content: `webfetch failed: ${e.message}`, url, ok: false });
+  }
+}
+
+// ─── Brave Search Tool ────────────────────────────────────────────────────────
+async function handleBraveSearch(req, env) {
+  if (!env.BRAVE_API_KEY) {
+    return errorJson('Brave Search not configured — set BRAVE_API_KEY secret', 503);
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch (e) {
+    return errorJson('Invalid JSON body');
+  }
+
+  const { query, count = 8 } = body;
+  if (!query || !query.trim()) {
+    return errorJson('query is required');
+  }
+
+  try {
+    const searchUrl = 'https://api.search.brave.com/res/v1/web/search?' +
+      new URLSearchParams({ q: query, count: Math.min(count, 10), search_lang: 'en' });
+
+    const resp = await fetch(searchUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'X-Subscription-Token': env.BRAVE_API_KEY,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!resp.ok) {
+      return json({ results: [], error: `Brave API error: HTTP ${resp.status}`, query });
+    }
+
+    const data = await resp.json();
+    const results = (data.web?.results || []).map(r => ({
+      title: r.title,
+      url: r.url,
+      description: r.description,
+      age: r.age,
+    }));
+
+    // Format as readable text for the LLM
+    const formatted = results.map((r, i) =>
+      `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}${r.age ? ' (' + r.age + ')' : ''}`
+    ).join('\n\n');
+
+    const content = `[brave_search: "${query}"]\n\n${formatted || 'No results found.'}`;
+    return json({ content, results, query, ok: true });
+  } catch (e) {
+    return json({ content: `brave_search failed for "${query}": ${e.message}`, results: [], query, ok: false });
   }
 }
 
