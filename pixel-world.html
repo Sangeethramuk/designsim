@@ -1499,8 +1499,24 @@ const TOOL_DEFS={
   }
 };
 
-// Execute a real webfetch call in the browser
+// Execute a real webfetch call — routes through Cloudflare Worker when configured
 async function executeWebfetch(url,reason){
+  // ── Path A: Cloudflare Worker (server-side, no CORS, no corsproxy.io) ──
+  if(window._workerUrl){
+    try{
+      const resp=await fetch(window._workerUrl+'/tool/webfetch',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url,reason:reason||''}),
+        signal:AbortSignal.timeout(15000)
+      });
+      const data=await resp.json();
+      return data.content||'webfetch returned empty content for '+url;
+    }catch(e){
+      console.warn('[webfetch] Worker failed, falling back to browser fetch:',e.message);
+    }
+  }
+  // ── Path B: Browser fetch with CORS proxy fallback (no Worker configured) ──
   const corsProxy='https://corsproxy.io/?';
   try{
     let resp;
@@ -1621,9 +1637,12 @@ async function _readSSEStream(resp,onToken){
 // --- Real streaming: direct LLM (stream:true + SSE) ---
 async function getAgentResponseStream(agent,message,history,baseUrl,apiKey,onToken){
   const{model,messages,maxTokens,temperature}=buildAgentMessages(agent,message,history);
+  // Use Worker as proxy if configured — API key stays server-side
+  const effectiveBase=(window._workerUrl||baseUrl).replace(/\/$/,'');
+  const effectiveKey=window._workerUrl?null:apiKey;
   const headers={'content-type':'application/json'};
-  if(apiKey)headers['authorization']='Bearer '+apiKey;
-  const resp=await fetch(baseUrl+'/v1/chat/completions',{
+  if(effectiveKey)headers['authorization']='Bearer '+effectiveKey;
+  const resp=await fetch(effectiveBase+'/v1/chat/completions',{
     method:'POST',headers,
     body:JSON.stringify({model,max_tokens:maxTokens,temperature,messages,stream:true})
   });
@@ -1729,14 +1748,18 @@ async function testProxy(){
 
 async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   const{model,messages,maxTokens,temperature,tools}=buildAgentMessages(agent,message,history);
+  // When Cloudflare Worker is configured, use it as the LLM proxy
+  // API key stays server-side in Worker secrets — never exposed in browser
+  const effectiveBase=(window._workerUrl||baseUrl).replace(/\/$/,'');
+  const effectiveKey=window._workerUrl?null:apiKey;
   const headers={'content-type':'application/json'};
-  if(apiKey)headers['authorization']='Bearer '+apiKey;
+  if(effectiveKey)headers['authorization']='Bearer '+effectiveKey;
   // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
   for(let round=0;round<3;round++){
     const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
     if(tools)body.tools=tools;
-    const resp=await fetch(baseUrl+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body)});
+    const resp=await fetch(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body)});
     const data=await resp.json();
     if(data.error)throw new Error(data.error.message||'API error');
     const choice=data.choices?.[0];
@@ -1982,6 +2005,7 @@ function initLLMSettings(){
     document.getElementById('llm-status').textContent='';
     document.getElementById('llm-settings-modal').classList.add('active');
     updateCredentialsStatus();
+    updateWorkerStatus();
   });
   document.getElementById('llm-settings-close').addEventListener('click',()=>{
     document.getElementById('llm-settings-modal').classList.remove('active');
@@ -2081,6 +2105,7 @@ function loadCredentials(){
   try{
     window._llmBaseUrl=localStorage.getItem('llm_base_url')||null;
     window._llmApiKey=localStorage.getItem('llm_api_key')||null;
+    window._workerUrl=localStorage.getItem('worker_url')||null;
     if(!window._llmBaseUrl && window.LOCAL_CONFIG){
       window._llmBaseUrl=window.LOCAL_CONFIG.baseUrl||null;
       window._llmApiKey=window.LOCAL_CONFIG.apiKey||null;
@@ -2088,6 +2113,53 @@ function loadCredentials(){
   }catch(e){
     window._llmBaseUrl=null;
     window._llmApiKey=null;
+    window._workerUrl=null;
+  }
+}
+
+// ── Cloudflare Worker URL helpers ──────────────────────────────────────────
+function saveWorkerUrl(){
+  const input=document.getElementById('worker-url');
+  const st=document.getElementById('worker-status');
+  const url=(input?.value||'').trim().replace(/\/$/,'');
+  if(!url){st.className='err';st.textContent='⚠ Enter a Worker URL first';return;}
+  if(!url.startsWith('https://')){st.className='err';st.textContent='⚠ URL must start with https://';return;}
+  window._workerUrl=url;
+  try{localStorage.setItem('worker_url',url);}catch(e){}
+  st.className='ok';st.textContent='✓ Worker URL saved';
+  updateWorkerStatus();
+}
+
+async function testWorkerUrl(){
+  const st=document.getElementById('worker-status');
+  const url=(document.getElementById('worker-url')?.value||'').trim().replace(/\/$/,'')||window._workerUrl;
+  if(!url){st.className='err';st.textContent='⚠ Enter a Worker URL first';return;}
+  st.className='pending';st.textContent='⏳ Testing…';
+  try{
+    const resp=await fetch(url+'/health',{signal:AbortSignal.timeout(8000)});
+    const data=await resp.json();
+    if(data.status==='ok'){
+      st.className='ok';
+      st.textContent='✓ Worker online · LLM:'+(data.llm?'✓':'✗')+' Figma:'+(data.figma?'✓':'✗');
+    }else{st.className='err';st.textContent='⚠ Unexpected response';}
+  }catch(e){st.className='err';st.textContent='⚠ '+e.message;}
+}
+
+function clearWorkerUrl(){
+  window._workerUrl=null;
+  try{localStorage.removeItem('worker_url');}catch(e){}
+  const input=document.getElementById('worker-url');
+  const st=document.getElementById('worker-status');
+  if(input)input.value='';
+  if(st){st.className='';st.textContent='Worker URL cleared';}
+}
+
+function updateWorkerStatus(){
+  const input=document.getElementById('worker-url');
+  const st=document.getElementById('worker-status');
+  if(input&&window._workerUrl)input.value=window._workerUrl;
+  if(st&&window._workerUrl){
+    st.className='ok';st.textContent='✓ Worker configured — API key stays server-side';
   }
 }
 
@@ -5372,6 +5444,20 @@ function saveAgent(){
         <hr class="set-divider">
         <button id="llm-clear-data-btn" class="set-btn s-full s-dim">Clear Session Data</button>
         <p class="set-note" style="margin-top:10px;">Credentials stored in browser localStorage only. Never written to files or sent to any server except your configured API.</p>
+
+        <hr class="set-divider">
+        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:10px;letter-spacing:0.3px;">☁ Cloudflare Worker (optional)</p>
+        <div class="set-field">
+          <label>Worker URL</label>
+          <input id="worker-url" class="set-input" type="text" placeholder="https://design-swarm-worker.username.workers.dev" autocomplete="off" spellcheck="false"/>
+        </div>
+        <div id="worker-status" class="set-status"></div>
+        <div class="set-btn-row">
+          <button class="set-btn s-green" onclick="saveWorkerUrl()">Save Worker</button>
+          <button class="set-btn" onclick="testWorkerUrl()">Test</button>
+          <button class="set-btn s-red" onclick="clearWorkerUrl()">Clear</button>
+        </div>
+        <p class="set-note" style="margin-top:10px;">When set, all LLM calls and webfetch tool calls route through your Worker. API key stays in Worker secrets — never in the browser.</p>
       </div>
 
       <!-- ── Supabase Tab ──────────────────────────────────────────── -->
