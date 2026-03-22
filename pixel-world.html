@@ -5785,9 +5785,35 @@ function handleAgentImport(event){
       AGENTS.push(agentDef);
       if(imp.formatInstruction)AGENT_FORMAT_MAP[newId]=imp.formatInstruction;
       makeChar(newId,agentDef.shirt,agentDef.hair);
+      // Live-inject into running Phaser scene (same pattern as addNewAgent)
+      const scene=window._game&&window._game.scene.getScene('GameScene');
+      if(scene&&scene.agents){
+        const TILE=16;
+        ['down','up','left','right'].forEach(dir=>{for(let f=0;f<2;f++){const key=newId+'_'+dir+'_'+f;const cv=textures[key];if(cv)scene.textures.addCanvas(key,cv);}});
+        const spr=scene.add.sprite(agentDef.tx*TILE+TILE/2,agentDef.ty*TILE+TILE/2,newId+'_down_0');
+        spr.setScale(2);spr.setDepth(agentDef.ty*TILE);
+        const labelEl=document.createElement('div');
+        labelEl.className='agent-label';labelEl.textContent=agentDef.name;
+        labelEl.style.color='#'+agentDef.zc.toString(16).padStart(6,'0');
+        document.getElementById('agent-labels').appendChild(labelEl);
+        AGENT_THOUGHTS[newId]=['Ask me anything!','Ready to help!','Imported agent here.'];
+        const bub=scene.add.container(spr.x,spr.y-26).setDepth(150000).setAlpha(0);
+        const bg=scene.add.rectangle(0,0,86,14,0x0a0a2e,0.92).setStrokeStyle(1,agentDef.zc);
+        const btxt=scene.add.text(0,0,'Ready!',{fontSize:'5px',fontFamily:'monospace',color:'#e0e0e0',resolution:2}).setOrigin(0.5);
+        bub.add([bg,btxt]);
+        const agentRuntime=Object.assign({},agentDef,{spr,labelEl,bubble:bub,bubbleTxt:btxt,
+          thoughtIdx:0,thoughtTimer:0,inRange:false,animTimer:0,animFrame:0,dir:'down',
+          homeX:agentDef.tx*TILE+TILE/2,homeY:agentDef.ty*TILE+TILE/2,
+          walking:false,walkDir:agentDef.facing||'down'});
+        spr.setInteractive({useHandCursor:true});
+        spr.on('pointerdown',()=>{scene._clickedAgent=true;openChat(agentRuntime);});
+        scene.agents.push(agentRuntime);
+        showToast('✓ "'+agentDef.name+'" imported and added to world!');
+      }else{
+        showToast('✓ Agent "'+agentDef.name+'" imported! Reload to see in world.');
+      }
       saveAgentsToStorage();
       if(window._boardOpen)renderBoardGrid();
-      showToast('✓ Agent "'+agentDef.name+'" imported! Reload to see in world.');
     }catch(e){showToast('Import failed: '+e.message);}
   };
   reader.readAsText(file);
