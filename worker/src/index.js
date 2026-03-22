@@ -252,6 +252,39 @@ function stripHtml(html, url, reason) {
 }
 
 // ─── Figma Tool ───────────────────────────────────────────────────────────────
+
+// Build the Figma Variables API payload from a flat colors array
+// colors: [{name: string, r: number, g: number, b: number}]
+function buildVariablesPayload(colors) {
+  return {
+    variableCollections: [{
+      action: 'CREATE',
+      id: 'coll1',
+      name: 'Design Swarm Tokens',
+      initialModeId: 'mode1',
+    }],
+    variableModes: [{
+      action: 'CREATE',
+      id: 'mode1',
+      name: 'Default',
+      variableCollectionId: 'coll1',
+    }],
+    variables: colors.map((c, i) => ({
+      action: 'CREATE',
+      id: 'var' + i,
+      name: c.name,
+      resolvedType: 'COLOR',
+      variableCollectionId: 'coll1',
+    })),
+    variableModeValues: colors.map((c, i) => ({
+      action: 'CREATE',
+      variableId: 'var' + i,
+      modeId: 'mode1',
+      value: { r: c.r, g: c.g, b: c.b, a: 1 },
+    })),
+  };
+}
+
 async function handleFigma(req, env) {
   if (!env.FIGMA_TOKEN) {
     return errorJson('Figma not configured — set FIGMA_TOKEN secret', 503);
@@ -264,12 +297,62 @@ async function handleFigma(req, env) {
     return errorJson('Invalid JSON body');
   }
 
-  const { action, fileKey, nodeIds, variableCollectionId } = body;
+  const { action, fileKey, nodeIds } = body;
 
   const figmaHeaders = {
     'X-Figma-Token': env.FIGMA_TOKEN,
     'Content-Type': 'application/json',
   };
+
+  // ── Combined action: post spec comment + push design tokens ─────────────────
+  if (action === 'push_design_spec') {
+    if (!fileKey) return errorJson('fileKey is required');
+
+    const comment = body.comment || '🤖 Design Swarm Export';
+    const colors  = Array.isArray(body.colors) ? body.colors : [];
+
+    try {
+      // Step 1: Post comment
+      const commentResp = await fetch(
+        `https://api.figma.com/v1/files/${fileKey}/comments`,
+        {
+          method: 'POST',
+          headers: figmaHeaders,
+          body: JSON.stringify({ message: comment }),
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+      const commentData = await commentResp.json();
+      if (!commentResp.ok) {
+        return json({
+          ok: false,
+          tokenCount: 0,
+          error: commentData.err || `Figma comment API: ${commentResp.status}`,
+        });
+      }
+
+      // Step 2: Push color tokens (best-effort; Variables API requires Enterprise)
+      let tokenCount = 0;
+      if (colors.length > 0) {
+        try {
+          const varResp = await fetch(
+            `https://api.figma.com/v1/files/${fileKey}/variables`,
+            {
+              method: 'POST',
+              headers: figmaHeaders,
+              body: JSON.stringify(buildVariablesPayload(colors)),
+              signal: AbortSignal.timeout(15000),
+            },
+          );
+          if (varResp.ok) tokenCount = colors.length;
+        } catch (_) { /* Variables API is Enterprise-only; swallow errors */ }
+      }
+
+      return json({ ok: true, tokenCount, commentId: commentData.id });
+    } catch (e) {
+      return errorJson('Figma push_design_spec error: ' + e.message, 500);
+    }
+  }
 
   try {
     let figmaUrl;
@@ -313,6 +396,17 @@ async function handleFigma(req, env) {
         figmaMethod = 'POST';
         figmaBody = JSON.stringify({ message: body.message, client_meta: body.client_meta });
         break;
+
+      // Push color design tokens as Figma Variables
+      case 'push_variables': {
+        if (!fileKey) return errorJson('fileKey is required');
+        const colors = Array.isArray(body.colors) ? body.colors : [];
+        if (!colors.length) return errorJson('colors array is required');
+        figmaUrl = `https://api.figma.com/v1/files/${fileKey}/variables`;
+        figmaMethod = 'POST';
+        figmaBody = JSON.stringify(buildVariablesPayload(colors));
+        break;
+      }
 
       default:
         return errorJson(`Unknown Figma action: ${action}`);

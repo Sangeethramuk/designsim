@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://*.supabase.co https://*.moonshot.ai https://*.openai.com https://*.anthropic.com wss://*.supabase.co; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://*.supabase.co https://*.moonshot.ai https://*.openai.com https://*.anthropic.com https://api.figma.com https://*.workers.dev https://*.run.app wss://*.supabase.co; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Design Swarm Studio</title>
 <style>
@@ -723,9 +723,11 @@
       <input type="file" id="md-file-input" accept=".md,.txt" multiple onchange="handleMdUpload(event)">
     </div>
     <div class="editor-footer">
-      <button class="btn btn-danger" onclick="deleteCurrentAgent()" style="margin-right:auto">✕ Delete Agent</button>
+      <button class="btn btn-danger" onclick="deleteCurrentAgent()" style="margin-right:auto">✕ Delete</button>
+      <button class="btn btn-secondary" onclick="exportCurrentAgent()" style="color:#4acea0;border:1px solid #4acea0" title="Download this agent as a JSON file">⬆ Export</button>
+      <button class="btn btn-secondary" onclick="shareCurrentAgent()" style="color:#a78bfa;border:1px solid #a78bfa" title="Upload to Supabase and get a shareable link">🔗 Share</button>
       <button class="btn btn-secondary" onclick="closeEditor()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveAgent()">Save Changes</button>
+      <button class="btn btn-primary" onclick="saveAgent()">Save</button>
     </div>
   </div>
 </div>
@@ -3332,7 +3334,8 @@ function generateDossierHTMLWithActions(){
     weaver:(window._agentArtifacts&&window._agentArtifacts['weaver']&&window._agentArtifacts['weaver'].content)||'',
     palette:(window._agentArtifacts&&window._agentArtifacts['palette']&&window._agentArtifacts['palette'].content)||'',
     figmaToken:localStorage.getItem('figma_token')||'',
-    figmaKey:localStorage.getItem('figma_file_key')||''
+    figmaKey:localStorage.getItem('figma_file_key')||'',
+    workerUrl:window._workerUrl||''
   });
   const cs=window._critiqueScore;
   const scoreBadge=cs!=null
@@ -3372,8 +3375,8 @@ function generateDossierHTMLWithActions(){
   </div>
   <div id="dab-figma" style="display:none">
     <h3>→ Push to Figma</h3>
-    <p>Posts the sprint brief, blueprint specs, and synthesis as a Figma comment. Also pushes color tokens as Variables (requires Figma Enterprise plan for Variables API).</p>
-    <input id="dab-ft" class="dab-input" placeholder="Figma Personal Access Token" type="password">
+    <p id="dab-figma-note">Posts the sprint brief, blueprint specs, and synthesis as a Figma comment. Also pushes color tokens as Variables (Enterprise plan required).</p>
+    <input id="dab-ft" class="dab-input" placeholder="Figma Personal Access Token (leave blank if Worker is set)" type="password">
     <input id="dab-fk" class="dab-input" placeholder="Figma File Key (from the file URL)">
     <div class="dab-row">
       <button class="dab-btn dab-purple" onclick="dabPushFigma()" style="flex:1">Push Comment + Tokens</button>
@@ -3396,6 +3399,9 @@ function dabToggle(n){
   if(n==='figma'){
     if(D.figmaToken)document.getElementById('dab-ft').value=D.figmaToken;
     if(D.figmaKey)document.getElementById('dab-fk').value=D.figmaKey;
+    // Show worker note when worker URL is available
+    var note=document.getElementById('dab-figma-note');
+    if(note&&D.workerUrl){note.innerHTML='<span style="color:#a78bfa">◈ Worker active</span> — token not required. Only file key needed.';document.getElementById('dab-ft').placeholder='Token not needed (Worker handles auth)';}
   }
 }
 function dabClose(){_p=null;document.getElementById('dab-panel').style.display='none';}
@@ -3415,45 +3421,66 @@ function dabCopyLink(){
   if(!i.value){dabGenLink();return;}
   navigator.clipboard.writeText(i.value).then(function(){stat('✓ Copied!','#4acea0');}).catch(function(){i.select();document.execCommand('copy');stat('✓ Copied!','#4acea0');});
 }
+// Parse hex colors from blueprint YAML → [{name,r,g,b}]
+function parseColors(yaml){
+  var colors=[];var seen=new Set();var m;
+  var rx=/#([0-9a-fA-F]{6})\\b/g;
+  while((m=rx.exec(yaml))!==null){
+    var hex='#'+m[1].toLowerCase();
+    if(!seen.has(hex)){
+      seen.add(hex);
+      var idx=colors.length+1;
+      colors.push({name:'color-'+idx+'-'+m[1].toLowerCase(),r:parseInt(m[1].slice(0,2),16)/255,g:parseInt(m[1].slice(2,4),16)/255,b:parseInt(m[1].slice(4,6),16)/255});
+    }
+  }
+  return colors;
+}
 async function dabPushFigma(){
-  var token=document.getElementById('dab-ft').value.trim();
   var key=document.getElementById('dab-fk').value.trim();
-  if(!token||!key){stat('⚠ Enter both Figma token and file key','#e88888');return;}
+  var token=document.getElementById('dab-ft').value.trim();
+  if(!key){stat('⚠ Enter the Figma File Key','#e88888');return;}
   stat('Connecting to Figma…','#888');
   var bp=D.blueprint||'';var wv=D.weaver||'';var br=D.brief||'';
   var lines=['🤖 Design Swarm Sprint Export'];
   if(br)lines.push('','📋 Brief',br);
   if(bp)lines.push('','📐 Blueprint Spec',bp.slice(0,2400));
   if(wv)lines.push('','🧵 Synthesis',wv.slice(0,600));
+  var comment=lines.join('\\n');
+  var colors=bp?parseColors(bp):[];
+  // ── Worker path (token stays server-side) ──────────────────────────────────
+  if(D.workerUrl){
+    try{
+      var r=await fetch(D.workerUrl+'/tool/figma',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'push_design_spec',fileKey:key,comment:comment,colors:colors})
+      });
+      var data=await r.json();
+      if(!r.ok||data.error){throw new Error(data.error||'Worker '+r.status);}
+      if(!data.ok){throw new Error(data.error||'Figma push rejected');}
+      stat('✓ Pushed via Worker'+(data.tokenCount?' · '+data.tokenCount+' tokens':''),'#4acea0');
+    }catch(e){stat('✗ '+e.message,'#e84855');}
+    return;
+  }
+  // ── Direct path (token required) ────────────────────────────────────────
+  if(!token){stat('⚠ Token required (no Worker configured)','#e88888');return;}
   try{
     var r=await fetch('https://api.figma.com/v1/files/'+key+'/comments',{
       method:'POST',
       headers:{'X-Figma-Token':token,'Content-Type':'application/json'},
-      body:JSON.stringify({message:lines.join('\\n')})
+      body:JSON.stringify({message:comment})
     });
     if(!r.ok){var err=await r.json().catch(function(){return{};});throw new Error('Figma '+(err.err||r.status));}
-    var pushed='✓ Comment posted to Figma!';
-    if(bp){
-      var rx=/#([0-9a-fA-F]{6})\\b/g;var cols={};var ci=0;var seen=new Set();var m;
-      while((m=rx.exec(bp))!==null){var h='#'+m[1].toLowerCase();if(!seen.has(h)){seen.add(h);cols['color-'+(++ci)]=h;}}
-      var ck=Object.keys(cols);
-      if(ck.length){
-        var vp={
-          variableCollections:[{action:'CREATE',id:'c1',name:'Swarm Tokens',initialModeId:'m1'}],
-          variableModes:[{action:'CREATE',id:'m1',name:'Default',variableCollectionId:'c1'}],
-          variables:ck.map(function(k,i){return{action:'CREATE',id:'v'+i,name:k,resolvedType:'COLOR',variableCollectionId:'c1'};}),
-          variableModeValues:ck.map(function(k,i){
-            var hx=cols[k];
-            return{action:'CREATE',variableId:'v'+i,modeId:'m1',value:{r:parseInt(hx.slice(1,3),16)/255,g:parseInt(hx.slice(3,5),16)/255,b:parseInt(hx.slice(5,7),16)/255,a:1}};
-          })
-        };
-        var r2=await fetch('https://api.figma.com/v1/files/'+key+'/variables',{
-          method:'POST',
-          headers:{'X-Figma-Token':token,'Content-Type':'application/json'},
-          body:JSON.stringify(vp)
-        });
-        pushed=r2.ok?'✓ Comment + '+ck.length+' color tokens pushed to Figma!':'✓ Comment pushed (Variables API needs Enterprise plan)';
-      }
+    var pushed='✓ Comment posted!';
+    if(colors.length){
+      var vp={
+        variableCollections:[{action:'CREATE',id:'c1',name:'Swarm Tokens',initialModeId:'m1'}],
+        variableModes:[{action:'CREATE',id:'m1',name:'Default',variableCollectionId:'c1'}],
+        variables:colors.map(function(c,i){return{action:'CREATE',id:'v'+i,name:c.name,resolvedType:'COLOR',variableCollectionId:'c1'};}),
+        variableModeValues:colors.map(function(c,i){return{action:'CREATE',variableId:'v'+i,modeId:'m1',value:{r:c.r,g:c.g,b:c.b,a:1}};})
+      };
+      var r2=await fetch('https://api.figma.com/v1/files/'+key+'/variables',{method:'POST',headers:{'X-Figma-Token':token,'Content-Type':'application/json'},body:JSON.stringify(vp)});
+      pushed=r2.ok?'✓ Comment + '+colors.length+' tokens pushed!':'✓ Comment pushed (Variables API needs Enterprise)';
     }
     stat(pushed,'#4acea0');
   }catch(e){stat('✗ '+e.message,'#e84855');}
@@ -4425,81 +4452,115 @@ function saveFigmaConfig(token,fileKey){
 }
 
 function parseBlueprintTokens(yaml){
-  const tokens={colors:{}};
-  // Extract all hex colour values from the YAML text
+  // Returns { colors: [{name, r, g, b, hex}], legacyColors: {name: hex} }
+  // legacyColors kept for backward-compat with direct Figma API path
+  const colors=[];
+  const legacyColors={};
   const colorRx=/#([0-9a-fA-F]{6})\b/g;
-  let m;let i=0;
-  const seen=new Set();
+  let m;const seen=new Set();
   while((m=colorRx.exec(yaml))!==null){
     const hex='#'+m[1].toLowerCase();
-    if(!seen.has(hex)){seen.add(hex);tokens.colors['color-'+(++i)]=hex;}
+    if(!seen.has(hex)){
+      seen.add(hex);
+      const idx=colors.length+1;
+      const name='color-'+idx+'-'+m[1].toLowerCase();
+      const r=parseInt(m[1].slice(0,2),16)/255;
+      const g=parseInt(m[1].slice(2,4),16)/255;
+      const b=parseInt(m[1].slice(4,6),16)/255;
+      colors.push({name,r,g,b,hex});
+      legacyColors[name]=hex;
+    }
   }
-  return tokens;
+  return{colors,legacyColors};
 }
 
 async function pushToFigma(){
   const cfg=loadFigmaConfig();
-  if(!cfg.token||!cfg.fileKey){
-    showToast('Configure Figma token + file key in ⚙ settings');
-    document.getElementById('llm-settings-modal')&&document.getElementById('llm-settings-modal').classList.add('active');
-    return;
-  }
   const statusEl=document.getElementById('figma-status');
   if(statusEl){statusEl.textContent='Pushing…';statusEl.style.color='#888';}
+
+  // Build shared comment body from current swarm outputs
   const blueprintArt=window._agentArtifacts&&window._agentArtifacts['blueprint'];
   const weaverArt=window._agentArtifacts&&window._agentArtifacts['weaver'];
   const leadSess=(window._agentSessions&&window._agentSessions['lead'])||[];
   const directorSummary=leadSess.filter(m=>m.role==='assistant').pop();
-  // Build comment body
-  const lines=['🤖 Design Swarm Export'];
+  const lines=['🤖 Design Swarm Export'+(window._sprintNumber&&window._sprintNumber>1?' — Sprint '+window._sprintNumber:'')];
   if(window._projectBrief)lines.push('','📋 Brief',''+window._projectBrief);
   if(blueprintArt)lines.push('','📐 Blueprint Spec ('+blueprintArt.lang+')',''+blueprintArt.content.slice(0,2400));
   if(weaverArt)lines.push('','🧵 Synthesis',''+weaverArt.content.slice(0,600));
   if(directorSummary)lines.push('','🎯 Director Summary',''+directorSummary.content.slice(0,600));
-  const commentBody=lines.join('\n');
+  const comment=lines.join('\n');
+  const tokens=blueprintArt?parseBlueprintTokens(blueprintArt.content):{colors:[],legacyColors:{}};
+
+  // ── Path A: Via Cloudflare Worker (FIGMA_TOKEN stays server-side) ──────────
+  if(window._workerUrl){
+    if(!cfg.fileKey){
+      showToast('Set Figma file key in ⚙ Settings → Figma');
+      const modal=document.getElementById('llm-settings-modal');
+      if(modal)modal.classList.add('active');
+      if(statusEl){statusEl.textContent='File key required';statusEl.style.color='#e88888';}
+      return;
+    }
+    try{
+      const r=await fetch(window._workerUrl+'/tool/figma',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'push_design_spec',fileKey:cfg.fileKey,comment,colors:tokens.colors})
+      });
+      const data=await r.json();
+      if(!r.ok||data.error){
+        throw new Error(data.error||'Worker returned '+r.status);
+      }
+      if(!data.ok){throw new Error(data.error||'Figma push rejected');}
+      const msg='✓ Pushed via Worker'+(data.tokenCount?' · '+data.tokenCount+' tokens':'')+(blueprintArt?' · spec':'');
+      if(statusEl){statusEl.textContent=msg;statusEl.style.color='#4acea0';}
+      showToast('✓ Figma: '+msg.replace('✓ ',''));
+    }catch(e){
+      if(statusEl){statusEl.textContent='✗ '+e.message;statusEl.style.color='#e84855';}
+      showToast('Figma push failed: '+e.message);
+    }
+    return;
+  }
+
+  // ── Path B: Direct Figma API (token stored in settings) ───────────────────
+  if(!cfg.token||!cfg.fileKey){
+    showToast('Set Figma token + file key in ⚙ Settings → Figma, or configure the Worker for token-free push');
+    const modal=document.getElementById('llm-settings-modal');
+    if(modal)modal.classList.add('active');
+    if(statusEl){statusEl.textContent='Token + file key required';statusEl.style.color='#e88888';}
+    return;
+  }
   try{
-    // 1. Post comment
     const r=await fetch('https://api.figma.com/v1/files/'+cfg.fileKey+'/comments',{
       method:'POST',
       headers:{'X-Figma-Token':cfg.token,'Content-Type':'application/json'},
-      body:JSON.stringify({message:commentBody})
+      body:JSON.stringify({message:comment})
     });
     if(!r.ok){
       const errBody=await r.json().catch(()=>({}));
       throw new Error('Comment failed: '+(errBody.err||r.status));
     }
-    // 2. Push color tokens via Variables API
+    // Push color tokens (best-effort; Enterprise plan required)
     let tokenCount=0;
-    if(blueprintArt){
-      const tokens=parseBlueprintTokens(blueprintArt.content);
-      const colorKeys=Object.keys(tokens.colors);
-      if(colorKeys.length){
-        const variablesPayload={
-          variableCollections:[{action:'CREATE',id:'coll1',name:'Design Swarm Tokens',initialModeId:'mode1'}],
-          variableModes:[{action:'CREATE',id:'mode1',name:'Default',variableCollectionId:'coll1'}],
-          variables:colorKeys.map((k,i)=>({action:'CREATE',id:'var'+i,name:k,resolvedType:'COLOR',variableCollectionId:'coll1'})),
-          variableModeValues:colorKeys.map((k,i)=>{
-            const h=tokens.colors[k];
-            const rv=parseInt(h.slice(1,3),16)/255;
-            const gv=parseInt(h.slice(3,5),16)/255;
-            const bv=parseInt(h.slice(5,7),16)/255;
-            return{variableId:'var'+i,modeId:'mode1',value:{r:rv,g:gv,b:bv,a:1}};
-          })
-        };
-        const vr=await fetch('https://api.figma.com/v1/files/'+cfg.fileKey+'/variables',{
-          method:'POST',
-          headers:{'X-Figma-Token':cfg.token,'Content-Type':'application/json'},
-          body:JSON.stringify(variablesPayload)
-        });
-        if(vr.ok)tokenCount=colorKeys.length;
-      }
+    if(tokens.colors.length){
+      const variablesPayload={
+        variableCollections:[{action:'CREATE',id:'coll1',name:'Design Swarm Tokens',initialModeId:'mode1'}],
+        variableModes:[{action:'CREATE',id:'mode1',name:'Default',variableCollectionId:'coll1'}],
+        variables:tokens.colors.map((c,i)=>({action:'CREATE',id:'var'+i,name:c.name,resolvedType:'COLOR',variableCollectionId:'coll1'})),
+        variableModeValues:tokens.colors.map((c,i)=>({variableId:'var'+i,modeId:'mode1',value:{r:c.r,g:c.g,b:c.b,a:1}}))
+      };
+      const vr=await fetch('https://api.figma.com/v1/files/'+cfg.fileKey+'/variables',{
+        method:'POST',
+        headers:{'X-Figma-Token':cfg.token,'Content-Type':'application/json'},
+        body:JSON.stringify(variablesPayload)
+      });
+      if(vr.ok)tokenCount=tokens.colors.length;
     }
-    const msg='✓ Pushed!'+(tokenCount?' '+tokenCount+' color tokens':'')+(blueprintArt?' + spec':'');
+    const msg='✓ Pushed'+(tokenCount?' · '+tokenCount+' color tokens':'')+(blueprintArt?' · spec':'');
     if(statusEl){statusEl.textContent=msg;statusEl.style.color='#4acea0';}
     showToast('✓ Figma: '+msg.replace('✓ ',''));
   }catch(e){
-    const errMsg='✗ '+e.message;
-    if(statusEl){statusEl.textContent=errMsg;statusEl.style.color='#e84855';}
+    if(statusEl){statusEl.textContent='✗ '+e.message;statusEl.style.color='#e84855';}
     showToast('Figma push failed: '+e.message);
   }
 }
@@ -5653,6 +5714,133 @@ function deleteCurrentAgent(){
   showToast('Agent "'+id+'" deleted');
 }
 
+// ─── Phase 7: Agent Sharing ───────────────────────────────────────────────────
+
+// Serialize the currently-open agent to a portable JSON file and download it
+function exportCurrentAgent(){
+  if(!currentEditAgent){showToast('No agent open in editor');return;}
+  const fmtVal=(document.getElementById('edit-format')||{}).value||'';
+  const payload={
+    schema:'design-swarm-agent-v1',
+    exported:new Date().toISOString(),
+    agent:{
+      id:currentEditAgent.id,
+      name:currentEditAgent.name,
+      role:currentEditAgent.role,
+      desc:currentEditAgent.desc||'',
+      zone:currentEditAgent.zone||'Corridor',
+      zc:currentEditAgent.zc,
+      brain:currentEditAgent.brain||'kimi-latest',
+      systemPrompt:currentEditAgent.systemPrompt||'',
+      formatInstruction:fmtVal.trim()||AGENT_FORMAT_MAP[currentEditAgent.id]||'',
+      tools:[...(currentEditAgent.tools||[])],
+      mcp:[...(currentEditAgent.mcp||[])],
+      skills:[...(currentEditAgent.skills||[])],
+      shirt:currentEditAgent.shirt||0x334455,
+      hair:currentEditAgent.hair||0x223344,
+      tx:currentEditAgent.tx||13,ty:currentEditAgent.ty||7,
+      facing:currentEditAgent.facing||'down',
+      idle:currentEditAgent.idle||'look',
+      noCollide:!!currentEditAgent.noCollide
+    }
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='agent-'+(currentEditAgent.id||'export')+'.json';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1000);
+  showToast('✓ Agent exported as JSON');
+}
+
+// Open file picker to import an agent JSON
+function triggerImportAgent(){
+  const inp=document.getElementById('agent-import-input');
+  if(inp)inp.click();
+}
+
+function handleAgentImport(event){
+  const file=(event.target.files||[])[0];
+  event.target.value='';
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const payload=JSON.parse(ev.target.result);
+      if(!payload.agent||payload.schema!=='design-swarm-agent-v1'){
+        showToast('Invalid agent JSON — must be exported from Design Swarm Studio');return;
+      }
+      const imp=payload.agent;
+      // Generate a collision-safe ID
+      const newId=(imp.id&&!AGENTS.find(a=>a.id===imp.id))?imp.id:'agent_'+Date.now();
+      const agentDef={
+        id:newId,name:imp.name||'Imported Agent',role:imp.role||'Custom',
+        desc:imp.desc||'',zone:imp.zone||'Corridor',zc:imp.zc||0x8888aa,
+        brain:imp.brain||'kimi-latest',systemPrompt:imp.systemPrompt||'',
+        tools:imp.tools||[],mcp:imp.mcp||[],skills:imp.skills||[],
+        shirt:imp.shirt||0x334455,hair:imp.hair||0x223344,
+        tx:imp.tx||13,ty:imp.ty||7,facing:imp.facing||'down',
+        idle:imp.idle||'look',noCollide:!!imp.noCollide
+      };
+      AGENTS.push(agentDef);
+      if(imp.formatInstruction)AGENT_FORMAT_MAP[newId]=imp.formatInstruction;
+      makeChar(newId,agentDef.shirt,agentDef.hair);
+      saveAgentsToStorage();
+      if(window._boardOpen)renderBoardGrid();
+      showToast('✓ Agent "'+agentDef.name+'" imported! Reload to see in world.');
+    }catch(e){showToast('Import failed: '+e.message);}
+  };
+  reader.readAsText(file);
+}
+
+// Upload agent JSON to Supabase Storage and return a permanent share URL
+async function shareCurrentAgent(){
+  if(!currentEditAgent){showToast('No agent open in editor');return;}
+  if(!window._sbClient||!window._sbUser){
+    showToast('Connect Supabase in ⚙ settings to share agents');return;
+  }
+  const fmtVal=(document.getElementById('edit-format')||{}).value||'';
+  const payload={
+    schema:'design-swarm-agent-v1',
+    exported:new Date().toISOString(),
+    author:window._sbUser.email||window._sbUser.id,
+    agent:{
+      id:currentEditAgent.id,name:currentEditAgent.name,role:currentEditAgent.role,
+      desc:currentEditAgent.desc||'',zone:currentEditAgent.zone||'Corridor',
+      zc:currentEditAgent.zc,brain:currentEditAgent.brain||'kimi-latest',
+      systemPrompt:currentEditAgent.systemPrompt||'',
+      formatInstruction:fmtVal.trim()||AGENT_FORMAT_MAP[currentEditAgent.id]||'',
+      tools:[...(currentEditAgent.tools||[])],mcp:[...(currentEditAgent.mcp||[])],
+      skills:[...(currentEditAgent.skills||[])],shirt:currentEditAgent.shirt||0x334455,
+      hair:currentEditAgent.hair||0x223344,tx:currentEditAgent.tx||13,ty:currentEditAgent.ty||7,
+      facing:currentEditAgent.facing||'down',idle:currentEditAgent.idle||'look',
+      noCollide:!!currentEditAgent.noCollide
+    }
+  };
+  showToast('Uploading agent…');
+  const fileName='agents/'+currentEditAgent.id+'-'+Date.now()+'.json';
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const {error}=await window._sbClient.storage
+    .from('dossiers')
+    .upload(fileName,blob,{upsert:false,cacheControl:'86400'})
+    .catch(e=>({error:e}));
+  if(error){showToast('Share failed: '+(error.message||'Storage error'));return;}
+  const {data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
+  if(!pub||!pub.publicUrl){showToast('Could not get public URL');return;}
+  navigator.clipboard.writeText(pub.publicUrl).catch(()=>{});
+  // Reuse the share-link modal
+  const modal=document.getElementById('share-link-modal');
+  const urlInput=document.getElementById('share-url-input');
+  const statusEl=document.getElementById('share-status');
+  if(modal&&urlInput){
+    urlInput.value=pub.publicUrl;
+    if(statusEl)statusEl.textContent='✓ Agent share link — copy and send to teammates';
+    modal.classList.add('active');
+  }else{
+    showToast('🔗 Agent link: '+pub.publicUrl.slice(-30)+'…');
+  }
+}
+
 function addNewAgent(){
   // Build a fresh stub agent and open the editor for it
   const newId='agent_'+Date.now();
@@ -6084,7 +6272,7 @@ function saveAgent(){
           <button id="figma-push-btn" class="set-btn s-pink">⟶ Push to Figma</button>
         </div>
         <div id="figma-status" class="set-status"></div>
-        <p class="set-note">Posts Blueprint spec + Director summary as a Figma comment. Pushes color tokens via Figma Variables API (Enterprise plan required for Variables).</p>
+        <p class="set-note">Posts Blueprint spec + Director summary as a Figma comment. Pushes color tokens via Variables API (Enterprise plan required).<br><br>If a <b>Cloudflare Worker</b> is configured (see LLM tab), only the File Key is needed — the Figma token stays server-side in the Worker.</p>
       </div>
 
       <!-- ── Profile Tab ───────────────────────────────────────────── -->
@@ -6115,6 +6303,8 @@ function saveAgent(){
         <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint with a new directive">↩ Iterate</button>
         <button class="board-action-btn" onclick="openCompareModal()" style="color:#63b3ed;border-color:rgba(99,179,237,0.35);background:#05101e" title="Compare two sprints side-by-side">↔ Compare</button>
         <button class="board-action-btn" onclick="addNewAgent()" style="color:#666;border-color:rgba(100,100,100,0.3)">+ Agent</button>
+        <button class="board-action-btn" onclick="triggerImportAgent()" style="color:#4acea0;border-color:rgba(74,206,160,0.35)" title="Import an agent from a JSON file">⬇ Import</button>
+        <input type="file" id="agent-import-input" accept=".json" style="display:none" onchange="handleAgentImport(event)">
         <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
         <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
         <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
