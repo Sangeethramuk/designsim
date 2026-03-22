@@ -1480,6 +1480,88 @@ const AGENT_MAX_TOKENS={
   lead:2000
 };
 
+// ── Real tool definitions (OpenAI function-calling format) ──────────────────
+const TOOL_DEFS={
+  webfetch:{
+    type:'function',
+    function:{
+      name:'webfetch',
+      description:'Fetch and read content from any public URL. Use to research live design patterns, read documentation, check competitor UIs, or verify current best-practices. Always prefer this over guessing.',
+      parameters:{
+        type:'object',
+        properties:{
+          url:{type:'string',description:'The full URL to fetch (must start with https://)'},
+          reason:{type:'string',description:'One-line explanation of what you are looking for'}
+        },
+        required:['url']
+      }
+    }
+  }
+};
+
+// Execute a real webfetch call in the browser
+async function executeWebfetch(url,reason){
+  const corsProxy='https://corsproxy.io/?';
+  try{
+    let resp;
+    // Try direct first (works when server has CORS headers)
+    try{resp=await fetch(url,{signal:AbortSignal.timeout(8000)});}
+    catch(e){
+      // Fallback: route through public CORS proxy
+      resp=await fetch(corsProxy+encodeURIComponent(url),{signal:AbortSignal.timeout(10000)});
+    }
+    if(!resp.ok)return'HTTP '+resp.status+' fetching '+url;
+    const ct=resp.headers.get('content-type')||'';
+    const raw=await resp.text();
+    // JSON — return as-is
+    if(ct.includes('json'))return('[webfetch: '+url+']\n'+raw.slice(0,4000));
+    // HTML — strip tags, extract readable text
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(raw,'text/html');
+    doc.querySelectorAll('script,style,nav,footer,header,aside,iframe,noscript').forEach(el=>el.remove());
+    const content=(doc.body?.innerText||doc.documentElement?.innerText||raw).replace(/\s+/g,' ').trim();
+    const snippet=content.slice(0,4000)+(content.length>4000?'\n…(truncated)':'');
+    return'[webfetch: '+url+(reason?' | '+reason:'')+'] \n\n'+snippet;
+  }catch(e){
+    return'webfetch failed for '+url+': '+e.message;
+  }
+}
+
+// Dispatch a single tool call and return the result string
+async function executeTool(name,args,agentForLog){
+  if(name==='webfetch'){
+    const url=args.url||'';
+    // Show in sprint live strip if a swarm is running
+    if(window._swarmRunning&&agentForLog&&window._sprintVizOpen){
+      appendSprintOutput(agentForLog,'🔍 fetching: '+url.replace(/^https?:\/\//,'').slice(0,60));
+    }
+    return await executeWebfetch(url,args.reason||'');
+  }
+  return'Tool "'+name+'" is not available in this environment.';
+}
+
+// Run a full tool-calling loop: call LLM → execute tools → re-call (max 3 rounds)
+async function runToolLoop(fetchFn,tools){
+  for(let round=0;round<3;round++){
+    const{data,allMessages}=await fetchFn(round);
+    if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+    const choice=data.choices?.[0];
+    if(!choice)throw new Error('Empty response from LLM');
+    // No tool calls — done
+    const toolCalls=choice.message?.tool_calls;
+    if(!toolCalls||!toolCalls.length)return choice.message?.content||'No response.';
+    // Execute each tool call and append results
+    allMessages.push(choice.message);
+    for(const tc of toolCalls){
+      let args;try{args=JSON.parse(tc.function?.arguments||'{}');}catch(e){args={};}
+      const result=await executeTool(tc.function?.name||'',args,null);
+      allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
+    }
+    // Next iteration will re-call LLM with tool results appended
+  }
+  return'No response after tool calls.';
+}
+
 function buildAgentMessages(agent,message,history){
   const agentsCtx=AGENTS.map(a=>'- '+a.name+' ('+a.role+'): '+a.desc).join('\n');
   // Provide meaningful tool context — not just names
@@ -1505,7 +1587,11 @@ function buildAgentMessages(agent,message,history){
   sys+='\n\nBe direct, specific, and expert. Follow the output format strictly. Cite prior agent outputs by name when building on them.';
   const maxTokens=AGENT_MAX_TOKENS[agent.id]||800;
   const temperature=AGENT_TEMPERATURE[agent.id]??0.5;
-  return{model:(agent.brain||'kimi-latest').replace('litellm/',''),maxTokens,temperature,messages:[{role:'system',content:sys},...history,{role:'user',content:message}]};
+  // Build real OpenAI-format tools array from agent.tools list
+  const agentTools=(agent.tools||[]).filter(t=>TOOL_DEFS[t]).map(t=>TOOL_DEFS[t]);
+  return{model:(agent.brain||'kimi-latest').replace('litellm/',''),maxTokens,temperature,
+    messages:[{role:'system',content:sys},...history,{role:'user',content:message}],
+    tools:agentTools.length?agentTools:null};
 }
 
 // --- SSE reader shared by both streaming functions ---
@@ -1579,21 +1665,40 @@ async function getProxyResponseStream(agent,message,history,onToken){
 async function getProxyResponse(agent,message,history){
   const{url:sbUrl,key:sbKey}=loadSupabaseConfig();
   if(!sbUrl||!window._sbClient)throw new Error('Supabase not configured');
-  const{model,messages,maxTokens,temperature}=buildAgentMessages(agent,message,history);
+  const{model,messages,maxTokens,temperature,tools}=buildAgentMessages(agent,message,history);
   let token=sbKey||'';
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
-  const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
-    method:'POST',
-    headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
-    body:JSON.stringify({model,messages,max_tokens:maxTokens,temperature})
-  });
-  const data=await resp.json();
-  // Catch both {error:{message}} and Supabase's {message} JWT-error format
-  if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
-  if(!data.choices&&data.message)throw new Error(data.message);
-  const content=data.choices?.[0]?.message?.content;
-  if(!content&&content!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
-  return content;
+  // Mutable message list — grows with tool results between rounds
+  const allMessages=[...messages];
+  for(let round=0;round<3;round++){
+    const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
+    if(tools)body.tools=tools;
+    const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const data=await resp.json();
+    // Catch both {error:{message}} and Supabase's {message} JWT-error format
+    if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+    if(!data.choices&&data.message)throw new Error(data.message);
+    const choice=data.choices?.[0];
+    if(!choice)throw new Error('Empty response from proxy (status '+resp.status+')');
+    const toolCalls=choice.message?.tool_calls;
+    if(!toolCalls||!toolCalls.length){
+      const content=choice.message?.content;
+      if(!content&&content!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
+      return content;
+    }
+    // Execute tool calls locally and loop
+    allMessages.push(choice.message);
+    for(const tc of toolCalls){
+      let args;try{args=JSON.parse(tc.function?.arguments||'{}');}catch(e){args={};}
+      const result=await executeTool(tc.function?.name||'',args,agent);
+      allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
+    }
+  }
+  return'No response after tool calls.';
 }
 
 async function testProxy(){
@@ -1623,16 +1728,30 @@ async function testProxy(){
 }
 
 async function getAgentResponse(agent,message,history,baseUrl,apiKey){
-  const{model,messages,maxTokens,temperature}=buildAgentMessages(agent,message,history);
+  const{model,messages,maxTokens,temperature,tools}=buildAgentMessages(agent,message,history);
   const headers={'content-type':'application/json'};
   if(apiKey)headers['authorization']='Bearer '+apiKey;
-  const resp=await fetch(baseUrl+'/v1/chat/completions',{
-    method:'POST',headers,
-    body:JSON.stringify({model,max_tokens:maxTokens,temperature,messages})
-  });
-  const data=await resp.json();
-  if(data.error)throw new Error(data.error.message||'API error');
-  return data.choices?.[0]?.message?.content??'No response.';
+  // Mutable message list — grows with tool results between rounds
+  const allMessages=[...messages];
+  for(let round=0;round<3;round++){
+    const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
+    if(tools)body.tools=tools;
+    const resp=await fetch(baseUrl+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body)});
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error.message||'API error');
+    const choice=data.choices?.[0];
+    if(!choice)throw new Error('No response');
+    const toolCalls=choice.message?.tool_calls;
+    if(!toolCalls||!toolCalls.length)return choice.message?.content||'No response.';
+    // Execute tool calls and loop
+    allMessages.push(choice.message);
+    for(const tc of toolCalls){
+      let args;try{args=JSON.parse(tc.function?.arguments||'{}');}catch(e){args={};}
+      const result=await executeTool(tc.function?.name||'',args,agent);
+      allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
+    }
+  }
+  return'No response after tool calls.';
 }
 
 async function sendChatMessage(){
