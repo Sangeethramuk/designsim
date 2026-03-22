@@ -1854,15 +1854,6 @@ function initLLMSettings(){
   loadCredentials();
   updateLLMBtn();
   document.getElementById('llm-settings-btn').addEventListener('click',()=>{
-    // If signed in → clicking the logout icon signs out directly
-    if(document.getElementById('llm-settings-btn').dataset.logoutMode==='1'){
-      if(confirm('Sign out of Supabase?')){
-        signOut();
-        showToast('Signed out');
-        updateLLMBtn();
-      }
-      return;
-    }
     document.getElementById('llm-base-url').value=window._llmBaseUrl||'';
     document.getElementById('llm-api-key').value=window._llmApiKey||'';
     document.getElementById('llm-status').textContent='';
@@ -2019,25 +2010,15 @@ function updateCredentialsStatus(){
   }
 }
 
-const _ICON_SETTINGS='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg>';
-const _ICON_LOGOUT='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"/><polyline points="10 11 14 8 10 5"/><line x1="14" y1="8" x2="6" y2="8"/></svg>';
+const _ICON_LOGOUT='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"/><polyline points="10 11 14 8 10 5"/><line x1="14" y1="8" x2="6" y2="8"/></svg>';
+const _ICON_PERSON='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M2.5 14c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg>';
 
+// #llm-settings-btn — always a settings gear, always opens settings modal
 function updateLLMBtn(){
   const btn=document.getElementById('llm-settings-btn');
   if(!btn)return;
-  const signedIn=!!window._sbUser;
-  const hasLLM=!!window._llmBaseUrl;
-  const connected=signedIn||hasLLM;
-  btn.classList.toggle('connected',connected);
-  if(signedIn){
-    btn.innerHTML=_ICON_LOGOUT;
-    btn.title='Signed in · click to sign out';
-    btn.dataset.logoutMode='1';
-  }else{
-    btn.innerHTML=_ICON_SETTINGS;
-    btn.title=hasLLM?'⚡ '+window._llmBaseUrl:'Settings';
-    btn.dataset.logoutMode='';
-  }
+  btn.classList.toggle('connected',!!window._llmBaseUrl);
+  btn.title=window._llmBaseUrl?'⚡ '+window._llmBaseUrl:'Settings';
 }
 
 // --- Phase 11a: Baked-in Supabase public credentials (safe to expose — anon key, RLS-protected) ---
@@ -2091,7 +2072,7 @@ function initAnonAuth(){
       // getSession() is async so all init fns (initArtifactPanel, initRelayModal etc.)
       // are guaranteed to have finished before this callback fires.
       if(typeof sbLoadAll==='function')sbLoadAll();
-      if(typeof updateLLMBtn==='function')updateLLMBtn(); // switch to logout icon
+      if(typeof updateAuthHUD==='function')updateAuthHUD(); // show logout icon on auth button
       return session.user;
     }
     // No session — not signed in via Google. Redirect to landing page.
@@ -2171,7 +2152,6 @@ async function submitAuth(){
       await sbLoadAll();
       updateBriefHUD();
       updateAuthHUD();
-      updateLLMBtn(); // switch button to logout icon
       hideAuthModal();
       showToast('Signed in as '+email);
     }else{
@@ -2228,13 +2208,13 @@ function updateAuthHUD(){
   btn.style.display='flex';
   const user=window._sbUser;
   if(user&&user.email){
-    btn.title='Signed in as '+user.email+'\nClick to sign out';
+    btn.title='Signed in as '+user.email+' · Click to sign out';
     btn.classList.add('signed-in');
-    btn.textContent='✓';
+    btn.innerHTML=_ICON_LOGOUT; // logout door-arrow icon
   }else{
     btn.title='Sign in for cross-device sync';
     btn.classList.remove('signed-in');
-    btn.textContent='👤';
+    btn.innerHTML=_ICON_PERSON; // person/account icon
   }
 }
 
