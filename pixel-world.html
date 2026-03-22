@@ -3460,7 +3460,7 @@ async function sbLoadMemories(){
 async function sbLoadUserProfile(){
   let profile=null;
   if(window._sbClient&&window._sbUser){
-    const{data}=await window._sbClient.from('user_profile').select('profile_text').eq('user_id',window._sbUser.id).maybeSingle().catch(()=>({data:null}));
+    const{data}=await window._sbClient.from('user_profile').select('profile_text').eq('user_id',window._sbUser.id).maybeSingle().then(r=>r,()=>({data:null}));
     profile=(data&&data.profile_text&&data.profile_text.trim())||null;
   }else{
     // localStorage fallback for local-LLM users without Supabase
@@ -4850,7 +4850,7 @@ async function sbLoadAgentConfig(){
   if(!window._sbClient||!window._sbUser)return;
   const{data}=await window._sbClient.from('agent_config')
     .select('agents_json,format_map_json').eq('user_id',window._sbUser.id).maybeSingle()
-    .catch(()=>({data:null}));
+    .then(r=>r,()=>({data:null}));
   if(!data)return;
   try{
     if(data.agents_json&&Array.isArray(data.agents_json)){
