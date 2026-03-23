@@ -944,6 +944,399 @@ const AGENT_FORMAT_MAP={
 };
 function getFormatInstruction(id){return AGENT_FORMAT_MAP[id]||'';}
 
+// ─── Impeccable Skill Library ─────────────────────────────────────────────────
+// Condensed from /Downloads/agents/skills/* — injected into each agent via mdSkills
+const _SK={
+
+  critique:`## Design Critique Framework (critique skill)
+Conduct a holistic design critique — does the interface actually work, not just technically?
+
+**AI Slop Test (MANDATORY)**: If you showed this to someone and said "AI made this", would they believe it? Common fingerprints: cyan-on-dark colour palette, purple-to-blue gradients, gradient text, glassmorphism, neon accents, hero metrics layout, identical card grids with rounded corners, large icons above every heading, generic loading messages ("Herding pixels", "Teaching robots to dance").
+
+**Evaluate**:
+- Visual hierarchy: can you identify primary/secondary/tertiary at a glance (squint test)?
+- Information architecture: is content grouped logically? Does proximity signal relationship?
+- Emotional resonance: does the visual language match the brand and audience?
+- Discoverability: are affordances visible? Can users find features without instruction?
+- Composition: is there intentional asymmetry, rhythm, and focal points?
+- Typography: does type communicate or just display text?
+- Color: does every color choice have purpose, or is it decoration?
+- States & edge cases: empty, loading, error, success, disabled — all covered?
+
+**NEVER**: soften criticism. Be direct and specific. Say what's wrong AND why it matters.`,
+
+  audit:`## Systematic Audit Framework (audit skill)
+Run prioritised quality checks before any design ships.
+
+**Anti-pattern detection first** — these are automatic fails:
+- Gray text on colored backgrounds (use a darker shade of that color instead)
+- Pure black (#000) or pure white (#fff) as main colors
+- Glassmorphism, gradient text, neon glow effects
+- Every section wrapped in cards, cards nested inside cards
+- Hero metric layouts (giant number + tiny label, repeated)
+- AI color palette: cyan/purple/blue gradients
+
+**Severity levels**: 1=Cosmetic | 2=Minor | 3=Major | 4=Catastrophic (blocks ship)
+
+**Check**: WCAG AA contrast (4.5:1 body, 3:1 large text/UI), keyboard navigation, all interactive states (hover/focus/active/disabled/loading/error/success), error messages (what happened + why + how to fix), empty states (acknowledge + explain value + provide action), responsive at 375px/768px/1280px.
+
+**Output**: findings grouped by severity, blocking issues called out explicitly.`,
+
+  colorize:`## Color Strategy (colorize skill)
+Add color strategically — more color ≠ better.
+
+**Use OKLCH** (perceptually uniform): oklch(L C H) — not HSL. Tint all neutrals toward brand hue.
+**60-30-10 rule**: 60% neutral backgrounds, 30% secondary colors, 10% accent.
+**Semantic meanings** (use consistently): green=success, red/pink=error, orange/amber=warning, blue=info.
+**Palette structure**: 1 primary (3–5 shades), 9–11 neutral scale, 4 semantic, 2–3 surface levels.
+
+**NEVER**:
+- Gray text on colored backgrounds → use a darker shade of that color or rgba transparency
+- Pure black or pure white as main colors
+- AI palette: cyan-on-dark, purple-to-blue gradients, neon accents
+- Gradient text (readability failure)
+- Heavy transparency everywhere (means your palette is incomplete)
+- Red + green as only differentiators (colorblindness)
+- More than 5 colors in a single UI without purpose`,
+
+  bolder:`## Visual Amplification (bolder skill)
+Make safe/generic designs more distinctive and confident.
+
+**"Bolder" means**: distinctive, confident, intentional — NOT chaotic, garish, or louder.
+**AI slop is NOT bold**: cyan/purple gradients, glassmorphism, neon accents, gradient text, hero metrics — these are generic, not bold.
+
+**Amplification tactics**:
+- Typography: make headings MUCH bigger (increase scale contrast, not just +2px)
+- Color: use rich, specific gradients tied to brand (not generic purple-to-blue)
+- Space: use dramatic whitespace or deliberate density — not comfortable middle-ground
+- Composition: create strong focal points, asymmetry, unexpected cropping
+- Weight contrast: pair heavy weights with very light weights
+
+**Rules**: Bold design must still be usable. Make primary actions unmissable. Make big things BIGGER, small things smaller (increase contrast in both directions).
+
+**NEVER**: Add boldness as decoration. Every amplification must serve hierarchy or brand.`,
+
+  quieter:`## Visual Refinement (quieter skill)
+Reduce intensity in overstimulating designs without losing effectiveness.
+
+**"Quieter" means**: refined, sophisticated, confident — NOT boring or generic.
+
+**Reduction tactics**:
+- Reduce saturation to 70–85% of current (not gray — just less vivid)
+- Use weight, size, and space instead of color and boldness for hierarchy
+- Reduce scale jumps (smaller contrast between type sizes = calmer)
+- Remove decorative borders, shadows, backgrounds that don't add information
+- Replace saturated colors with tinted neutrals (neutrals tinted toward brand hue)
+- Reduce animation frequency and intensity
+
+**NEVER**:
+- Gray text on colored backgrounds (use darker shade of that color)
+- Remove all personality — refined is not bland
+- Reduce to the point where hierarchy is unclear`,
+
+  arrange:`## Layout & Spacing (arrange skill)
+Space is a design material — use it with intention.
+
+**4pt base grid**: 4, 8, 12, 16, 24, 32, 48, 64, 96px. Every spacing value must be a multiple of 4.
+**Tight grouping** (4–12px): related elements. **Generous separation** (48–96px): between sections.
+**Squint test**: with blurred vision, can you identify primary action, secondary content, and groupings?
+
+**Layout rules**:
+- Flexbox for 1D (row/column). Grid for 2D. repeat(auto-fit, minmax(280px, 1fr)) for responsive.
+- Use gap not margins for sibling spacing.
+- Touch targets: minimum 44×44px.
+- Cards not required — spacing and alignment create grouping naturally.
+- Container queries for component-level responsiveness.
+
+**Hierarchy through multiple dimensions simultaneously**: size + weight + color + position + space.
+
+**NEVER**: wrap everything in cards, nest cards inside cards, use identical spacing everywhere, center everything on the page.`,
+
+  typeset:`## Typography (typeset skill)
+**Modular scale**: pick a ratio (1.25, 1.333, or 1.5) and apply consistently. Maximum 5 sizes (xs/sm/base/lg/xl+).
+**Measure**: max-width: 65ch for body text. Below 45ch = too narrow. Above 80ch = too wide.
+**Minimum**: 16px / 1rem body text. Never disable browser zoom.
+**Weights**: use 400 (body), 500–600 (emphasis), 700–800 (headings). Vary more for contrast.
+**Leading**: body 1.5–1.7, headings 1.1–1.3, UI labels 1.2–1.4.
+**Fluid headings**: use clamp(min, preferred, max) for display/hero text.
+
+**Font choice — avoid these overused defaults**: Inter, Roboto, Open Sans, Arial.
+**Better alternatives**: Instrument Sans, Plus Jakarta Sans, Outfit (sans); Fraunces, Newsreader, Lora (serif). System fonts are underrated.
+
+**OpenType features**: tabular-nums for data tables, small-caps for labels.
+
+**NEVER**: invisible font choice (Inter with no reason), more than 3 type sizes within 4px of each other (muddy hierarchy), line-height < 1.4 for body text, justified text on screen.`,
+
+  harden:`## Resilience & Edge Cases (harden skill)
+Designs that only work with perfect data aren't production-ready.
+
+**Always test with**: very long text (50+ words in a label), very short text (1 char), emoji and special chars, RTL text, large numbers (1,234,567.89), zero items, 1 item, 1000+ items, no image/avatar available.
+
+**Error states (all HTTP codes)**:
+- 400: validation error — show exactly what field failed and why
+- 401: session expired — redirect to login, preserve user's work
+- 403: permission denied — explain what they can't do, offer alternative
+- 404: not found — helpful navigation back
+- 429: rate limited — show cooldown timer
+- 500: server error — empathetic message, offer retry
+
+**i18n**: add 30–40% space budget for translated text (German is ~30% longer). Use Intl API for dates/numbers/currencies — never hardcode formats. Test with Arabic/Hebrew for RTL.
+
+**NEVER**: display raw error codes to users, show empty UI with no explanation, assume user's locale matches your locale.`,
+
+  animate:`## Motion Design (animate skill)
+**Timing rules — 100/300/500**:
+- 100–150ms: immediate feedback (button press, toggle)
+- 200–300ms: state changes (dropdown open, tab switch)
+- 300–500ms: layout changes (panel slide, modal appear)
+- Exit animations: ~75% of enter duration
+
+**Easing**:
+- Entering: ease-out (decelerates into position)
+- Leaving: ease-in (accelerates away)
+- Toggles: ease-in-out
+- Use exponential curves: quart, quint, expo. Never bounce or elastic (they feel dated and tacky).
+
+**Only animate** transform and opacity — GPU-accelerated, no layout thrashing. Never animate width, height, top, left, margin, padding.
+
+**Perceived performance**: 80ms threshold for feeling instant.
+
+**NEVER**:
+- Ignore \`prefers-reduced-motion\` (affects ~35% of users over 40) — this is accessibility
+- Animate on every interaction (animation fatigue)
+- Use the same duration for all animations
+- Bounce or elastic easing`,
+
+  optimize:`## Performance (optimize skill)
+**Core Web Vitals targets**: LCP < 2.5s, INP < 200ms, CLS < 0.1.
+
+**Images**: WebP or AVIF format. Lazy load below-fold. srcset with width descriptors. Explicit width/height to prevent CLS.
+
+**Animation**: Only transform and opacity (GPU layer). Avoid layout thrashing — batch DOM reads then writes. Virtual scrolling for lists > 200 items. target 60fps.
+
+**Loading**: Code-split by route. Lazy load non-critical components. Preload critical fonts (rel="preload"). Use skeleton screens > spinners for perceived speed.
+
+**NEVER**:
+- Block rendering with synchronous scripts
+- Load unused CSS/JS
+- Use images without explicit dimensions
+- Animate layout properties (width, height, top, left)
+- Fetch data before the user needs it (over-fetching)
+- Ship unoptimized images to production`,
+
+  onboard:`## Onboarding & Empty States (onboard skill)
+Get users to the "aha moment" as fast as possible. Front-load the 20% that delivers 80% of value.
+
+**Principles**:
+- Show, don't tell — use working examples, not instructional walls of text
+- Make onboarding optional — users who skip it chose to
+- Teach one concept at a time (progressive disclosure)
+- Time to value: every extra step = drop-off
+- Respect intelligence — don't over-explain obvious interactions
+
+**Empty state formula**: (1) Acknowledge the empty state — don't show a blank void. (2) Explain the value — why does this section exist? (3) Provide clear next action — single CTA. (4) Add visual interest — illustration or icon, not just text.
+
+**First-run flows**: track which steps user has seen. Don't repeat completed onboarding. Celebrate first-time completions.
+
+**NEVER**: force all users through onboarding before they can use the product, use generic empty state copy ("No items found"), show empty states without a path forward.`,
+
+  clarify:`## UX Copy & Clarity (clarify skill)
+Clear copy helps users succeed. Every word must earn its place.
+
+**Button labels**: specific verb + object ("Save changes" not "Submit", "Delete project" not "Remove", "Send invoice" not "Continue").
+**Error formula**: (1) What happened? (2) Why? (3) How to fix it? Never blame the user.
+**Empty states**: acknowledge + explain value + provide action. Never just "No results."
+**Destructive actions**: name the destruction explicitly ("Delete 3 files forever" not "Confirm").
+
+**Voice principles**:
+- Active voice ("Your file was saved" → "We saved your file")
+- Specific, not vague ("Try again in 30 seconds" not "Please wait")
+- Consistent terminology — pick one term and never vary it
+- Never humor in error states — be helpful, not cute
+
+**NEVER**:
+- Vary terminology for the same concept
+- Use jargon users don't know
+- Cliché loading messages ("Herding pixels", "Doing magic", "One moment...")
+- Put help text after the field it describes`,
+
+  distill:`## Simplification (distill skill)
+Simplicity is not about removing features — it's about removing obstacles.
+
+**Find the essence**: what is the ONE thing this screen/feature must do? Everything else is secondary.
+**20/80 rule**: identify the 20% of elements that deliver 80% of value. Focus on those.
+**Progressive disclosure**: hide complexity behind clear entry points. Advanced options shouldn't be on the primary path.
+
+**Simplification checklist**:
+- Does each element justify its existence?
+- Can two steps become one?
+- Can two fields become one?
+- Can a modal become an inline action?
+- Can a wizard become a single screen?
+- Can explanatory text be replaced with better UX?
+
+**NEVER**: simplify to the point where users can't accomplish their goal, remove features users depend on without providing an alternative, hide core functionality behind 3+ taps.`,
+
+  extract:`## Component & Token Extraction (extract skill)
+Build design systems incrementally — extract what's clearly reusable now.
+
+**Design tokens (name semantically)**:
+- Colors: --color-primary, --color-surface, --color-text (not --blue-500)
+- Spacing: --space-sm, --space-lg (not --spacing-8)
+- Typography: --text-sm, --text-heading-xl
+- Radius: --radius-sm, --radius-full
+
+**Component API principles**:
+- Clear, minimal props surface
+- Variants over boolean props where possible (variant="primary|secondary|danger")
+- Accessibility built in (aria, keyboard, focus management)
+- Responsive by default
+
+**Extract when**: you see the same pattern 3+ times. Do NOT extract: one-off, context-specific implementations without generalizing them first.
+
+**NEVER**: extract prematurely (the wrong abstraction is worse than repetition), hardcode values that should be tokens, create components that only work in one context.`,
+
+  normalize:`## Design System Alignment (normalize skill)
+Replace custom one-off implementations with design system components.
+
+**Before touching anything**: deeply understand the existing design system — tokens, components, patterns. Never change the system without understanding it.
+
+**Normalization order**: Typography → Color → Spacing → Components → Motion → Responsive → Accessibility.
+
+**Replace**: hardcoded hex values → color tokens. Hardcoded px → spacing tokens. Custom buttons → system Button component. One-off font sizes → type scale.
+
+**NEVER**: normalize accessibility for visual consistency (accessibility wins). Create new one-off components when a system component exists. Introduce new tokens without checking if one already exists.`,
+
+  polish:`## Pre-Ship Polish (polish skill)
+Polish is the last step — meticulous attention to what separates good from great.
+
+**Polish checklist (16 items)**:
+1. All interactive elements have hover, focus, active, disabled, loading states
+2. Focus rings visible (2–3px, offset, 3:1 contrast minimum)
+3. Spacing is consistent multiples of 4px at all breakpoints
+4. Typography hierarchy clear (squint test passes)
+5. All colors meet WCAG AA contrast (4.5:1 body, 3:1 large)
+6. Error messages explain what happened + how to fix
+7. Empty states have explanation + CTA
+8. Animations respect prefers-reduced-motion
+9. Images have alt text, explicit dimensions
+10. Form labels are visible (not just placeholder)
+11. Keyboard navigation works for all interactions
+12. No console errors or warnings
+13. Works at 375px (mobile), 768px (tablet), 1280px (desktop)
+14. Loading states prevent double-submit
+15. Destructive actions have confirmation
+16. Copy is specific, active voice, no clichés
+
+**NEVER**: add features while polishing, introduce new visual styles, leave console errors "for later".`,
+
+  adapt:`## Responsive & Context Adaptation (adapt skill)
+Adaptation is rethinking the experience for the new context — not just scaling.
+
+**Mobile** (≤640px): single column, vertical stacking, touch targets 44×44px minimum, thumb-zone interactions (bottom of screen), simplified navigation.
+**Tablet** (641–1024px): 2-column where appropriate, sidebar patterns.
+**Desktop** (1025px+): multi-column, hover states, keyboard shortcuts, more data density.
+
+**Input method detection**: use @media (pointer: coarse) for touch, @media (hover: hover) for mouse. Different interactions for each.
+
+**Content-driven breakpoints**: let the content tell you where to break — not device widths.
+
+**Safe areas**: use env(safe-area-inset-*) for notches and home indicators.
+
+**NEVER**:
+- Hide core functionality on mobile (de-feature, not just hide)
+- Use the same touch target size as desktop (40px+ on desktop, 44px+ on mobile)
+- Assume desktop layout scales to mobile
+- Use device widths as breakpoints (use content breakpoints)`,
+
+  delight:`## Moments of Delight (delight skill)
+Delight is the difference between a tool and an experience.
+
+**Delight must**: enhance usability, not obscure it. Be quick (< 1 second). Be skippable. Match brand and context.
+
+**Techniques**:
+- Success animations: checkmark draw, gentle scale+fade, confetti for major milestones
+- Micro-interactions: button lift on hover (translateY(-2px)), satisfying press (translateY(2px)), spring-physics toggles
+- Empty states: custom illustrations > stock icons
+- Loading: rotate through specific, product-relevant messages (not generic)
+- Easter eggs: reward curious users (Konami code, console messages for devs)
+
+**Copy delight**: write loading messages specific to what your product does. Encouraging empty states. Personality in error messages (empathetic, not cute).
+
+**NEVER**:
+- Delay core functionality for delight
+- Use cliché loading messages ("Herding pixels", "Teaching robots to dance", "Consulting magic 8-ball") — instantly identifiable as AI-generated
+- Be playful during critical errors (read the room)
+- Force users through delightful moments
+- Overdo it — special moments must be special`,
+
+  overdrive:`## Technically Ambitious Implementation (overdrive skill)
+Push past conventional limits — make users ask "how did they do that?"
+
+**Toolkit**:
+- View Transitions API: shared element morphing between pages/states
+- Scroll-driven animations: CSS-only, @scroll-timeline, no JS overhead
+- WebGL/Canvas: particle systems, shader effects, data visualization
+- Web Workers: heavy computation off main thread, 60fps preserved
+- Virtual scrolling: render only visible rows for massive lists
+- CSS custom properties animation via @property for typed transitions
+
+**Rules**: progressive enhancement is non-negotiable (works without JS). Target 60fps on mid-range devices. Respect prefers-reduced-motion always.
+
+**The gap between "cool" and "extraordinary"**: it's in the last 20% of refinement — the secondary motion that makes a transition feel physical, the spring damping that feels just right.
+
+**NEVER**: use technical ambition to mask weak design fundamentals (fix those first). Layer multiple competing extraordinary moments (focus creates impact). Ship effects that cause jank on mid-range devices. Ignore prefers-reduced-motion.`,
+
+  frontend:`## Frontend Design Principles (frontend-design skill)
+Create distinctive, production-grade interfaces. The AI Slop Test: if someone saw this and said "AI made it", would they believe it? If yes, that's the problem.
+
+**DON'T (these are AI fingerprints)**:
+- Color: gray text on colored backgrounds, pure black/white, cyan-on-dark, purple-to-blue gradients, neon accents, gradient text, dark mode with glowing colored accents
+- Typography: Inter/Roboto/Open Sans as lazy defaults, monospace as shorthand for "technical", large rounded icons above every heading
+- Layout: wrap everything in cards, nest cards, identical grid of cards, hero metric layout (big number + tiny label), center everything, same spacing everywhere
+- Visual: glassmorphism, rounded elements with thick colored border on one side, sparklines as decoration, generic drop shadows, modals for simple confirmations
+- Motion: animate layout properties (width/height/top/left), bounce/elastic easing, animate every interaction
+- Content: repeat information user can already see, placeholder text as labels, cliché loading copy
+
+**DO**:
+- OKLCH colors, tinted neutrals, 60-30-10 rule
+- Modular type scale, fluid headings with clamp()
+- 4pt grid, intentional rhythm, container queries
+- Only animate transform/opacity (GPU)
+- ease-out-quart for entering, ease-in for leaving
+- Asymmetry, unexpected compositions, strong focal points`,
+};
+
+// Map each agent ID → which skills to load
+const AGENT_SKILL_MAP={
+  scout:    [['Critique Framework',_SK.critique],['Audit Methodology',_SK.audit]],
+  scholar:  [['Typography Standards',_SK.typeset],['Responsive Adaptation',_SK.adapt],['Performance Standards',_SK.optimize]],
+  palette:  [['Color Strategy',_SK.colorize],['Visual Amplification',_SK.bolder],['Visual Refinement',_SK.quieter],['Frontend Design Principles',_SK.frontend]],
+  flow:     [['Layout & Spacing',_SK.arrange],['Onboarding & Empty States',_SK.onboard],['UX Copy & Clarity',_SK.clarify],['Responsive Adaptation',_SK.adapt]],
+  blueprint:[['Component & Token Extraction',_SK.extract],['Design System Alignment',_SK.normalize],['Typography Standards',_SK.typeset],['Layout & Spacing',_SK.arrange]],
+  forge:    [['Frontend Design Principles',_SK.frontend],['Performance',_SK.optimize],['Resilience & Edge Cases',_SK.harden],['Motion Design',_SK.animate],['Technically Ambitious',_SK.overdrive]],
+  lens:     [['Design Critique Framework',_SK.critique],['Audit Methodology',_SK.audit],['UX Copy & Clarity',_SK.clarify]],
+  eye:      [['Design Critique Framework',_SK.critique],['Visual Amplification',_SK.bolder],['Visual Refinement',_SK.quieter],['Color Strategy',_SK.colorize],['Typography Standards',_SK.typeset],['Layout & Spacing',_SK.arrange],['Pre-Ship Polish',_SK.polish],['Moments of Delight',_SK.delight]],
+  mirror:   [['Responsive Adaptation',_SK.adapt],['Onboarding & Empty States',_SK.onboard],['UX Copy & Clarity',_SK.clarify],['Resilience & Edge Cases',_SK.harden]],
+  council:  [['Design Critique Framework',_SK.critique],['Audit Methodology',_SK.audit],['Pre-Ship Polish',_SK.polish]],
+  weaver:   [['Simplification',_SK.distill],['Component & Token Extraction',_SK.extract],['Design System Alignment',_SK.normalize]],
+  gate:     [['Audit Methodology',_SK.audit],['Resilience & Edge Cases',_SK.harden],['Performance',_SK.optimize],['Pre-Ship Polish',_SK.polish]],
+  check:    [['Audit Methodology',_SK.audit],['Resilience & Edge Cases',_SK.harden],['UX Copy & Clarity',_SK.clarify],['Pre-Ship Polish',_SK.polish]],
+  lead:     [['Simplification',_SK.distill],['Moments of Delight',_SK.delight],['Frontend Design Principles',_SK.frontend]],
+};
+
+function initAgentSkills(){
+  AGENTS.forEach(a=>{
+    const skills=AGENT_SKILL_MAP[a.id];
+    if(!skills)return;
+    // Only set if agent doesn't already have manually uploaded mdSkills
+    if(!a.mdSkills||a.mdSkills.length===0){
+      a.mdSkills=skills.map(([name,content])=>({name,content}));
+    }
+  });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // --- Voice Profiles ---
 const VOICE_PROFILES={
   scout:{pitch:1.1,rate:1.0},scholar:{pitch:0.9,rate:0.9},
@@ -5570,6 +5963,7 @@ class GameScene extends Phaser.Scene{
     this._clickedAgent=false;
     // Init DOM chat panel
     initChatPanel();
+    initAgentSkills(); // inject impeccable skill library into each agent's mdSkills
     initLLMSettings();
     initSupabase();
     initAuthUI();
