@@ -2758,7 +2758,7 @@ function loadCredentials(){
   try{
     window._llmBaseUrl=localStorage.getItem('llm_base_url')||null;
     window._llmApiKey=localStorage.getItem('llm_api_key')||null;
-    window._workerUrl=localStorage.getItem('worker_url')||null;
+    window._workerUrl=localStorage.getItem('worker_url')||DEFAULT_WORKER_URL||null;
     if(!window._llmBaseUrl && window.LOCAL_CONFIG){
       window._llmBaseUrl=window.LOCAL_CONFIG.baseUrl||null;
       window._llmApiKey=window.LOCAL_CONFIG.apiKey||null;
@@ -2869,9 +2869,10 @@ function updateLLMBtn(){
   btn.title=window._llmBaseUrl?'⚡ '+window._llmBaseUrl:'Settings';
 }
 
-// --- Phase 11a: Baked-in Supabase public credentials (safe to expose — anon key, RLS-protected) ---
+// --- Phase 11a: Baked-in public credentials (safe to expose — anon key RLS-protected, worker URL public) ---
 const SUPABASE_URL      = 'https://ofidqxlnqvjpflicopcz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9maWRxeGxucXZqcGZsaWNvcGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MjI5OTgsImV4cCI6MjA4OTQ5ODk5OH0.fAKq1PFe9AZUjFm9kxqz_t3YNLnvxqSNk4EbiMMPjxE';
+const DEFAULT_WORKER_URL = 'https://design-swarm-worker.sangeethramuk.workers.dev';
 
 // --- Phase 10: Supabase Config + Anonymous Auth ---
 window._sbClient=null;
