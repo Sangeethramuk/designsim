@@ -4245,6 +4245,94 @@ async function shareDossier(){
   }
 }
 
+// Share the generated HTML prototype — same 3-tier chain as shareDossier
+async function sharePrototype(){
+  const btn=document.getElementById('board-share-proto-btn');
+  const statusEl=document.getElementById('share-status');
+  const urlInput=document.getElementById('share-url-input');
+  const modal=document.getElementById('share-link-modal');
+
+  // Generate prototype first if not ready
+  if(!window._prototypeHTML){
+    showToast('⏳ Generating prototype first…');
+    if(btn)btn.disabled=true;
+    await generatePrototypeHTML();
+    if(!window._prototypeHTML){
+      showToast('Prototype generation failed — check LLM config',3000);
+      if(btn)btn.disabled=false;
+      return;
+    }
+  }
+
+  const html=window._prototypeHTML;
+  const title=(window._projectBrief||'Design Swarm').slice(0,60)+' — Prototype';
+
+  if(urlInput)urlInput.value='';
+  if(statusEl)statusEl.textContent='Uploading prototype…';
+  if(modal)modal.classList.add('active');
+  if(btn)btn.disabled=true;
+
+  try{
+    // ── Option A: Cloudflare Worker KV ───────────────────────────────────────
+    if(window._workerUrl){
+      try{
+        const headers={'Content-Type':'application/json'};
+        if(window._workerSecret)headers['X-Worker-Secret']=window._workerSecret;
+        const resp=await fetch(window._workerUrl.replace(/\/$/,'')+'/share',{
+          method:'POST',headers,
+          body:JSON.stringify({html,title,type:'prototype'}),
+          signal:AbortSignal.timeout(30000)
+        });
+        const data=await resp.json();
+        if(data.ok&&data.url){
+          if(urlInput)urlInput.value=data.url;
+          if(statusEl)statusEl.textContent='✓ Permanent link — anyone can open without login.';
+          navigator.clipboard.writeText(data.url).catch(()=>{});
+          showToast('🔗 Permanent prototype link copied!');
+          if(btn)btn.disabled=false;
+          return;
+        }
+        if(statusEl)statusEl.textContent=(data.error||'Worker KV error')+' — trying Supabase…';
+      }catch(e){
+        if(statusEl)statusEl.textContent='Worker unavailable — trying Supabase…';
+      }
+    }
+
+    // ── Option B: Supabase Storage ───────────────────────────────────────────
+    if(window._sbClient&&window._sbUser){
+      const d=new Date();
+      const fileName='dossiers/'+window._sbUser.id+'/prototype-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'-'+Date.now()+'.html';
+      const{error}=await window._sbClient.storage
+        .from('dossiers')
+        .upload(fileName,new Blob([html],{type:'text/html;charset=utf-8'}),{upsert:true,cacheControl:'3600'});
+      if(!error){
+        const{data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
+        if(pub&&pub.publicUrl){
+          if(urlInput)urlInput.value=pub.publicUrl;
+          if(statusEl)statusEl.textContent='✓ Uploaded to Supabase. Link is permanent.';
+          navigator.clipboard.writeText(pub.publicUrl).catch(()=>{});
+          showToast('🔗 Prototype link copied to clipboard');
+          if(btn)btn.disabled=false;
+          return;
+        }
+      }
+      if(statusEl)statusEl.textContent='Supabase upload failed — using temporary link…';
+    }
+
+    // ── Option C: Blob URL fallback ──────────────────────────────────────────
+    const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+    if(urlInput)urlInput.value=blobUrl;
+    if(statusEl)statusEl.textContent='⚠ Temporary — only works in this tab. Add Worker URL in ⚙ Settings for permanent links.';
+    navigator.clipboard.writeText(blobUrl).catch(()=>{});
+    showToast('Prototype link copied (temporary — tab only)');
+  }catch(e){
+    if(statusEl)statusEl.textContent='✗ Error: '+e.message;
+    showToast('Share failed: '+e.message);
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
 // Copy the URL from the share modal to the clipboard
 function copyShareUrl(){
   const input=document.getElementById('share-url-input');
@@ -7303,6 +7391,7 @@ function saveAgent(){
           <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
           <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
           <button id="board-share-btn" class="board-action-btn">🔗 Share</button>
+          <button id="board-share-proto-btn" class="board-action-btn" onclick="sharePrototype()" title="Get a permanent shareable link for the HTML prototype" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">🔗 Prototype</button>
         </div>
         <div class="board-btn-sep"></div>
         <!-- Figma -->
