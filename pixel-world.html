@@ -152,6 +152,7 @@
   #board-hud-btn{color:#2a4870;}#board-hud-btn:hover{color:#4a9eea;background:rgba(74,158,234,0.08);}
   #swarm-progress-bar-wrap{display:none;position:fixed;bottom:0;left:0;right:0;height:3px;z-index:9999;}
   #swarm-progress-bar{height:100%;background:linear-gradient(90deg,#4acea0,#a78bfa);width:0%;transition:width 0.5s ease;}
+  #swarm-timer{position:fixed;bottom:8px;right:12px;z-index:10000;font-family:monospace;font-size:11px;color:#4acea0;background:rgba(5,5,20,0.82);padding:3px 9px;border-radius:20px;border:1px solid rgba(74,206,160,0.25);letter-spacing:0.04em;display:none;pointer-events:none;}
   #confirm-modal{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:9500;display:none;align-items:center;justify-content:center;}
   #confirm-modal.active{display:flex;}
   #confirm-panel{background:#0a0a1e;border:1px solid #252548;border-radius:10px;padding:24px 28px;width:320px;font-family:monospace;box-shadow:0 8px 40px rgba(0,0,0,0.7);}
@@ -5672,6 +5673,16 @@ async function runSwarm(){
   const progBar=document.getElementById('swarm-progress-bar');
   if(progWrap)progWrap.style.display='block';
   if(progBar)progBar.style.width='2%';
+  // Start visible timer
+  const timerEl=document.getElementById('swarm-timer');
+  if(timerEl)timerEl.style.display='block';
+  if(window._swarmTimerInterval)clearInterval(window._swarmTimerInterval);
+  window._swarmTimerInterval=setInterval(()=>{
+    if(!timerEl)return;
+    const s=Math.floor((Date.now()-window._swarmStartTime)/1000);
+    const m=Math.floor(s/60),sec=s%60;
+    timerEl.textContent='⏱ '+m+':'+(sec<10?'0':'')+sec;
+  },1000);
 
   // ── Phase 1: Director decides which agents and in what order ──────────────
   showToast('Director is planning the sprint…');
@@ -5833,6 +5844,16 @@ async function scoreCritiqueWave(critiqueAgentIds){
 
 function _swarmEnd(done){
   window._swarmRunning=false;
+  // Stop timer and show final duration briefly
+  if(window._swarmTimerInterval){clearInterval(window._swarmTimerInterval);window._swarmTimerInterval=null;}
+  const timerEl=document.getElementById('swarm-timer');
+  if(timerEl&&window._swarmStartTime){
+    const s=Math.floor((Date.now()-window._swarmStartTime)/1000);
+    const m=Math.floor(s/60),sec=s%60;
+    timerEl.textContent='✓ '+m+':'+(sec<10?'0':'')+sec;
+    timerEl.style.color='#f6ad55';
+    setTimeout(()=>{timerEl.style.display='none';timerEl.style.color='#4acea0';},4000);
+  }
   const progWrap=document.getElementById('swarm-progress-bar-wrap');
   const progBar=document.getElementById('swarm-progress-bar');
   if(progBar)progBar.style.width='100%';
@@ -7164,6 +7185,7 @@ function saveAgent(){
   </button>
 </div>
 <div id="swarm-progress-bar-wrap"><div id="swarm-progress-bar"></div></div>
+<div id="swarm-timer">⏱ 0:00</div>
 <div id="game-hint">WASD · E: chat · Tab: board · ⌘K: search agents</div>
 
 <!-- Chat Panel -->
