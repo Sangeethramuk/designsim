@@ -3875,9 +3875,19 @@ async function generatePrototypeHTML(){
     const lead=AGENTS.find(a=>a.id==='lead');
     if(!lead)throw new Error('no lead agent');
     let raw;
-    if(window._sbClient&&loadProxyConfig())raw=await getProxyResponse(lead,prompt,[]);
-    else if(window._llmBaseUrl)raw=await getAgentResponse(lead,prompt,[],window._llmBaseUrl,window._llmApiKey);
-    else throw new Error('no LLM configured');
+    // Try proxy first, fall back to direct LLM on any failure
+    if(window._sbClient&&loadProxyConfig()&&window._workerUrl){
+      try{raw=await getProxyResponse(lead,prompt,[]);}
+      catch(proxyErr){
+        console.warn('[Prototype] proxy failed, falling back to direct LLM:',proxyErr?.message);
+        if(window._llmBaseUrl)raw=await getAgentResponse(lead,prompt,[],window._llmBaseUrl,window._llmApiKey);
+        else throw proxyErr;
+      }
+    }else if(window._llmBaseUrl){
+      raw=await getAgentResponse(lead,prompt,[],window._llmBaseUrl,window._llmApiKey);
+    }else{
+      throw new Error('No LLM configured — add API key in ⚙ Settings');
+    }
     // Extract HTML from response (strip any markdown fences)
     const m=raw.match(/<!DOCTYPE html[\s\S]*/i)||raw.match(/<html[\s\S]*/i);
     window._prototypeHTML=m?m[0]:raw;
@@ -3892,7 +3902,7 @@ async function generatePrototypeHTML(){
     }
   }catch(e){
     console.warn('Prototype generation failed:',e);
-    showToast('Prototype generation failed: '+e.message,3000);
+    showToast('Prototype failed: '+(e.message||String(e)).slice(0,80),4000);
   }finally{
     window._prototypeGenerating=false;
     if(btn){btn.textContent=window._prototypeHTML?'▶ Open Prototype':'▶ Generate Prototype';btn.disabled=false;}
