@@ -14,7 +14,7 @@ WORKER_VERSION = "1.0.0"
 #   npx wrangler deploy
 [[kv_namespaces]]
 binding = "SHARES"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "ced93a56336145f2aca876b3ef12191a"
 
 # Secrets (set via: wrangler secret put SECRET_NAME)
 # LLM_BASE_URL   — e.g. https://api.moonshot.cn
