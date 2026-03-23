@@ -3901,33 +3901,42 @@ async function generatePrototypeHTML(){
 
 function openPrototypePreview(){
   if(!window._prototypeHTML){
-    // No prototype yet — generate, then show banner (window.open blocked outside direct click)
     showToast('⏳ Generating prototype…');
     generatePrototypeHTML().then(()=>{
       if(!window._prototypeHTML){showToast('Prototype generation failed — check LLM config',3000);return;}
-      _wireBannerToPrototype(window._prototypeHTML);
+      _showPrototypeModal(window._prototypeHTML);
     });
     return;
   }
-  // Prototype already ready — open directly (this IS a direct click)
-  _openHtmlBlob(window._prototypeHTML,'prototype');
+  _showPrototypeModal(window._prototypeHTML);
 }
 
-// Wire the preview-ready banner to a prototype blob URL and show it
+function _showPrototypeModal(html){
+  if(!html){showToast('No prototype yet — run a sprint first',2500);return;}
+  const modal=document.getElementById('proto-preview-modal');
+  const iframe=document.getElementById('proto-preview-iframe');
+  const sprintLabel=document.getElementById('proto-preview-sprint');
+  if(!modal||!iframe)return;
+  // srcdoc avoids blob URL entirely — works inline, no popup blocker, no blank page
+  iframe.srcdoc=html;
+  if(sprintLabel)sprintLabel.textContent='Sprint '+(window._sprintNumber||1)+' · '+(window._projectBrief||'').slice(0,40);
+  modal.style.display='flex';
+}
+
+// Show the prototype-ready banner — clicking opens the in-page modal (no blob URL needed)
 function _wireBannerToPrototype(html){
-  try{
-    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const link=document.getElementById('preview-ready-link');
-    if(link){link.href=url;link.textContent='';
-      const icon=document.createElement('span');icon.className='prb-icon';icon.textContent='✦';
-      link.appendChild(icon);link.appendChild(document.createTextNode(' Prototype ready — Open'));
-    }
-    const banner=document.getElementById('preview-ready-banner');
-    if(banner)banner.classList.add('show');
-    showToast('✦ Prototype ready — click the banner to open',3000);
-    setTimeout(()=>URL.revokeObjectURL(url),600000);
-  }catch(e){showToast('Preview error: '+e.message,3000);}
+  const link=document.getElementById('preview-ready-link');
+  if(link){
+    // Switch banner to open prototype modal on click (not a new tab)
+    link.removeAttribute('href');
+    link.onclick=(e)=>{e.preventDefault();_showPrototypeModal(html);};
+    link.textContent='';
+    const icon=document.createElement('span');icon.className='prb-icon';icon.textContent='✦';
+    link.appendChild(icon);link.appendChild(document.createTextNode(' Prototype ready — Preview'));
+  }
+  const banner=document.getElementById('preview-ready-banner');
+  if(banner)banner.classList.add('show');
+  showToast('✦ Prototype ready — click the banner to preview',3000);
 }
 
 function _openHtmlBlob(html,label){
@@ -7602,6 +7611,18 @@ function saveAgent(){
     </div>
     <div id="share-status" style="font-size:10px;color:#556;margin-top:10px"></div>
   </div>
+</div>
+<!-- Prototype Preview Modal -->
+<div id="proto-preview-modal" style="display:none;position:fixed;inset:0;z-index:10500;background:rgba(0,0,0,0.88);flex-direction:column;">
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:#08081a;border-bottom:1px solid #1a1a38;flex-shrink:0;">
+    <span style="font-family:monospace;font-size:12px;color:#4acea0;font-weight:700;">✦ Prototype Preview</span>
+    <span id="proto-preview-sprint" style="font-family:monospace;font-size:10px;color:#555;margin-left:2px;"></span>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <button onclick="sharePrototype()" style="background:#0a1e12;border:1px solid rgba(74,206,160,0.4);color:#4acea0;padding:5px 12px;font-size:11px;font-family:monospace;border-radius:4px;cursor:pointer;">🔗 Share</button>
+      <button onclick="document.getElementById('proto-preview-modal').style.display='none'" style="background:#1a0a0a;border:1px solid rgba(232,72,85,0.4);color:#e84855;padding:5px 12px;font-size:11px;font-family:monospace;border-radius:4px;cursor:pointer;">✕ Close</button>
+    </div>
+  </div>
+  <iframe id="proto-preview-iframe" style="flex:1;width:100%;border:none;background:#fff;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
 </div>
 </body>
 </html>
