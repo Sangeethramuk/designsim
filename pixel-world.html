@@ -3881,6 +3881,13 @@ async function generatePrototypeHTML(){
     const m=raw.match(/<!DOCTYPE html[\s\S]*/i)||raw.match(/<html[\s\S]*/i);
     window._prototypeHTML=m?m[0]:raw;
     showToast('✦ Prototype ready — click ▶ Preview to open');
+    // Patch prototype HTML back into the sprint row
+    if(window._sbClient&&window._sbUser&&window._lastSprintId){
+      window._sbClient.from('sprints')
+        .update({prototype_html:window._prototypeHTML})
+        .eq('id',window._lastSprintId)
+        .then(null,e=>console.warn('[SB] prototype patch:',e?.message));
+    }
   }catch(e){
     console.warn('Prototype generation failed:',e);
     showToast('Prototype generation failed: '+e.message,3000);
@@ -4849,6 +4856,7 @@ async function sbSaveSprint(snap){
       const{error:outErr}=await window._sbClient.from('sprint_outputs').insert(outputRows);
       if(outErr)console.warn('[SB] sprint_outputs insert:',outErr.message);
     }
+    window._lastSprintId=sprintId; // remember for prototype patch-back
     console.log('[SB] Sprint',snap.n,'saved → id:',sprintId,'outputs:',outputRows.length);
     showToast('📊 Sprint '+snap.n+' saved to Supabase ('+outputRows.length+' outputs)',2500);
   }catch(e){console.warn('[SB] sbSaveSprint error:',e?.message);}
@@ -4856,7 +4864,9 @@ async function sbSaveSprint(snap){
 
 // Load all sprints for the current user from Supabase
 async function sbLoadSprints(){
-  if(!window._sbClient||!window._sbUser)return[];
+  if(!window._sbClient)return[];
+  if(window._sbReady)await window._sbReady;
+  if(!window._sbUser)return[];
   try{
     const{data,error}=await window._sbClient
       .from('sprints')
@@ -4871,7 +4881,9 @@ async function sbLoadSprints(){
 
 // Load all outputs for a specific sprint
 async function sbLoadSprintOutputs(sprintId){
-  if(!window._sbClient||!window._sbUser)return[];
+  if(!window._sbClient)return[];
+  if(window._sbReady)await window._sbReady;
+  if(!window._sbUser)return[];
   try{
     const{data,error}=await window._sbClient
       .from('sprint_outputs')
