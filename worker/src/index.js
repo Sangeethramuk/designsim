@@ -40,60 +40,67 @@ function isAuthorized(req, env) {
 // ─── Main Handler ────────────────────────────────────────────────────────────
 export default {
   async fetch(req, env) {
-    const url = new URL(req.url);
+    try {
+      const url = new URL(req.url);
 
-    // CORS preflight
-    if (req.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS });
+      // CORS preflight
+      if (req.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: CORS });
+      }
+
+      // Health check
+      if (url.pathname === '/health') {
+        return json({
+          status: 'ok',
+          version: env.WORKER_VERSION || '1.0.0',
+          llm: !!env.LLM_BASE_URL,
+          figma: !!env.FIGMA_TOKEN,
+          brave: !!env.BRAVE_API_KEY,
+          shares: !!env.SHARES,
+        });
+      }
+
+      // ── Route: Serve shared page — PUBLIC, no auth ─────────────────────────
+      if (url.pathname.startsWith('/s/') && req.method === 'GET') {
+        return handleServeShare(req, env, url);
+      }
+
+      // Auth check on all other routes
+      if (!isAuthorized(req, env)) {
+        return errorJson('Unauthorized', 401);
+      }
+
+      // ── Route: LLM Proxy ───────────────────────────────────────────────────
+      if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
+        return handleLLM(req, env);
+      }
+
+      // ── Route: Brave Search tool ───────────────────────────────────────────
+      if (url.pathname === '/tool/brave-search' && req.method === 'POST') {
+        return handleBraveSearch(req, env);
+      }
+
+      // ── Route: Webfetch tool ───────────────────────────────────────────────
+      if (url.pathname === '/tool/webfetch' && req.method === 'POST') {
+        return handleWebfetch(req, env);
+      }
+
+      // ── Route: Figma tool ──────────────────────────────────────────────────
+      if (url.pathname.startsWith('/tool/figma') && req.method === 'POST') {
+        return handleFigma(req, env);
+      }
+
+      // ── Route: Share — store HTML in KV, return permanent public URL ────────
+      if (url.pathname === '/share' && req.method === 'POST') {
+        return handleShare(req, env, url);
+      }
+
+      return errorJson('Not found', 404);
+    } catch (err) {
+      // Top-level catch — prevents Cloudflare 1101 "Worker threw exception"
+      console.error('[Worker] unhandled error:', err?.message, err?.stack);
+      return json({ error: { message: 'Internal worker error: ' + (err?.message || String(err)) } }, 500);
     }
-
-    // Health check
-    if (url.pathname === '/health') {
-      return json({
-        status: 'ok',
-        version: env.WORKER_VERSION || '1.0.0',
-        llm: !!env.LLM_BASE_URL,
-        figma: !!env.FIGMA_TOKEN,
-        brave: !!env.BRAVE_API_KEY,
-      });
-    }
-
-    // ── Route: Serve shared page — PUBLIC, no auth ───────────────────────────
-    if (url.pathname.startsWith('/s/') && req.method === 'GET') {
-      return handleServeShare(req, env, url);
-    }
-
-    // Auth check on all other routes
-    if (!isAuthorized(req, env)) {
-      return errorJson('Unauthorized', 401);
-    }
-
-    // ── Route: LLM Proxy ─────────────────────────────────────────────────────
-    if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-      return handleLLM(req, env);
-    }
-
-    // ── Route: Brave Search tool ─────────────────────────────────────────────
-    if (url.pathname === '/tool/brave-search' && req.method === 'POST') {
-      return handleBraveSearch(req, env);
-    }
-
-    // ── Route: Webfetch tool ─────────────────────────────────────────────────
-    if (url.pathname === '/tool/webfetch' && req.method === 'POST') {
-      return handleWebfetch(req, env);
-    }
-
-    // ── Route: Figma tool ────────────────────────────────────────────────────
-    if (url.pathname.startsWith('/tool/figma') && req.method === 'POST') {
-      return handleFigma(req, env);
-    }
-
-    // ── Route: Share — store HTML in KV, return permanent public URL ─────────
-    if (url.pathname === '/share' && req.method === 'POST') {
-      return handleShare(req, env, url);
-    }
-
-    return errorJson('Not found', 404);
   },
 };
 
@@ -113,14 +120,20 @@ async function handleLLM(req, env) {
   const isStreaming = body.stream === true;
   const targetUrl = env.LLM_BASE_URL.replace(/\/$/, '') + '/v1/chat/completions';
 
-  const upstream = await fetch(targetUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + env.LLM_API_KEY,
-    },
-    body: JSON.stringify(body),
-  });
+  let upstream;
+  try {
+    upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + env.LLM_API_KEY,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120000), // 2 min — long enough for large generations
+    });
+  } catch (e) {
+    return errorJson('LLM upstream error: ' + e.message, 502);
+  }
 
   // Streaming — pipe directly to client
   if (isStreaming && upstream.body) {
@@ -135,8 +148,12 @@ async function handleLLM(req, env) {
   }
 
   // Non-streaming — parse and forward
-  const data = await upstream.json();
-  return json(data, upstream.status);
+  try {
+    const data = await upstream.json();
+    return json(data, upstream.status);
+  } catch (e) {
+    return errorJson('LLM response parse error: ' + e.message, 502);
+  }
 }
 
 // ─── Webfetch Tool ────────────────────────────────────────────────────────────
