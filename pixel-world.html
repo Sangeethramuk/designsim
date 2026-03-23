@@ -1897,12 +1897,12 @@ function collectWaveOutputs(agentIds, recentIds=[]){
 function injectContextToAgents(targetIds,contextBlock){
   if(!contextBlock)return;
   targetIds.forEach(id=>{
-    if(!window._agentSessions[id])window._agentSessions[id]=[];
-    // Remove stale prior-phase injections first
-    window._agentSessions[id]=window._agentSessions[id].filter(m=>
+    const existing=window._agentSessions[id]||[];
+    // Build a new array (never mutate in-place — agents may be reading it concurrently)
+    const cleaned=existing.filter(m=>
       !(m.role==='system'&&m.content.startsWith('## Prior Phase Outputs'))
     );
-    window._agentSessions[id].unshift({role:'system',content:contextBlock});
+    window._agentSessions[id]=[{role:'system',content:contextBlock},...cleaned];
   });
 }
 
@@ -3336,10 +3336,14 @@ function fireHandoffAnimations(fromIds,toIds){
   // Walk toward the first agent of the next wave
   const targetAgent=scene.agents.find(a=>a.id===toIds[0]);
   if(!targetAgent)return;
+  const targetName=targetAgent.name||toIds[0];
   fromIds.forEach((id,i)=>{
     setTimeout(()=>{
       const fromAgent=scene.agents.find(a=>a.id===id);
       if(!fromAgent||fromAgent.walking)return;
+      // Show handoff arrow in bubble
+      setAgentBubble(id,'→ '+targetName);
+      if(window._agentStatus)window._agentStatus[id]={state:'done',text:'→ '+targetName};
       walkAgentToHandoff(scene,fromAgent,targetAgent);
     },i*200); // stagger starts so agents don't all move simultaneously
   });
@@ -4098,16 +4102,34 @@ function dabToggle(n){
   }
 }
 function dabClose(){_p=null;document.getElementById('dab-panel').style.display='none';}
-function dabGenLink(){
+async function dabGenLink(){
   stat('Generating…','#888');
+  var html=document.documentElement.outerHTML;
+  // ── Permanent via Cloudflare Worker KV ──────────────────────────────────
+  if(D.workerUrl){
+    try{
+      var resp=await fetch(D.workerUrl.replace(/\/$/,'')+'/share',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({html:html,title:(D.brief||'Design Swarm Dossier').slice(0,60),type:'dossier'}),
+        signal:AbortSignal.timeout(30000)
+      });
+      var j=await resp.json();
+      if(!resp.ok||!j.url)throw new Error(j.error||'Worker returned no URL');
+      document.getElementById('dab-url').value=j.url;
+      navigator.clipboard.writeText(j.url).catch(function(){});
+      stat('✓ Permanent link — anyone can open this. Copied!','#4acea0');
+      return;
+    }catch(e){stat('✗ Worker error: '+e.message+' — falling back to temporary link','#e84855');}
+  }
+  // ── Fallback: blob URL (temporary) ──────────────────────────────────────
   try{
-    var html=document.documentElement.outerHTML;
     var blob=new Blob([html],{type:'text/html;charset=utf-8'});
     var url=URL.createObjectURL(blob);
     document.getElementById('dab-url').value=url;
     navigator.clipboard.writeText(url).catch(function(){});
-    stat('⚠ Temporary — works only while this tab is open. Copied!','#a78bfa');
-  }catch(e){stat('✗ '+e.message,'#e84855');}
+    stat('⚠ Temporary — configure a Cloudflare Worker for permanent links.','#a78bfa');
+  }catch(e2){stat('✗ '+e2.message,'#e84855');}
 }
 function dabCopyLink(){
   var i=document.getElementById('dab-url');
@@ -4269,6 +4291,8 @@ async function shareDossier(){
     if(statusEl)statusEl.textContent='⚠ Temporary — only works while this tab is open.';
     navigator.clipboard.writeText(blobUrl).catch(()=>{});
     showToast('Preview link copied (temporary)');
+    // Revoke after 5 min to avoid memory leak
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),5*60*1000);
   }catch(e){
     if(statusEl)statusEl.textContent='✗ Error: '+e.message;
     showToast('Share failed: '+e.message);
@@ -4352,6 +4376,7 @@ async function sharePrototype(){
     if(statusEl)statusEl.textContent='⚠ Temporary — only works while this tab is open.';
     navigator.clipboard.writeText(blobUrl).catch(()=>{});
     showToast('Prototype link copied (temporary)');
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),5*60*1000);
   }catch(e){
     if(statusEl)statusEl.textContent='✗ Error: '+e.message;
     showToast('Share failed: '+e.message);
@@ -4385,8 +4410,8 @@ function openBoard(){
   window._boardOpen=true;
   window._unreadFeed=0;
   updateModePills(true);
-  // Always open on Agents tab, reset badge
-  switchBoardTab('agents');
+  // Restore last tab (default agents); clear feed badge
+  switchBoardTab(window._boardTab||'agents');
   // Update brief strip — separate section below the header
   const briefEl=document.getElementById('board-brief-text');
   const briefSection=document.getElementById('board-brief-section');
@@ -4954,7 +4979,7 @@ async function sbSaveSprint(snap){
   if(!window._sbClient)return;
   // Wait for anonymous auth to complete — sprint can finish before auth resolves
   if(window._sbReady)await window._sbReady;
-  if(!window._sbUser)return;
+  if(!window._sbUser){console.warn('[SB] sbSaveSprint: no user — sprint not saved');return;}
   const uid=window._sbUser.id;
   try{
     // Build sprint row
@@ -5006,8 +5031,8 @@ async function sbLoadSprints(){
   if(!window._sbUser)return[];
   try{
     const{data,error}=await window._sbClient
-      .from('sprints')
-      .select('id,sprint_number,brief,iteration_note,model,agent_count,critique_score,duration_ms,created_at')
+      .from('sprint_summary')
+      .select('id,sprint_number,brief,iteration_note,model,agent_count,critique_score,duration_ms,created_at,agent_ids')
       .eq('user_id',window._sbUser.id)
       .order('created_at',{ascending:false})
       .limit(50);
@@ -5567,6 +5592,22 @@ async function pushToFigma(){
 // --- Phase 13: Swarm Mode ---
 
 // Run a single agent headlessly with an explicit prompt
+// Set an agent's thought bubble text directly (bypasses the rotation timer)
+function setAgentBubble(agentId, text){
+  if(!window._game)return;
+  const scene=window._game.scene.scenes[0];
+  if(!scene||!scene.agents)return;
+  const a=scene.agents.find(a=>a.id===agentId);
+  if(!a)return;
+  if(a.bubbleEl){
+    a.bubbleEl.textContent=text;
+    // During swarm, always show the bubble regardless of proximity
+    if(window._swarmRunning)a.bubbleEl.style.opacity='1';
+  }
+  // Reset timer only outside swarm — during swarm we want status text to persist
+  if(!window._swarmRunning)a.thoughtTimer=0;
+}
+
 async function runSwarmAgent(agent, customPrompt){
   const msg=customPrompt||(window._projectBrief
     ?'Based on the project brief, generate your specialist output now.'
@@ -5693,6 +5734,12 @@ async function runSwarm(){
   window._prototypeHTML=null;window._prototypeGenerating=false; // reset for new sprint
   window._swarmStartTime=Date.now(); // track duration
   window._revisionCount=0;window._critiqueScore=null;window._lastToastedPhase=-1;
+  // Reset per-agent status bubbles and show immediately
+  window._agentStatus={};
+  AGENTS.forEach(a=>{
+    window._agentStatus[a.id]={state:'queued',text:'Queued…'};
+    setAgentBubble(a.id,'Queued…');
+  });
   updateSwarmBtn();
   let done=0;
   const progWrap=document.getElementById('swarm-progress-bar-wrap');
@@ -5760,11 +5807,17 @@ async function runSwarm(){
       if(window._swarmAbort)return;
       const ag=AGENTS.find(a=>a.id===id);
       if(!ag)return;
+      // Live status: running
+      if(window._agentStatus)window._agentStatus[id]={state:'running',text:'Working…'};
+      setAgentBubble(id,'⚙ Working…');
       const agentPrompt=(wave.prompt||'')+'\n\nYour specific focus: apply your role as '+ag.role+' specialist. Do not duplicate what your colleagues in this wave will cover.';
       await runSwarmAgent(ag,agentPrompt);
       done++;
       if(progBar)progBar.style.width=Math.max(2,Math.round(done/(waveQueue.reduce((s,w)=>s+w.agents.length,0)+1)*90))+'%';
       updateSprintCards([id],'done');
+      // Live status: done
+      if(window._agentStatus)window._agentStatus[id]={state:'done',text:'✓ Done'};
+      setAgentBubble(id,'✓ Done');
     }));
     completedIds.push(...wave.agents);
     // Mark super-phase badge as done when last wave of that phase finishes
@@ -5870,6 +5923,15 @@ async function scoreCritiqueWave(critiqueAgentIds){
 
 function _swarmEnd(done){
   window._swarmRunning=false;
+  // Hide force-shown swarm bubbles — let proximity logic take over again
+  if(window._game){
+    const scene=window._game.scene.scenes[0];
+    if(scene&&scene.agents){
+      scene.agents.forEach(a=>{
+        if(a.bubbleEl&&!a.inRange)a.bubbleEl.style.opacity='0';
+      });
+    }
+  }
   // Stop timer and show final duration briefly
   if(window._swarmTimerInterval){clearInterval(window._swarmTimerInterval);window._swarmTimerInterval=null;}
   const timerEl=document.getElementById('swarm-timer');
@@ -5893,8 +5955,11 @@ function _swarmEnd(done){
     window._iterationNote=null; // clear for next run
     setTimeout(()=>{if(!window._boardOpen)openBoard();},800);
     setTimeout(()=>openSprintPreviewTab(),1500); // auto-open dossier preview in new tab
-    setTimeout(()=>generatePrototypeHTML(),2500); // generate UI prototype in background
+    // Prototype starts at 5s (after sbSaveSprint resolves and _lastSprintId is set)
+    setTimeout(()=>generatePrototypeHTML(),5000);
     setTimeout(()=>updateUserProfile(),4000); // non-blocking: distil learnings after board opens
+    // Refresh history tab if it's already open
+    setTimeout(()=>{if(window._boardOpen&&window._boardTab==='history')renderSprintHistoryTab();},1200);
   }
   // Sprint viz stays open so user can review — auto-close only on abort
   if(window._swarmAbort)closeSprintViz();
@@ -6566,35 +6631,47 @@ class GameScene extends Phaser.Scene{
     // --- Proximity Bubbles ---
     this.agents.forEach(a=>{
       const dist=Phaser.Math.Distance.Between(this.player.x,this.player.y,a.spr.x,a.spr.y);
-      const inRange=dist<3*TILE;
+      // During swarm show bubbles from 6 tiles away; scale by camera zoom so it feels consistent
+      const zoom=this.cameras.main.zoom||1;
+      const rangeThreshold=(window._swarmRunning?6*TILE:3*TILE)*zoom;
+      const inRange=dist<rangeThreshold;
       if(inRange!==a.inRange){
         a.inRange=inRange;
         if(a.bubbleEl)a.bubbleEl.style.opacity=inRange?'1':'0';
-        const thoughts=AGENT_THOUGHTS[a.id]||['...'];
-        if(inRange)speakWhisper(thoughts[a.thoughtIdx||0]);
+        if(inRange){
+          // Speak the current status or first thought
+          const st=window._agentStatus&&window._agentStatus[a.id];
+          const spokenText=st?st.text:(AGENT_THOUGHTS[a.id]||['...'])[0];
+          speakWhisper(spokenText);
+        }
       }
       if(inRange){
         a.thoughtTimer=(a.thoughtTimer||0)+delta;
-        if(a.thoughtTimer>5000){
+        if(a.thoughtTimer>4000){
           let bubbleText;
-          if(window._swarmRunning){
-            // During swarm: show "working…" or current wave name
-            const plan=window._sprintPlan;
-            if(plan&&plan.waves){
-              const waveNames=plan.waves.map(w=>w.name);
-              const wi=((a.thoughtIdx||0))%waveNames.length;
-              bubbleText='sprint: '+waveNames[wi];
-            }else{
-              bubbleText='working…';
-            }
-          }else{
+          const st=window._agentStatus&&window._agentStatus[a.id];
+          if(st&&(st.state==='queued'||st.state==='running')){
+            // Agent is in an active sprint state — show status text
+            bubbleText=st.text;
+          }else if(st&&st.state==='done'){
+            // Agent finished — alternate between "✓ Done" and artifact snippet
             const art=window._agentArtifacts&&window._agentArtifacts[a.id];
-            if(art&&art.content){
-              // Rotate through artifact text
+            if(art&&art.content&&(a.thoughtIdx||0)%2===1){
               const clean=art.content.replace(/```[\s\S]*?```/g,'').replace(/\s+/g,' ').trim();
               const words=clean.split(' ').filter(w=>w.length>0);
-              const start=(((a.thoughtIdx||0)*6)%Math.max(words.length,1));
-              bubbleText=words.slice(start,start+6).join(' ')+(words.length>start+6?'…':'');
+              const start=(Math.floor((a.thoughtIdx||0)/2)*5)%Math.max(words.length,1);
+              bubbleText=words.slice(start,start+5).join(' ')+(words.length>start+5?'…':'');
+            }else{
+              bubbleText='✓ Done';
+            }
+          }else{
+            // No sprint running — show artifact excerpt or idle thoughts
+            const art=window._agentArtifacts&&window._agentArtifacts[a.id];
+            if(art&&art.content){
+              const clean=art.content.replace(/```[\s\S]*?```/g,'').replace(/\s+/g,' ').trim();
+              const words=clean.split(' ').filter(w=>w.length>0);
+              const start=(((a.thoughtIdx||0)*5)%Math.max(words.length,1));
+              bubbleText=words.slice(start,start+5).join(' ')+(words.length>start+5?'…':'');
             }else{
               const thoughts=AGENT_THOUGHTS[a.id]||['...'];
               a.thoughtIdx=((a.thoughtIdx||0)+1)%thoughts.length;
