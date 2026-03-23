@@ -6,6 +6,8 @@
  *   POST /v1/chat/completions   → LLM proxy (drop-in OpenAI-compatible)
  *   POST /tool/webfetch         → server-side page fetch (no CORS issues)
  *   POST /tool/figma            → Figma REST API calls
+ *   POST /share                 → store HTML in KV, return permanent public URL
+ *   GET  /s/:id                 → serve shared HTML publicly (no auth required)
  *   GET  /health                → health check
  */
 
@@ -56,6 +58,11 @@ export default {
       });
     }
 
+    // ── Route: Serve shared page — PUBLIC, no auth ───────────────────────────
+    if (url.pathname.startsWith('/s/') && req.method === 'GET') {
+      return handleServeShare(req, env, url);
+    }
+
     // Auth check on all other routes
     if (!isAuthorized(req, env)) {
       return errorJson('Unauthorized', 401);
@@ -79,6 +86,11 @@ export default {
     // ── Route: Figma tool ────────────────────────────────────────────────────
     if (url.pathname.startsWith('/tool/figma') && req.method === 'POST') {
       return handleFigma(req, env);
+    }
+
+    // ── Route: Share — store HTML in KV, return permanent public URL ─────────
+    if (url.pathname === '/share' && req.method === 'POST') {
+      return handleShare(req, env, url);
     }
 
     return errorJson('Not found', 404);
@@ -228,6 +240,84 @@ async function handleBraveSearch(req, env) {
     return json({ content: `brave_search failed for "${query}": ${e.message}`, results: [], query, ok: false });
   }
 }
+
+// ─── Share: Store HTML in KV ──────────────────────────────────────────────────
+function generateId(len = 8) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id = '';
+  for (let i = 0; i < len; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return id;
+}
+
+async function handleShare(req, env, url) {
+  if (!env.SHARES) {
+    return errorJson('KV namespace SHARES not configured — run: wrangler kv:namespace create SHARES', 503);
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch (e) {
+    return errorJson('Invalid JSON body');
+  }
+
+  const { html, title = 'Design Swarm Export', type = 'dossier' } = body;
+  if (!html || typeof html !== 'string') {
+    return errorJson('html field is required');
+  }
+  if (html.length > 10 * 1024 * 1024) {
+    return errorJson('HTML too large (max 10 MB)');
+  }
+
+  const id = generateId(8);
+  const meta = { title, type, created: new Date().toISOString(), size: html.length };
+
+  // Store permanently in KV (no TTL = never expires)
+  await env.SHARES.put(id, html, { metadata: meta });
+
+  const shareUrl = `${url.origin}/s/${id}`;
+  return json({ ok: true, url: shareUrl, id, meta });
+}
+
+// ─── Share: Serve stored HTML publicly ────────────────────────────────────────
+async function handleServeShare(req, env, url) {
+  if (!env.SHARES) {
+    return new Response('Sharing not configured on this worker.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
+  const id = url.pathname.slice(3).replace(/[^a-z0-9]/gi, '');
+  if (!id) {
+    return new Response('Missing share ID.', { status: 400, headers: { 'Content-Type': 'text/plain' } });
+  }
+
+  const { value: html, metadata } = await env.SHARES.getWithMetadata(id, 'text');
+  if (!html) {
+    return new Response(
+      '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0d0d14;color:#fff">' +
+      '<h2>Link not found</h2><p>This share link does not exist or has been removed.</p>' +
+      '</body></html>',
+      { status: 404, headers: { 'Content-Type': 'text/html;charset=utf-8' } },
+    );
+  }
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html;charset=utf-8',
+      'Cache-Control': 'public, max-age=300',
+      'X-Share-Id': id,
+      'X-Share-Title': (metadata?.title || '').slice(0, 100),
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function stripHtml(html, url, reason) {
   // Remove script, style, nav, footer, header blocks

@@ -4151,9 +4151,37 @@ async function shareDossier(){
   if(btn)btn.disabled=true;
 
   try{
-    const html=generateDossierHTML();
+    const html=generateDossierHTMLWithActions();
+    const title=(window._projectBrief||'Design Swarm').slice(0,60);
 
-    // ── Option A: Supabase Storage (if connected + signed in)
+    // ── Option A: Cloudflare Worker KV — permanent, public, no login ─────────
+    if(window._workerUrl){
+      try{
+        if(statusEl)statusEl.textContent='Uploading to Worker…';
+        const headers={'Content-Type':'application/json'};
+        if(window._workerSecret)headers['X-Worker-Secret']=window._workerSecret;
+        const resp=await fetch(window._workerUrl.replace(/\/$/,'')+'/share',{
+          method:'POST',
+          headers,
+          body:JSON.stringify({html,title,type:'dossier'}),
+          signal:AbortSignal.timeout(30000)
+        });
+        const data=await resp.json();
+        if(data.ok&&data.url){
+          if(urlInput)urlInput.value=data.url;
+          if(statusEl)statusEl.textContent='✓ Permanent link — anyone can open without login.';
+          navigator.clipboard.writeText(data.url).catch(()=>{});
+          showToast('🔗 Permanent share link copied!');
+          if(btn)btn.disabled=false;
+          return;
+        }
+        if(statusEl)statusEl.textContent=(data.error||'Worker KV not configured')+' — trying Supabase…';
+      }catch(workerErr){
+        if(statusEl)statusEl.textContent='Worker unavailable — trying Supabase…';
+      }
+    }
+
+    // ── Option B: Supabase Storage (if connected + signed in) ────────────────
     if(window._sbClient&&window._sbUser){
       const d=new Date();
       const fileName='dossiers/'+window._sbUser.id+'/dossier-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'-'+Date.now()+'.html';
@@ -4164,22 +4192,20 @@ async function shareDossier(){
         const {data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
         if(pub&&pub.publicUrl){
           if(urlInput)urlInput.value=pub.publicUrl;
-          if(statusEl)statusEl.textContent='✓ Uploaded to Supabase Storage. Link is permanent.';
-          // Auto-copy to clipboard
+          if(statusEl)statusEl.textContent='✓ Uploaded to Supabase. Link is permanent.';
           navigator.clipboard.writeText(pub.publicUrl).catch(()=>{});
           showToast('🔗 Share link copied to clipboard');
           if(btn)btn.disabled=false;
           return;
         }
       }
-      // Fall through to blob URL if storage fails
-      if(statusEl)statusEl.textContent='Storage upload failed — using temporary link instead.';
+      if(statusEl)statusEl.textContent='Supabase upload failed — generating local link…';
     }
 
-    // ── Option B: Blob URL fallback (works without Supabase, but only in this tab session)
+    // ── Option C: Blob URL — last resort, current tab only ───────────────────
     const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
     if(urlInput)urlInput.value=blobUrl;
-    if(statusEl)statusEl.textContent='⚠ Temporary — works only in this tab. For a permanent link: (1) connect Supabase in ⚙ settings, (2) create a public storage bucket named "dossiers", then reshare.';
+    if(statusEl)statusEl.textContent='⚠ Temporary — only works in this tab. To get permanent links: add your Worker URL in ⚙ Settings, then run "wrangler kv:namespace create SHARES" and redeploy.';
     navigator.clipboard.writeText(blobUrl).catch(()=>{});
     showToast('Preview link copied (temporary)');
   }catch(e){
