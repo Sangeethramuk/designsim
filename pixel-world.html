@@ -4126,16 +4126,10 @@ async function dabGenLink(){
       navigator.clipboard.writeText(j.url).catch(function(){});
       stat('✓ Permanent link — anyone can open this. Copied!','#4acea0');
       return;
-    }catch(e){stat('✗ Worker error: '+e.message+' — falling back to temporary link','#e84855');}
+    }catch(e){stat('✗ Worker error: '+e.message,'#e84855');}
+  } else {
+    stat('✗ No Worker configured — check ⚙ settings.','#e84855');
   }
-  // ── Fallback: blob URL (temporary) ──────────────────────────────────────
-  try{
-    var blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    var url=URL.createObjectURL(blob);
-    document.getElementById('dab-url').value=url;
-    navigator.clipboard.writeText(url).catch(function(){});
-    stat('⚠ Temporary — configure a Cloudflare Worker for permanent links.','#a78bfa');
-  }catch(e2){stat('✗ '+e2.message,'#e84855');}
 }
 function dabCopyLink(){
   var i=document.getElementById('dab-url');
@@ -4291,14 +4285,9 @@ async function shareDossier(){
       }
     }
 
-    // ── Option C: Blob URL — last resort, current tab only ───────────────────
-    const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
-    if(urlInput)urlInput.value=blobUrl;
-    if(statusEl)statusEl.textContent='⚠ Temporary — only works while this tab is open.';
-    navigator.clipboard.writeText(blobUrl).catch(()=>{});
-    showToast('Preview link copied (temporary)');
-    // Revoke after 5 min to avoid memory leak
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),5*60*1000);
+    // No permanent storage available — show error
+    if(statusEl)statusEl.textContent='✗ No permanent storage available. Check Worker or Supabase config in ⚙ settings.';
+    showToast('Share failed — configure Worker or Supabase in ⚙ settings',3000);
   }catch(e){
     if(statusEl)statusEl.textContent='✗ Error: '+e.message;
     showToast('Share failed: '+e.message);
@@ -4376,13 +4365,9 @@ async function sharePrototype(){
       }
     }
 
-    // ── Option C: Blob URL fallback ──────────────────────────────────────────
-    const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
-    if(urlInput)urlInput.value=blobUrl;
-    if(statusEl)statusEl.textContent='⚠ Temporary — only works while this tab is open.';
-    navigator.clipboard.writeText(blobUrl).catch(()=>{});
-    showToast('Prototype link copied (temporary)');
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),5*60*1000);
+    // No permanent storage available — show error
+    if(statusEl)statusEl.textContent='✗ No permanent storage available. Check Worker or Supabase config in ⚙ settings.';
+    showToast('Share failed — configure Worker or Supabase in ⚙ settings',3000);
   }catch(e){
     if(statusEl)statusEl.textContent='✗ Error: '+e.message;
     showToast('Share failed: '+e.message);
@@ -6846,6 +6831,14 @@ function openEditor(agent,scene){
   renderChips('edit-mcp-list',agent.mcp||[],AVAILABLE_MCP,removeMcp);
   renderChips('edit-skills-list',agent.skills||[],AVAILABLE_SKILLS,removeSkill);
   // Populate MD knowledge files
+  // Scene agents are spread copies created before initAgentSkills() runs,
+  // so mdSkills may be missing — sync from AGENTS[] master record if needed
+  if(!currentEditAgent.mdSkills||currentEditAgent.mdSkills.length===0){
+    const masterAgent=AGENTS.find(a=>a.id===currentEditAgent.id);
+    if(masterAgent&&masterAgent.mdSkills&&masterAgent.mdSkills.length>0){
+      currentEditAgent.mdSkills=masterAgent.mdSkills;
+    }
+  }
   if(!currentEditAgent.mdSkills)currentEditAgent.mdSkills=[];
   renderMdSkillChips();
 
@@ -7168,11 +7161,11 @@ function renderMdSkillChips(){
   skills.forEach((s,i)=>{
     const chip=document.createElement('span');
     chip.className='md-chip';
-    const kb=(s.size/1024).toFixed(1);
+    const sizeLabel=s.size?((s.size/1024).toFixed(1)+'KB'):(s.content?(Math.ceil(s.content.length/1024)+'KB'):'built-in');
     chip.innerHTML=
       '<span class="md-chip-icon">📄</span>'+
       '<span class="md-chip-name" title="'+escHtml(s.name)+'">'+escHtml(s.name)+'</span>'+
-      '<span class="md-chip-size">'+kb+'KB</span>'+
+      '<span class="md-chip-size">'+sizeLabel+'</span>'+
       '<span class="md-chip-remove" onclick="removeMdSkill('+i+')">&times;</span>';
     container.appendChild(chip);
   });
