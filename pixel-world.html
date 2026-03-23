@@ -3234,54 +3234,194 @@ function exportDossier(){
 function generateDossierHTML(){
   const now=new Date();
   const dateStr=now.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
-  const fileDateStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
   const brief=window._projectBrief||'';
   const arts=window._agentArtifacts||{};
-  const log=window._relayLog||[];
   const sess=window._agentSessions||{};
-  let agentSections='';let hasAny=false;
+  const log=window._relayLog||[];
+
+  // ── Inline markdown → HTML renderer ─────────────────────────────────────────
+  function md(text){
+    if(!text)return'';
+    let h='',inUl=false,inOl=false,inPre=false,pLang='',pBuf=[];
+    const inl=s=>escHtml(s)
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g,'<em>$1</em>')
+      .replace(/`([^`]+)`/g,'<code class="ic">$1</code>');
+    const endL=()=>{if(inUl){h+='</ul>';inUl=false;}if(inOl){h+='</ol>';inOl=false;}};
+    text.split('\n').forEach(l=>{
+      if(l.startsWith('```')){
+        if(!inPre){inPre=true;pLang=l.slice(3).trim()||'text';pBuf=[];}
+        else{inPre=false;endL();h+='<pre><code class="lang-'+escHtml(pLang)+'">'+escHtml(pBuf.join('\n'))+'</code></pre>';}
+        return;
+      }
+      if(inPre){pBuf.push(l);return;}
+      const hm=l.match(/^(#{1,4}) (.+)/);
+      if(hm){endL();const t='h'+Math.min(hm[1].length+1,4);h+='<'+t+'>'+inl(hm[2])+'</'+t+'>';return;}
+      if(/^[-*+] /.test(l)){if(inOl){h+='</ol>';inOl=false;}if(!inUl){h+='<ul>';inUl=true;}h+='<li>'+inl(l.slice(2))+'</li>';return;}
+      if(/^\d+\.\s/.test(l)){if(inUl){h+='</ul>';inUl=false;}if(!inOl){h+='<ol>';inOl=true;}h+='<li>'+inl(l.replace(/^\d+\.\s/,''))+'</li>';return;}
+      endL();
+      if(l.trim()==='---'){h+='<hr>';return;}
+      if(!l.trim())return;
+      h+='<p>'+inl(l)+'</p>';
+    });
+    endL();
+    return h;
+  }
+
+  // ── Zone colour map ──────────────────────────────────────────────────────────
+  const ZC={'Research Library':'#4a9eea','Design Studio':'#4acea0','Critique Room':'#e879f9','Synthesis Hub':'#f6ad55','Corridor':'#ffd700'};
+
+  // ── Build TOC + sections ─────────────────────────────────────────────────────
+  let tocHtml='',sectHtml='',hasAny=false,lastZone='';
   AGENTS.forEach(a=>{
-    // Primary: use stored artifact; fallback: use last assistant reply from session
     let art=arts[a.id];
     if(!art){
-      const lastReply=(sess[a.id]||[]).filter(m=>m.role==='assistant').pop();
-      if(lastReply&&lastReply.content&&!lastReply.content.startsWith('⚠[swarm-error]')){
-        art={type:'text',lang:'text',content:lastReply.content.trim()};
-      }
+      const last=(sess[a.id]||[]).filter(m=>m.role==='assistant').pop();
+      if(last&&last.content&&!last.content.startsWith('\u26a0[swarm-error]'))
+        art={type:'text',lang:'text',content:last.content.trim()};
     }
-    if(!art)return;hasAny=true;
-    const typeLabel=escHtml(art.type+(art.lang&&art.lang!==art.type?' / '+art.lang:''));
-    let contentHtml='';
-    if(art.type==='code'){
-      const lang=escHtml(art.lang||'text');
-      contentHtml='<pre><code class="lang-'+lang+'">'+escHtml(art.content)+'</code></pre>';
+    if(!art)return;
+    hasAny=true;
+    const ac='#'+(a.zc||0x4a9eea).toString(16).padStart(6,'0');
+    const zc=ZC[a.zone]||ac;
+    // Zone header
+    if(a.zone&&a.zone!==lastZone){
+      if(lastZone)sectHtml+='</div>';
+      lastZone=a.zone;
+      sectHtml+='<div class="zblock"><div class="zhdr" style="color:'+zc+';border-color:'+zc+'55">'
+        +'<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+zc+';margin-right:8px;vertical-align:middle"></span>'
+        +escHtml(a.zone)+'</div>';
+    }
+    // TOC entry
+    tocHtml+='<a href="#a-'+escHtml(a.id)+'" class="tl"><span class="td" style="background:'+ac+'"></span>'+escHtml(a.name)+'</a>';
+    // Content
+    let body='';
+    const codeTypes=['code','ts','tsx','js','jsx','python','css','html','json','yaml'];
+    if(art.type==='code'||codeTypes.indexOf(art.lang)>=0){
+      body='<pre><code class="lang-'+(art.lang||'text')+'">'+escHtml(art.content)+'</code></pre>';
     }else if(art.type==='yaml'){
       const rows=art.content.split('\n').filter(l=>l.trim()).map(l=>{
         const ci=l.indexOf(':');
-        if(ci>0){const k=escHtml(l.slice(0,ci).trim());const v=escHtml(l.slice(ci+1).trim());return'<tr><td class="yk">'+k+'</td><td class="yv">'+v+'</td></tr>';}
-        return'<tr><td colspan="2">'+escHtml(l)+'</td></tr>';
+        return ci>0
+          ?'<tr><td class="yk">'+escHtml(l.slice(0,ci).trim())+'</td><td class="yv">'+escHtml(l.slice(ci+1).trim())+'</td></tr>'
+          :'<tr><td colspan="2" class="yv">'+escHtml(l)+'</td></tr>';
       }).join('');
-      contentHtml='<table class="ytbl">'+rows+'</table>';
-    }else if(art.type==='list'){
-      const items=art.content.split('\n').filter(l=>l.trim()).map(l=>'<li>'+escHtml(l.replace(/^[\d+.\-*\s]+/,'').trim())+'</li>').join('');
-      contentHtml='<ul>'+items+'</ul>';
+      body='<table class="ytbl">'+rows+'</table>';
     }else{
-      contentHtml='<div class="mc">'+escHtml(art.content).replace(/\n/g,'<br>')+'</div>';
+      body=md(art.content);
     }
-    const agentColor='#'+(a.zc||0).toString(16).padStart(6,'0');
-    agentSections+='<div class="as"><div class="ah"><span class="ad" style="background:'+agentColor+'"></span><span class="an">'+escHtml(a.name)+'</span><span class="ar">'+escHtml(a.role)+'</span><span class="at">'+typeLabel+'</span></div><div class="ac">'+contentHtml+'</div></div>';
+    sectHtml+='<div class="ac" id="a-'+escHtml(a.id)+'">'
+      +'<div class="ah" style="border-left-color:'+ac+'">'
+      +'<span class="adot" style="background:'+ac+'"></span>'
+      +'<span class="an">'+escHtml(a.name)+'</span>'
+      +'<span class="ar">'+escHtml(a.role)+'</span>'
+      +'</div>'
+      +'<div class="ab">'+body+'</div>'
+      +'</div>';
   });
-  if(!hasAny)agentSections='<p class="empty">No artifacts generated yet.</p>';
+  if(lastZone)sectHtml+='</div>';
+  if(!hasAny)sectHtml='<div class="empty">No artifacts yet — run a swarm first, then preview the dossier.</div>';
+
+  // ── Relay section ────────────────────────────────────────────────────────────
   let relayHtml='';
   if(log.length){
     relayHtml=log.map(r=>{
-      const ts=new Date(r.timestamp).toLocaleTimeString();
-      const toName=AGENTS.find(a=>a.id===r.to)?.name||r.to;
-      return'<div class="re"><span class="rf">'+escHtml(r.fromName)+'</span><span class="ra">→</span><span class="rt">'+escHtml(toName)+'</span><span class="rtm">'+escHtml(ts)+'</span><span class="rp">'+escHtml(r.preview||'')+'</span></div>';
+      const toN=(AGENTS.find(a=>a.id===r.to)||{name:r.to}).name;
+      return'<div class="re"><span class="rf">'+escHtml(r.fromName)+'</span>'
+        +'<span class="ra"> → </span><span class="rt">'+escHtml(toN)+'</span>'
+        +'<span class="rtm">'+new Date(r.timestamp).toLocaleTimeString()+'</span>'
+        +(r.preview?'<div class="rp">'+escHtml(r.preview.slice(0,100))+'</div>':'')
+        +'</div>';
     }).join('');
-  }else{relayHtml='<p class="empty">No relays recorded.</p>';}
-  const prismCss='code{color:#ccc;font-family:Consolas,Monaco,monospace;}pre{background:#060c16;border:1px solid #0d1e30;border-radius:6px;padding:14px;overflow-x:auto;}.lang-tsx .kw,.lang-ts .kw,.lang-js .kw{color:#cc99cd;}.lang-tsx .str,.lang-ts .str,.lang-js .str{color:#7ec699;}';
-  return'<!DOCTYPE html>\n<html lang="en">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Design Swarm Dossier \u2014 '+escHtml(dateStr)+'</title>\n<style>\n*{box-sizing:border-box;margin:0;padding:0;}body{background:#0a0a14;color:#c0c8d8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.6;padding:40px 24px;}.wrap{max-width:900px;margin:0 auto;}header{border-bottom:2px solid #1a2a4a;padding-bottom:24px;margin-bottom:32px;}.logo{font-size:10px;letter-spacing:2px;color:#4a9eea;font-family:monospace;text-transform:uppercase;margin-bottom:8px;}h1{font-size:26px;font-weight:700;color:#e8edf5;}.dt{font-size:12px;color:#506080;margin-top:6px;}.brief-box{background:#0d1220;border:1px solid #1a2a4a;border-radius:8px;padding:20px 24px;margin-bottom:32px;}.bl{font-size:10px;letter-spacing:1.5px;color:#4a9eea;text-transform:uppercase;margin-bottom:8px;font-family:monospace;}.bt{font-size:15px;color:#c0c8d8;white-space:pre-wrap;line-height:1.7;}.st{font-size:11px;letter-spacing:1.5px;color:#506080;text-transform:uppercase;font-family:monospace;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #1a2030;}.as{background:#0d1220;border:1px solid #1a2a4a;border-radius:8px;padding:18px 20px;margin-bottom:14px;}.ah{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;}.ad{width:8px;height:8px;border-radius:50%;flex-shrink:0;}.an{font-weight:700;color:#e8edf5;font-size:14px;}.ar{color:#4a9eea;font-size:11px;font-family:monospace;}.at{margin-left:auto;background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:2px 8px;border-radius:3px;font-size:10px;font-family:monospace;letter-spacing:.5px;}.ac pre code{font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.6;}.ytbl{width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;}.yk{color:#4a9eea;padding:3px 12px 3px 0;width:40%;vertical-align:top;}.yv{color:#c0c8d8;padding:3px 0;vertical-align:top;}.ytbl tr:not(:last-child) td{border-bottom:1px solid #0d1e30;}ul{padding-left:20px;}ul li{color:#c0c8d8;padding:2px 0;font-size:13px;}.mc{font-size:13px;line-height:1.7;white-space:pre-wrap;}.relay-box{background:#0d1220;border:1px solid #1a2a4a;border-radius:8px;padding:18px 20px;margin-bottom:32px;}.re{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #0d1e30;font-size:12px;flex-wrap:wrap;}.re:last-child{border-bottom:none;}.rf{color:#e8edf5;font-weight:600;}.ra{color:#4a9eea;font-size:14px;}.rt{color:#e8edf5;font-weight:600;}.rtm{color:#506080;font-family:monospace;font-size:11px;margin-left:auto;}.rp{color:#708090;font-size:11px;width:100%;padding-left:24px;font-style:italic;}.empty{color:#506080;font-style:italic;font-size:13px;}footer{text-align:center;padding:32px 0 16px;color:#303848;font-size:11px;font-family:monospace;letter-spacing:1px;border-top:1px solid #0d1020;margin-top:40px;}\n'+prismCss+'\n</style>\n</head>\n<body>\n<div class="wrap">\n<header>\n<div class="logo">Design Swarm Studio</div>\n<h1>Project Dossier</h1>\n<div class="dt">Generated '+escHtml(dateStr)+'</div>\n</header>\n<div class="brief-box"><div class="bl">Project Brief</div><div class="bt">'+(brief?escHtml(brief):'<span style="color:#506080;font-style:italic">No brief set</span>')+'</div></div>\n<div class="st">Agent Artifacts</div>\n'+agentSections+'\n<div class="st" style="margin-top:32px;">Relay Timeline</div>\n<div class="relay-box">'+relayHtml+'</div>\n<footer>GENERATED BY DESIGN SWARM STUDIO &middot; '+escHtml(dateStr)+'</footer>\n</div>\n</body>\n</html>';
+  }
+
+  // ── Brief title (first line or truncated) ────────────────────────────────────
+  const briefTitle=brief?(brief.split('\n')[0].replace(/^#+\s*/,'').slice(0,80)||'Project Dossier'):'Project Dossier';
+
+  // ── CSS ──────────────────────────────────────────────────────────────────────
+  const CSS='*{box-sizing:border-box;margin:0;padding:0;}'
+    +':root{--bg:#06060f;--bg2:#09091a;--bg3:#0c0c1e;--bdr:#131326;--tx:#c0c8d8;--tx2:#8090a8;--tx3:#404868;--ac:#4a9eea;}'
+    +'body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.7;display:flex;min-height:100vh;}'
+    // Sidebar
+    +'nav{width:210px;min-width:210px;background:var(--bg2);border-right:1px solid var(--bdr);padding:0;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;}'
+    +'.nl{padding:20px 16px 14px;border-bottom:1px solid var(--bdr);font-size:9px;font-family:monospace;color:var(--ac);letter-spacing:2px;text-transform:uppercase;}'
+    +'.ns{padding:16px 16px 8px;font-size:9px;font-family:monospace;color:var(--tx3);letter-spacing:1.5px;text-transform:uppercase;}'
+    +'.tl{display:flex;align-items:center;gap:7px;padding:5px 16px;font-size:11.5px;color:var(--tx2);text-decoration:none;transition:background .1s,color .1s;}'
+    +'.tl:hover{background:var(--bg3);color:var(--tx);}'
+    +'.td{width:6px;height:6px;border-radius:50%;flex-shrink:0;}'
+    // Main
+    +'main{flex:1;max-width:880px;padding:40px 48px 80px;min-width:0;overflow:hidden;}'
+    +'header{margin-bottom:32px;padding-bottom:24px;border-bottom:1px solid var(--bdr);}'
+    +'.ltag{font-size:9px;font-family:monospace;color:var(--ac);letter-spacing:2.5px;text-transform:uppercase;margin-bottom:10px;}'
+    +'.dtitle{font-size:28px;font-weight:700;color:#e8edf5;letter-spacing:-0.5px;line-height:1.2;margin-bottom:4px;}'
+    +'.ddate{font-size:11px;color:var(--tx3);font-family:monospace;}'
+    // Brief
+    +'.bcard{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;padding:20px 24px;margin-bottom:36px;}'
+    +'.blbl{font-size:9px;font-family:monospace;color:var(--ac);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;}'
+    +'.btxt{font-size:13.5px;color:var(--tx2);white-space:pre-wrap;line-height:1.8;}'
+    // Zone
+    +'.zblock{margin-bottom:36px;}'
+    +'.zhdr{font-size:9.5px;font-family:monospace;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid;display:flex;align-items:center;}'
+    // Agent card
+    +'.ac{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;margin-bottom:14px;overflow:hidden;}'
+    +'.ah{display:flex;align-items:center;gap:9px;padding:12px 16px;background:var(--bg3);border-left:3px solid var(--ac);border-bottom:1px solid var(--bdr);}'
+    +'.adot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}'
+    +'.an{font-weight:700;color:#e8edf5;font-size:13px;}'
+    +'.ar{color:var(--ac);font-size:11px;font-family:monospace;margin-left:4px;}'
+    +'.ab{padding:18px 20px;}'
+    // Markdown
+    +'.ab h2{font-size:15px;color:#e8edf5;margin:16px 0 8px;font-weight:600;line-height:1.3;}'
+    +'.ab h3{font-size:13px;color:#d0d8e8;margin:14px 0 6px;font-weight:600;}'
+    +'.ab h4{font-size:12px;color:var(--tx);margin:12px 0 4px;font-weight:600;}'
+    +'.ab p{color:var(--tx2);font-size:13px;margin-bottom:8px;line-height:1.75;}'
+    +'.ab ul,.ab ol{padding-left:22px;margin-bottom:10px;}'
+    +'.ab li{color:var(--tx2);font-size:13px;padding:2px 0;line-height:1.65;}'
+    +'.ab strong{color:#e8edf5;font-weight:600;}'
+    +'.ab em{color:var(--tx2);font-style:italic;}'
+    +'.ab hr{border:none;border-top:1px solid var(--bdr);margin:14px 0;}'
+    +'.ic{background:#04040e;border:1px solid #1a2a3a;color:#4acea0;padding:1px 6px;border-radius:3px;font-size:11.5px;font-family:monospace;}'
+    +'.ab pre{background:#04040e;border:1px solid #0d1a2a;border-radius:6px;padding:14px 16px;overflow-x:auto;margin:10px 0;}'
+    +'.ab pre code{font-family:Consolas,Monaco,"Fira Code",monospace;font-size:12px;line-height:1.65;color:#a8c8e8;background:none;border:none;padding:0;}'
+    +'.lang-tsx,.lang-ts,.lang-js{color:#a8c8e8;}'
+    // YAML table
+    +'.ytbl{width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;}'
+    +'.yk{color:var(--ac);padding:4px 14px 4px 0;width:36%;vertical-align:top;font-weight:600;}'
+    +'.yv{color:var(--tx2);padding:4px 0;vertical-align:top;}'
+    +'.ytbl tr:not(:last-child) td{border-bottom:1px solid var(--bdr);}'
+    // Relay
+    +'.rsec{margin-top:48px;padding-top:28px;border-top:1px solid var(--bdr);}'
+    +'.slbl{font-size:9.5px;font-family:monospace;color:var(--tx3);letter-spacing:2px;text-transform:uppercase;margin-bottom:14px;}'
+    +'.rcard{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;overflow:hidden;}'
+    +'.re{display:flex;align-items:baseline;gap:8px;padding:9px 14px;border-bottom:1px solid var(--bg);font-size:12px;flex-wrap:wrap;}'
+    +'.re:last-child{border-bottom:none;}'
+    +'.rf{color:#e8edf5;font-weight:600;}.ra{color:var(--ac);}.rt{color:#e8edf5;font-weight:600;}.rtm{color:var(--tx3);font-family:monospace;font-size:11px;margin-left:auto;}'
+    +'.rp{color:var(--tx3);font-size:11px;width:100%;padding-left:18px;font-style:italic;}'
+    +'.empty{text-align:center;padding:60px;color:var(--tx3);font-size:13px;}'
+    +'footer{text-align:center;padding:48px 0 20px;color:#1a2030;font-size:10px;font-family:monospace;letter-spacing:1.5px;}'
+    +'@media(max-width:700px){nav{display:none;}main{padding:24px 20px 60px;}}';
+
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>'
+    +'<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    +'<title>Design Swarm Dossier \u2014 '+escHtml(dateStr)+'</title>'
+    +'<style>'+CSS+'</style>'
+    +'</head>\n<body>\n'
+    +'<nav>'
+      +'<div class="nl">\u2736 Design Swarm</div>'
+      +'<div class="ns">Contents</div>'
+      +tocHtml
+    +'</nav>\n'
+    +'<main>\n'
+      +'<header>'
+        +'<div class="ltag">Project Dossier</div>'
+        +'<div class="dtitle">'+escHtml(briefTitle)+'</div>'
+        +'<div class="ddate">Generated '+escHtml(dateStr)+'</div>'
+      +'</header>\n'
+      +(brief?'<div class="bcard"><div class="blbl">\ud83d\udccb Project Brief</div><div class="btxt">'+escHtml(brief)+'</div></div>\n':'')
+      +sectHtml+'\n'
+      +(log.length?'<div class="rsec"><div class="slbl">Relay Timeline</div><div class="rcard">'+relayHtml+'</div></div>\n':'')
+      +'<footer>GENERATED BY DESIGN SWARM STUDIO &middot; '+escHtml(dateStr)+'</footer>\n'
+    +'</main>\n'
+    +'</body>\n</html>';
 }
 
 function downloadDossier(){
