@@ -3881,7 +3881,8 @@ async function generatePrototypeHTML(){
     // Extract HTML from response (strip any markdown fences)
     const m=raw.match(/<!DOCTYPE html[\s\S]*/i)||raw.match(/<html[\s\S]*/i);
     window._prototypeHTML=m?m[0]:raw;
-    showToast('✦ Prototype ready — click ▶ Preview to open');
+    // Wire prototype to banner so user can open with one click (auto-gen can't use window.open)
+    _wireBannerToPrototype(window._prototypeHTML);
     // Patch prototype HTML back into the sprint row
     if(window._sbClient&&window._sbUser&&window._lastSprintId){
       window._sbClient.from('sprints')
@@ -3894,19 +3895,39 @@ async function generatePrototypeHTML(){
     showToast('Prototype generation failed: '+e.message,3000);
   }finally{
     window._prototypeGenerating=false;
-    if(btn){btn.textContent=window._prototypeHTML?'▶ Preview ✓':'▶ Preview';btn.disabled=false;}
+    if(btn){btn.textContent=window._prototypeHTML?'▶ Open Prototype':'▶ Generate Prototype';btn.disabled=false;}
   }
 }
 
 function openPrototypePreview(){
   if(!window._prototypeHTML){
-    // No prototype yet — generate then open
+    // No prototype yet — generate, then show banner (window.open blocked outside direct click)
+    showToast('⏳ Generating prototype…');
     generatePrototypeHTML().then(()=>{
-      if(window._prototypeHTML)_openHtmlBlob(window._prototypeHTML,'prototype');
+      if(!window._prototypeHTML){showToast('Prototype generation failed — check LLM config',3000);return;}
+      _wireBannerToPrototype(window._prototypeHTML);
     });
     return;
   }
+  // Prototype already ready — open directly (this IS a direct click)
   _openHtmlBlob(window._prototypeHTML,'prototype');
+}
+
+// Wire the preview-ready banner to a prototype blob URL and show it
+function _wireBannerToPrototype(html){
+  try{
+    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const link=document.getElementById('preview-ready-link');
+    if(link){link.href=url;link.textContent='';
+      const icon=document.createElement('span');icon.className='prb-icon';icon.textContent='✦';
+      link.appendChild(icon);link.appendChild(document.createTextNode(' Prototype ready — Open'));
+    }
+    const banner=document.getElementById('preview-ready-banner');
+    if(banner)banner.classList.add('show');
+    showToast('✦ Prototype ready — click the banner to open',3000);
+    setTimeout(()=>URL.revokeObjectURL(url),600000);
+  }catch(e){showToast('Preview error: '+e.message,3000);}
 }
 
 function _openHtmlBlob(html,label){
