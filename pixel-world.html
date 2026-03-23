@@ -4336,7 +4336,7 @@ async function sharePrototype(){
           signal:AbortSignal.timeout(30000)
         });
         const data=await resp.json();
-        if(data.ok&&data.url){
+        if(resp.ok&&data.url){
           if(urlInput)urlInput.value=data.url;
           if(statusEl)statusEl.textContent='✓ Permanent link — anyone can open without login.';
           navigator.clipboard.writeText(data.url).catch(()=>{});
