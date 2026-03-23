@@ -134,6 +134,7 @@
   #game-hud .h-zoom{color:#4a9eea;}
   #agent-labels{position:fixed;top:0;left:0;pointer-events:none;z-index:4000;}
   .agent-label{position:absolute;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:10px;font-weight:700;padding:1px 5px 2px;border-radius:8px;background:rgba(8,8,22,0.72);border:1px solid rgba(255,255,255,0.08);white-space:nowrap;transform:translateX(-50%);letter-spacing:0.03em;}
+  .agent-bubble{position:absolute;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:10px;font-weight:500;padding:3px 8px 4px;border-radius:10px;background:rgba(8,8,22,0.88);border:1px solid rgba(255,255,255,0.12);white-space:nowrap;transform:translateX(-50%);letter-spacing:0.01em;color:#e0e0e0;max-width:160px;overflow:hidden;text-overflow:ellipsis;pointer-events:none;opacity:0;transition:opacity 0.3s ease;backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,0.5);}
   #game-zoom-btns{position:fixed;bottom:12px;left:12px;display:flex;gap:4px;z-index:1000;}
   #game-zoom-btns button{background:rgba(10,10,30,0.8);border:1px solid #252548;color:#4a9eea;width:28px;height:28px;cursor:pointer;font-family:monospace;font-size:16px;border-radius:5px;line-height:1;padding:0;transition:border-color 0.15s,background 0.15s;}
   #game-zoom-btns button:hover{border-color:#4a9eea;background:rgba(74,158,234,0.15);}
@@ -3314,13 +3315,12 @@ function fireRelayAnimation(fromAgent,toAgentId){
         onComplete:()=>{
           gfx.destroy();
           // Flash target bubble if it exists
-          if(toData.bubble&&toData.bubbleTxt){
+          if(toData.bubbleEl){
             const art=window._agentArtifacts&&window._agentArtifacts[fromAgent.id];
             const preview=art?art.content.slice(0,40)+'…':'[relay]';
-            toData.bubbleTxt.setText(preview);
-            toData.bubble.setVisible(true);
-            toData.bubbleTxt.setVisible(true);
-            setTimeout(()=>{toData.bubble.setVisible(false);toData.bubbleTxt.setVisible(false);},3000);
+            toData.bubbleEl.textContent=preview;
+            toData.bubbleEl.style.opacity='1';
+            setTimeout(()=>{if(toData.bubbleEl)toData.bubbleEl.style.opacity='0';},3000);
           }
         }
       });
@@ -3380,12 +3380,11 @@ function walkAgentToHandoff(scene,agent,target){
       clearInterval(walkTimer);
       if(agent.spr&&!agent.spr.destroyed)agent.spr.setTexture(agent.id+'_'+agent.walkDir+'_0');
       // Flash target's bubble briefly
-      if(target.bubble&&target.bubbleTxt){
-        target.bubbleTxt.setText('receiving…');
-        scene.tweens.add({targets:target.bubble,alpha:1,duration:200});
+      if(target.bubbleEl){
+        target.bubbleEl.textContent='receiving…';
+        target.bubbleEl.style.opacity='1';
         setTimeout(()=>{
-          if(target.bubble)scene.tweens.add({targets:target.bubble,alpha:0,duration:400});
-          if(target.bubbleTxt)target.bubbleTxt.setText((AGENT_THOUGHTS[target.id]||['...'])[0]);
+          if(target.bubbleEl){target.bubbleEl.style.opacity='0';target.bubbleEl.textContent=(AGENT_THOUGHTS[target.id]||['...'])[0];}
         },1500);
       }
       // Walk back home after 700ms
@@ -6223,14 +6222,18 @@ class GameScene extends Phaser.Scene{
       if(!a.noCollide) this.colliders.push({x:a.tx,y:a.ty});
     });
 
-    // --- Speech Bubbles (proximity thoughts) ---
+    // --- Speech Bubbles (proximity thoughts) — DOM overlay for crisp text ---
     this.agents.forEach(a=>{
       const thoughts=AGENT_THOUGHTS[a.id]||['...'];
-      const bub=this.add.container(a.spr.x,a.spr.y-26).setDepth(150000).setAlpha(0);
-      const bg=this.add.rectangle(0,0,86,14,0x0a0a2e,0.92).setStrokeStyle(1,a.zc);
-      const txt=this.add.text(0,0,thoughts[0],{fontSize:'5px',fontFamily:'monospace',color:'#e0e0e0',resolution:2}).setOrigin(0.5);
-      bub.add([bg,txt]);
-      a.bubble=bub;a.bubbleTxt=txt;a.thoughtIdx=0;a.thoughtTimer=0;a.inRange=false;
+      const bubEl=document.createElement('div');
+      bubEl.className='agent-bubble';
+      bubEl.textContent=thoughts[0];
+      bubEl.style.borderColor=hex(a.zc)+'44';
+      document.getElementById('agent-labels').appendChild(bubEl);
+      a.bubble=null; // no Phaser object
+      a.bubbleEl=bubEl;
+      a.bubbleTxt={setText:t=>{bubEl.textContent=t;}}; // shim for existing setText calls
+      a.thoughtIdx=0;a.thoughtTimer=0;a.inRange=false;
     });
 
     // --- Player ---
@@ -6539,7 +6542,7 @@ class GameScene extends Phaser.Scene{
       const inRange=dist<3*TILE;
       if(inRange!==a.inRange){
         a.inRange=inRange;
-        if(a.bubble)this.tweens.add({targets:a.bubble,alpha:inRange?1:0,duration:300});
+        if(a.bubbleEl)a.bubbleEl.style.opacity=inRange?'1':'0';
         const thoughts=AGENT_THOUGHTS[a.id]||['...'];
         if(inRange)speakWhisper(thoughts[a.thoughtIdx||0]);
       }
@@ -6580,15 +6583,7 @@ class GameScene extends Phaser.Scene{
 
     // --- HUD (HTML) --- zone/coord/time removed in UX Phase 1
 
-    // --- Update thought bubbles to follow agents ---
-    this.agents.forEach(a=>{
-      if(a.bubble){
-        a.bubble.x=a.spr.x;
-        a.bubble.y=a.spr.y-26;
-      }
-    });
-
-    // --- Agent Labels (HTML overlay, crisp text) ---
+    // --- Agent Labels + Thought Bubbles (HTML overlay, crisp text) ---
     const cam=this.cameras.main;
     const cvs=this.game.canvas;
     const rect=cvs.getBoundingClientRect();
@@ -6599,6 +6594,11 @@ class GameScene extends Phaser.Scene{
       const sy=(a.spr.y-cam.scrollY)*cam.zoom*scaleY+rect.top-16*cam.zoom*scaleY+(a.labelYOff||0);
       a.labelEl.style.left=sx.toFixed(0)+'px';
       a.labelEl.style.top=sy.toFixed(0)+'px';
+      // Position bubble above the name label
+      if(a.bubbleEl){
+        a.bubbleEl.style.left=sx.toFixed(0)+'px';
+        a.bubbleEl.style.top=(parseFloat(sy)-22).toFixed(0)+'px';
+      }
     });
   }
 }
@@ -6862,11 +6862,12 @@ function handleAgentImport(event){
         labelEl.style.color='#'+agentDef.zc.toString(16).padStart(6,'0');
         document.getElementById('agent-labels').appendChild(labelEl);
         AGENT_THOUGHTS[newId]=['Ask me anything!','Ready to help!','Imported agent here.'];
-        const bub=scene.add.container(spr.x,spr.y-26).setDepth(150000).setAlpha(0);
-        const bg=scene.add.rectangle(0,0,86,14,0x0a0a2e,0.92).setStrokeStyle(1,agentDef.zc);
-        const btxt=scene.add.text(0,0,'Ready!',{fontSize:'5px',fontFamily:'monospace',color:'#e0e0e0',resolution:2}).setOrigin(0.5);
-        bub.add([bg,btxt]);
-        const agentRuntime=Object.assign({},agentDef,{spr,labelEl,bubble:bub,bubbleTxt:btxt,
+        const bubEl=document.createElement('div');
+        bubEl.className='agent-bubble';bubEl.textContent='Ready!';
+        bubEl.style.borderColor='#'+agentDef.zc.toString(16).padStart(6,'0')+'44';
+        document.getElementById('agent-labels').appendChild(bubEl);
+        const agentRuntime=Object.assign({},agentDef,{spr,labelEl,bubble:null,bubbleEl:bubEl,
+          bubbleTxt:{setText:t=>{bubEl.textContent=t;}},
           thoughtIdx:0,thoughtTimer:0,inRange:false,animTimer:0,animFrame:0,dir:'down',
           homeX:agentDef.tx*TILE+TILE/2,homeY:agentDef.ty*TILE+TILE/2,
           walking:false,walkDir:agentDef.facing||'down'});
@@ -6967,14 +6968,14 @@ function addNewAgent(){
     labelEl.textContent=stub.name;
     labelEl.style.color='#'+stub.zc.toString(16).padStart(6,'0');
     document.getElementById('agent-labels').appendChild(labelEl);
-    // Thought bubble (Phaser container — must exist or update loop crashes on bubbleTxt.setText)
+    // Thought bubble — DOM overlay for crisp text
     AGENT_THOUGHTS[newId]=['Working on it...','Ready to help!','Ask me anything'];
-    const bub=scene.add.container(spr.x,spr.y-26).setDepth(150000).setAlpha(0);
-    const bg=scene.add.rectangle(0,0,86,14,0x0a0a2e,0.92).setStrokeStyle(1,stub.zc);
-    const btxt=scene.add.text(0,0,'Working on it...',{fontSize:'5px',fontFamily:'monospace',color:'#e0e0e0',resolution:2}).setOrigin(0.5);
-    bub.add([bg,btxt]);
+    const bubEl=document.createElement('div');
+    bubEl.className='agent-bubble';bubEl.textContent='Working on it...';
+    bubEl.style.borderColor='#'+stub.zc.toString(16).padStart(6,'0')+'44';
+    document.getElementById('agent-labels').appendChild(bubEl);
     const agentRuntime=Object.assign({},stub,{spr,labelEl,
-      bubble:bub,bubbleTxt:btxt,            // correct property name used by update loop
+      bubble:null,bubbleEl:bubEl,bubbleTxt:{setText:t=>{bubEl.textContent=t;}},
       thoughtIdx:0,thoughtTimer:0,inRange:false,
       animTimer:0,animFrame:0,dir:'down',
       homeX:stub.tx*TILE+TILE/2,homeY:stub.ty*TILE+TILE/2,
