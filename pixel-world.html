@@ -4058,7 +4058,7 @@ function generateDossierHTMLWithActions(){
   <button class="dab-close" onclick="dabClose()">✕</button>
   <div id="dab-share">
     <h3>🔗 Shareable Link</h3>
-    <p>Creates a link to this dossier. Temporary links work only while this tab is open. For permanent links, connect Supabase Storage in the main app.</p>
+    <p>Uploads to your Supabase Storage and creates a permanent public link — no extra setup needed.</p>
     <input id="dab-url" class="dab-input" readonly placeholder="Click Generate to create a link…">
     <div class="dab-row">
       <button class="dab-btn dab-green" onclick="dabGenLink()" style="flex:1">Generate Link</button>
@@ -4186,6 +4186,24 @@ window.dabToggle=dabToggle;window.dabClose=dabClose;window.dabGenLink=dabGenLink
 }
 
 // Upload dossier HTML to Supabase Storage and return a permanent public URL
+// Upload HTML to Supabase Storage — auto-creates the 'dossiers' bucket if missing
+async function sbStorageUpload(html, filePrefix){
+  if(!window._sbClient||!window._sbUser)throw new Error('Supabase not connected');
+  const d=new Date();
+  const fileName='dossiers/'+window._sbUser.id+'/'+filePrefix+'-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'-'+Date.now()+'.html';
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  let {error}=await window._sbClient.storage.from('dossiers').upload(fileName,blob,{upsert:true,cacheControl:'3600'});
+  // If bucket doesn't exist, create it as public then retry once
+  if(error&&(error.message?.includes('not found')||error.statusCode==='404'||error.error==='Bucket not found')){
+    await window._sbClient.storage.createBucket('dossiers',{public:true});
+    ({error}=await window._sbClient.storage.from('dossiers').upload(fileName,blob,{upsert:true,cacheControl:'3600'}));
+  }
+  if(error)throw new Error(error.message||'Upload failed');
+  const{data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
+  if(!pub?.publicUrl)throw new Error('Could not get public URL');
+  return pub.publicUrl;
+}
+
 async function shareDossier(){
   const btn=document.getElementById('board-share-btn');
   const statusEl=document.getElementById('share-status');
@@ -4229,31 +4247,26 @@ async function shareDossier(){
       }
     }
 
-    // ── Option B: Supabase Storage (if connected + signed in) ────────────────
+    // ── Option B: Supabase Storage — uses your connected Supabase, auto-creates bucket ──
     if(window._sbClient&&window._sbUser){
-      const d=new Date();
-      const fileName='dossiers/'+window._sbUser.id+'/dossier-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'-'+Date.now()+'.html';
-      const {error}=await window._sbClient.storage
-        .from('dossiers')
-        .upload(fileName,new Blob([html],{type:'text/html;charset=utf-8'}),{upsert:true,cacheControl:'3600'});
-      if(!error){
-        const {data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
-        if(pub&&pub.publicUrl){
-          if(urlInput)urlInput.value=pub.publicUrl;
-          if(statusEl)statusEl.textContent='✓ Uploaded to Supabase. Link is permanent.';
-          navigator.clipboard.writeText(pub.publicUrl).catch(()=>{});
-          showToast('🔗 Share link copied to clipboard');
-          if(btn)btn.disabled=false;
-          return;
-        }
+      try{
+        if(statusEl)statusEl.textContent='Uploading…';
+        const publicUrl=await sbStorageUpload(html,'dossier');
+        if(urlInput)urlInput.value=publicUrl;
+        if(statusEl)statusEl.textContent='✓ Permanent link — anyone can open this.';
+        navigator.clipboard.writeText(publicUrl).catch(()=>{});
+        showToast('🔗 Permanent link copied!');
+        if(btn)btn.disabled=false;
+        return;
+      }catch(sbErr){
+        if(statusEl)statusEl.textContent='Upload error: '+sbErr.message+' — using temporary link…';
       }
-      if(statusEl)statusEl.textContent='Supabase upload failed — generating local link…';
     }
 
     // ── Option C: Blob URL — last resort, current tab only ───────────────────
     const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
     if(urlInput)urlInput.value=blobUrl;
-    if(statusEl)statusEl.textContent='⚠ Temporary — only works in this tab. To get permanent links: add your Worker URL in ⚙ Settings, then run "wrangler kv:namespace create SHARES" and redeploy.';
+    if(statusEl)statusEl.textContent='⚠ Temporary — only works while this tab is open.';
     navigator.clipboard.writeText(blobUrl).catch(()=>{});
     showToast('Preview link copied (temporary)');
   }catch(e){
@@ -4319,31 +4332,26 @@ async function sharePrototype(){
 
     // ── Option B: Supabase Storage ───────────────────────────────────────────
     if(window._sbClient&&window._sbUser){
-      const d=new Date();
-      const fileName='dossiers/'+window._sbUser.id+'/prototype-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'-'+Date.now()+'.html';
-      const{error}=await window._sbClient.storage
-        .from('dossiers')
-        .upload(fileName,new Blob([html],{type:'text/html;charset=utf-8'}),{upsert:true,cacheControl:'3600'});
-      if(!error){
-        const{data:pub}=window._sbClient.storage.from('dossiers').getPublicUrl(fileName);
-        if(pub&&pub.publicUrl){
-          if(urlInput)urlInput.value=pub.publicUrl;
-          if(statusEl)statusEl.textContent='✓ Uploaded to Supabase. Link is permanent.';
-          navigator.clipboard.writeText(pub.publicUrl).catch(()=>{});
-          showToast('🔗 Prototype link copied to clipboard');
-          if(btn)btn.disabled=false;
-          return;
-        }
+      try{
+        if(statusEl)statusEl.textContent='Uploading prototype…';
+        const publicUrl=await sbStorageUpload(html,'prototype');
+        if(urlInput)urlInput.value=publicUrl;
+        if(statusEl)statusEl.textContent='✓ Permanent link — anyone can open this.';
+        navigator.clipboard.writeText(publicUrl).catch(()=>{});
+        showToast('🔗 Permanent prototype link copied!');
+        if(btn)btn.disabled=false;
+        return;
+      }catch(sbErr){
+        if(statusEl)statusEl.textContent='Upload error: '+sbErr.message+' — using temporary link…';
       }
-      if(statusEl)statusEl.textContent='Supabase upload failed — using temporary link…';
     }
 
     // ── Option C: Blob URL fallback ──────────────────────────────────────────
     const blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
     if(urlInput)urlInput.value=blobUrl;
-    if(statusEl)statusEl.textContent='⚠ Temporary — only works in this tab. Add Worker URL in ⚙ Settings for permanent links.';
+    if(statusEl)statusEl.textContent='⚠ Temporary — only works while this tab is open.';
     navigator.clipboard.writeText(blobUrl).catch(()=>{});
-    showToast('Prototype link copied (temporary — tab only)');
+    showToast('Prototype link copied (temporary)');
   }catch(e){
     if(statusEl)statusEl.textContent='✗ Error: '+e.message;
     showToast('Share failed: '+e.message);
