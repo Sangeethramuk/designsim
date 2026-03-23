@@ -3898,9 +3898,10 @@ async function generatePrototypeHTML(){
     }else{
       throw new Error('No LLM configured — add API key in ⚙ Settings');
     }
-    // Extract HTML from response (strip any markdown fences)
-    const m=raw.match(/<!DOCTYPE html[\s\S]*/i)||raw.match(/<html[\s\S]*/i);
-    window._prototypeHTML=m?m[0]:raw;
+    // Extract HTML — strip markdown fences first (LLMs often wrap output in ```html ... ```)
+    const stripped=raw.replace(/^```(?:html)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+    const m=stripped.match(/<!DOCTYPE html[\s\S]*/i)||stripped.match(/<html[\s\S]*/i);
+    window._prototypeHTML=m?m[0]:stripped;
     // Wire prototype to banner so user can open with one click (auto-gen can't use window.open)
     _wireBannerToPrototype(window._prototypeHTML);
     // Patch prototype HTML back into the sprint row
@@ -4736,7 +4737,10 @@ async function _expandSprintCard(card,sprintId){
   if(expandEl.style.display!=='none'){expandEl.style.display='none';return;}
   expandEl.style.display='block';
   expandEl.innerHTML='<div style="font-size:10px;color:#555;font-family:monospace;">Loading outputs…</div>';
-  const outputs=await sbLoadSprintOutputs(sprintId);
+  const [outputs, {data:sprintRow}] = await Promise.all([
+    sbLoadSprintOutputs(sprintId),
+    window._sbClient.from('sprints').select('prototype_html').eq('id',sprintId).maybeSingle().catch(()=>({data:null}))
+  ]);
   if(!outputs.length){expandEl.innerHTML='<div style="font-size:10px;color:#555;">No outputs stored.</div>';return;}
   const agentColors={scout:'#4a9eea',scholar:'#4a9eea',palette:'#4acea0',flow:'#4acea0',blueprint:'#4acea0',forge:'#4acea0',lens:'#e879f9',eye:'#e879f9',mirror:'#e879f9',council:'#f6ad55',weaver:'#f6ad55',gate:'#f6ad55',check:'#f6ad55',lead:'#ffd700'};
   expandEl.innerHTML=outputs.map(o=>{
@@ -4751,6 +4755,14 @@ async function _expandSprintCard(card,sprintId){
       +'onclick="(function(el){el.style.maxHeight=el.style.maxHeight===\'none\'?\'120px\':\'none\';})(document.getElementById(\''+eid+'\'))">'+preview+(full.length>300?'\n…':'')+'</div>'
       +'</div>';
   }).join('');
+  // Show "View Prototype" button if prototype_html was saved for this sprint
+  if(sprintRow?.prototype_html){
+    const protoBtn=document.createElement('button');
+    protoBtn.textContent='▶ View Prototype';
+    protoBtn.style.cssText='margin-top:8px;padding:5px 12px;font-size:10px;background:#061a10;border:1px solid rgba(74,206,160,0.4);color:#4acea0;border-radius:4px;cursor:pointer;font-family:monospace;width:100%;';
+    protoBtn.onclick=()=>{window._prototypeHTML=sprintRow.prototype_html;_showPrototypeModal(sprintRow.prototype_html);};
+    expandEl.appendChild(protoBtn);
+  }
 }
 
 // --- Phase 5: Sprint Comparison ---
@@ -5067,7 +5079,29 @@ function sbLoadAll(){
   // Load memories, profile, and agent config independently so a main-chain error can't block them
   .finally(()=>sbLoadMemories().catch(e=>console.warn('sbLoadMemories failed:',e)))
   .finally(()=>sbLoadUserProfile().catch(e=>console.warn('sbLoadUserProfile failed:',e)))
-  .finally(()=>sbLoadAgentConfig().catch(e=>console.warn('sbLoadAgentConfig failed:',e)));
+  .finally(()=>sbLoadAgentConfig().catch(e=>console.warn('sbLoadAgentConfig failed:',e)))
+  // Restore the latest prototype HTML so it survives page refresh
+  .finally(()=>{
+    if(!window._sbClient||!window._sbUser)return;
+    window._sbClient.from('sprints')
+      .select('id,prototype_html,brief,sprint_number')
+      .eq('user_id',window._sbUser.id)
+      .not('prototype_html','is',null)
+      .order('created_at',{ascending:false})
+      .limit(1)
+      .maybeSingle()
+      .then(({data})=>{
+        if(data?.prototype_html){
+          window._prototypeHTML=data.prototype_html;
+          window._lastSprintId=data.id;
+          _wireBannerToPrototype(window._prototypeHTML);
+          const btn=document.getElementById('board-preview-btn');
+          if(btn)btn.textContent='▶ Open Prototype';
+          console.info('[SB] Restored prototype from sprint',data.sprint_number,'('+data.id+')');
+        }
+      })
+      .catch(e=>console.warn('prototype restore failed:',e?.message));
+  });
 }
 // Rebuild per-agent chat HTML from session data using safe DOM methods (no innerHTML from DB)
 function rebuildAgentMessages(){
