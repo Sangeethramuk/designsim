@@ -4411,19 +4411,37 @@ function loadSprintHistory(){
 
 function saveSprintSnapshot(){
   if(!window._agentArtifacts)return;
+  // Truncated copy for localStorage (2000 chars each — browser budget)
   const arts={};
+  // Full copy for Supabase (no limit)
+  const fullArts={};
   AGENTS.forEach(a=>{
     const art=window._agentArtifacts[a.id];
-    if(art&&art.content)arts[a.id]=art.content.slice(0,2000);
+    if(art&&art.content){
+      arts[a.id]=art.content.slice(0,2000);
+      fullArts[a.id]=art; // full artifact object
+    }
   });
-  if(!Object.keys(arts).length)return; // nothing to save
-  const snap={n:window._sprintNumber||1,brief:window._projectBrief||'',
-    iterationNote:window._iterationNote||null,timestamp:Date.now(),artifacts:arts};
+  if(!Object.keys(arts).length)return;
+  const snap={
+    n:window._sprintNumber||1,
+    brief:window._projectBrief||'',
+    iterationNote:window._iterationNote||null,
+    timestamp:Date.now(),
+    artifacts:arts,
+    fullArtifacts:fullArts,
+    model:AGENTS.find(a=>a.brain)?.brain||null,
+    agentCount:Object.keys(arts).length,
+    critiqueScore:window._critiqueScore||null,
+    durationMs:window._swarmStartTime?Date.now()-window._swarmStartTime:null
+  };
   window._sprintHistory=(window._sprintHistory||[]).filter(s=>s.n!==snap.n);
   window._sprintHistory.push(snap);
   if(window._sprintHistory.length>5)window._sprintHistory=window._sprintHistory.slice(-5);
   try{localStorage.setItem('swarm_sprint_history',JSON.stringify(window._sprintHistory));}catch(e){}
   try{localStorage.setItem('swarm_sprint_number',String(window._sprintNumber||1));}catch(e){}
+  // Save full outputs to Supabase asynchronously
+  sbSaveSprint(snap).catch(e=>console.warn('[SB] sbSaveSprint failed:',e?.message));
 }
 
 function updateSprintBadge(){
@@ -4488,12 +4506,26 @@ function startIteration(){
 function renderSprintHistoryTab(){
   const list=document.getElementById('board-history-list');
   if(!list)return;
+  // Show loading state, then try Supabase first
+  list.innerHTML='<div style="font-size:11px;color:#2a2a4a;padding:18px;text-align:center;font-family:monospace;">Loading history…</div>';
+  if(window._sbClient&&window._sbUser){
+    sbLoadSprints().then(rows=>{
+      if(rows&&rows.length)_renderHistoryFromSupabase(list,rows);
+      else _renderHistoryFromLocal(list);
+    }).catch(()=>_renderHistoryFromLocal(list));
+  }else{
+    _renderHistoryFromLocal(list);
+  }
+}
+
+function _renderHistoryFromLocal(list){
   const hist=(window._sprintHistory||[]).slice().reverse();
   if(!hist.length){
     list.innerHTML='<div style="font-size:11px;color:#2a2a4a;padding:18px;text-align:center;font-family:monospace;">No sprint history yet.<br>Complete a swarm sprint to begin.</div>';
     return;
   }
-  list.innerHTML=hist.map(s=>{
+  list.innerHTML='<div style="font-size:9px;color:#444;padding:8px 12px;font-family:monospace;">💾 Local only — connect Supabase for full analytics</div>'+
+  hist.map(s=>{
     const date=new Date(s.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     const artCount=Object.keys(s.artifacts||{}).length;
     return'<div class="sprint-hist-card">'+
@@ -4502,6 +4534,62 @@ function renderSprintHistoryTab(){
       (s.iterationNote?'<div class="sprint-hist-note">↩ '+escHtml(s.iterationNote.slice(0,80))+'</div>':'')+
       '<div class="sprint-hist-meta">'+artCount+' artifacts · '+escHtml(date)+'</div>'+
       '</div>';
+  }).join('');
+}
+
+function _renderHistoryFromSupabase(list,sprints){
+  const agentColors={scout:'#4a9eea',scholar:'#4a9eea',palette:'#4acea0',flow:'#4acea0',blueprint:'#4acea0',forge:'#4acea0',lens:'#e879f9',eye:'#e879f9',mirror:'#e879f9',council:'#f6ad55',weaver:'#f6ad55',gate:'#f6ad55',check:'#f6ad55',lead:'#ffd700'};
+  const rows=sprints.map(s=>{
+    const date=new Date(s.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const dur=s.duration_ms?Math.round(s.duration_ms/1000)+'s':'—';
+    const score=s.critique_score?'★ '+s.critique_score+'/10':'';
+    const iterTag=s.iteration_note
+      ?'<span style="background:#1a1a3a;color:#f6ad55;padding:2px 6px;border-radius:4px;font-size:9px;">↩ iteration</span>'
+      :'<span style="background:#0a2a0a;color:#4acea0;padding:2px 6px;border-radius:4px;font-size:9px;">✦ initial</span>';
+    // Agent output dots row
+    const agentDots=(s.agent_ids||[]).map(id=>{
+      const c=agentColors[id]||'#555';
+      return'<span title="'+escHtml(id)+'" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+c+';margin-right:2px;"></span>';
+    }).join('');
+    return'<div class="sprint-hist-card" style="cursor:pointer;" onclick="_expandSprintCard(this,\''+escHtml(s.id)+'\')">'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
+      +'<span style="font-size:12px;font-weight:700;color:#ccc;">Sprint '+s.sprint_number+'</span>'
+      +iterTag
+      +(score?'<span style="margin-left:auto;font-size:10px;color:#ffd700;">'+escHtml(score)+'</span>':'')
+      +'</div>'
+      +'<div style="font-size:11px;color:#8888aa;margin-bottom:6px;line-height:1.4;">'+escHtml((s.brief||'No brief').slice(0,120))+(s.brief&&s.brief.length>120?'…':'')+'</div>'
+      +(s.iteration_note?'<div style="font-size:10px;color:#f6ad55;margin-bottom:6px;">↩ '+escHtml(s.iteration_note.slice(0,80))+'</div>':'')
+      +'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
+      +'<span style="font-size:9px;color:#555;">'+agentDots+'</span>'
+      +'<span style="font-size:9px;color:#444;margin-left:auto;">'+escHtml(date)+(dur!=='—'?' · '+dur:'')+'</span>'
+      +'</div>'
+      +'<div class="sprint-hist-expand" id="expand-'+escHtml(s.id)+'" style="display:none;margin-top:12px;border-top:1px solid #1a1a2a;padding-top:10px;"></div>'
+      +'</div>';
+  }).join('');
+  list.innerHTML='<div style="font-size:9px;color:#4acea0;padding:6px 12px;font-family:monospace;">✓ Supabase — '+sprints.length+' sprints stored</div>'+rows;
+}
+
+// Expand a sprint card to show all agent outputs
+async function _expandSprintCard(card,sprintId){
+  const expandEl=document.getElementById('expand-'+sprintId);
+  if(!expandEl)return;
+  if(expandEl.style.display!=='none'){expandEl.style.display='none';return;}
+  expandEl.style.display='block';
+  expandEl.innerHTML='<div style="font-size:10px;color:#555;font-family:monospace;">Loading outputs…</div>';
+  const outputs=await sbLoadSprintOutputs(sprintId);
+  if(!outputs.length){expandEl.innerHTML='<div style="font-size:10px;color:#555;">No outputs stored.</div>';return;}
+  const agentColors={scout:'#4a9eea',scholar:'#4a9eea',palette:'#4acea0',flow:'#4acea0',blueprint:'#4acea0',forge:'#4acea0',lens:'#e879f9',eye:'#e879f9',mirror:'#e879f9',council:'#f6ad55',weaver:'#f6ad55',gate:'#f6ad55',check:'#f6ad55',lead:'#ffd700'};
+  expandEl.innerHTML=outputs.map(o=>{
+    const c=agentColors[o.agent_id]||'#888';
+    const qs=o.quality_score?'<span style="color:#ffd700;font-size:9px;float:right;">★ '+o.quality_score+'</span>':'';
+    const preview=escHtml((o.content||'').slice(0,300));
+    const full=escHtml((o.content||''));
+    const eid='out-'+sprintId+'-'+o.agent_id;
+    return'<div style="margin-bottom:10px;">'
+      +'<div style="font-size:10px;font-weight:700;color:'+c+';margin-bottom:4px;">'+escHtml(o.agent_name||o.agent_id)+qs+'</div>'
+      +'<div id="'+eid+'" style="font-size:10px;color:#7a7a9a;line-height:1.5;white-space:pre-wrap;font-family:monospace;background:#0a0a14;padding:8px;border-radius:6px;max-height:120px;overflow:hidden;cursor:pointer;" '
+      +'onclick="(function(el){el.style.maxHeight=el.style.maxHeight===\'none\'?\'120px\':\'none\';})(document.getElementById(\''+eid+'\'))">'+preview+(full.length>300?'\n…':'')+'</div>'
+      +'</div>';
   }).join('');
 }
 
@@ -4714,6 +4802,85 @@ function sbSaveBrief(text){
   if(!window._sbClient||!window._sbUser)return;
   window._sbClient.from('briefs').upsert({user_id:window._sbUser.id,content:text||null,updated_at:new Date().toISOString()},{onConflict:'user_id'}).then(null,e=>console.warn('[SB] brief save:',e?.message));
 }
+
+// ─── Sprint Analytics Persistence ─────────────────────────────────────────────
+// Saves full sprint run (untruncated) to sprints + sprint_outputs tables.
+// Schema: supabase/sprint-analytics.sql
+async function sbSaveSprint(snap){
+  if(!window._sbClient||!window._sbUser)return;
+  const uid=window._sbUser.id;
+  try{
+    // Build sprint row
+    const sprintRow={
+      user_id:uid,
+      sprint_number:snap.n||1,
+      brief:snap.brief||null,
+      iteration_note:snap.iterationNote||null,
+      model:snap.model||null,
+      agent_count:snap.agentCount||0,
+      critique_score:snap.critiqueScore||null,
+      duration_ms:snap.durationMs||null,
+      prototype_html:window._prototypeHTML||null,
+      created_at:new Date(snap.timestamp||Date.now()).toISOString()
+    };
+    const {data:sprintData,error:sprintErr}=await window._sbClient
+      .from('sprints').insert(sprintRow).select('id').single();
+    if(sprintErr){console.warn('[SB] sprint insert:',sprintErr.message);return;}
+    const sprintId=sprintData.id;
+    // Build output rows — FULL content, no truncation
+    const outputRows=[];
+    AGENTS.forEach(a=>{
+      const art=(snap.fullArtifacts||{})[a.id]||(snap.artifacts||{})[a.id];
+      if(!art)return;
+      const content=typeof art==='string'?art:art.content||'';
+      if(!content)return;
+      outputRows.push({
+        sprint_id:sprintId,user_id:uid,
+        agent_id:a.id,agent_name:a.name,agent_role:a.role,
+        artifact_type:(typeof art==='object'?art.type:null)||'text',
+        content,
+        quality_score:computeQualityScore(content)||null
+      });
+    });
+    if(outputRows.length){
+      const{error:outErr}=await window._sbClient.from('sprint_outputs').insert(outputRows);
+      if(outErr)console.warn('[SB] sprint_outputs insert:',outErr.message);
+    }
+    console.log('[SB] Sprint',snap.n,'saved → id:',sprintId,'outputs:',outputRows.length);
+    showToast('📊 Sprint '+snap.n+' saved to Supabase ('+outputRows.length+' outputs)',2500);
+  }catch(e){console.warn('[SB] sbSaveSprint error:',e?.message);}
+}
+
+// Load all sprints for the current user from Supabase
+async function sbLoadSprints(){
+  if(!window._sbClient||!window._sbUser)return[];
+  try{
+    const{data,error}=await window._sbClient
+      .from('sprints')
+      .select('id,sprint_number,brief,iteration_note,model,agent_count,critique_score,duration_ms,created_at')
+      .eq('user_id',window._sbUser.id)
+      .order('created_at',{ascending:false})
+      .limit(50);
+    if(error){console.warn('[SB] sbLoadSprints:',error.message);return[];}
+    return data||[];
+  }catch(e){console.warn('[SB] sbLoadSprints error:',e?.message);return[];}
+}
+
+// Load all outputs for a specific sprint
+async function sbLoadSprintOutputs(sprintId){
+  if(!window._sbClient||!window._sbUser)return[];
+  try{
+    const{data,error}=await window._sbClient
+      .from('sprint_outputs')
+      .select('agent_id,agent_name,agent_role,artifact_type,content,quality_score')
+      .eq('sprint_id',sprintId)
+      .order('agent_id');
+    if(error){console.warn('[SB] sbLoadSprintOutputs:',error.message);return[];}
+    return data||[];
+  }catch(e){console.warn('[SB] sbLoadSprintOutputs error:',e?.message);return[];}
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function sbLoadAll(){
   if(!window._sbClient||!window._sbUser)return Promise.resolve();
   const uid=window._sbUser.id;
@@ -5372,6 +5539,7 @@ async function runSwarm(){
   if(window._swarmRunning){window._swarmAbort=true;return;}
   window._swarmRunning=true;window._swarmAbort=false;
   window._prototypeHTML=null;window._prototypeGenerating=false; // reset for new sprint
+  window._swarmStartTime=Date.now(); // track duration
   window._revisionCount=0;window._critiqueScore=null;window._lastToastedPhase=-1;
   updateSwarmBtn();
   let done=0;
