@@ -392,10 +392,18 @@
   #board-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:9000;display:none;flex-direction:column;align-items:center;justify-content:flex-start;padding:24px 16px;overflow-y:auto;}
   #board-overlay.active{display:flex;}
   #board-panel{width:100%;max-width:860px;}
-  #board-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;}
+  #board-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;}
   #board-title{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;letter-spacing:0.5px;}
-  #board-brief-text{font-size:11px;color:#666;margin-top:4px;max-width:540px;line-height:1.5;}
   #board-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap;}
+  /* Brief section — sits between header and tabs, outside the header row */
+  #board-brief-section{background:#060614;border:1px solid #0d1a2a;border-radius:5px;padding:9px 13px 6px;margin-bottom:12px;display:none;}
+  #board-brief-section.has-brief{display:block;}
+  #board-brief-label{font-size:9px;font-family:monospace;color:#4a6a8a;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
+  #board-brief-text{font-size:10.5px;color:#778;line-height:1.55;max-height:2.9em;overflow:hidden;transition:max-height 0.25s ease;}
+  #board-brief-text.expanded{max-height:180px;overflow-y:auto;}
+  #board-brief-text::-webkit-scrollbar{width:3px;}#board-brief-text::-webkit-scrollbar-thumb{background:#1a2a3a;}
+  #board-brief-toggle{background:none;border:none;color:#4a6a8a;font-size:9px;cursor:pointer;font-family:monospace;padding:3px 0 0;display:block;letter-spacing:0.5px;}
+  #board-brief-toggle:hover{color:#4a9eea;}
   .board-action-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:7px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
   .board-action-btn:hover{background:#102030;border-color:#4a9eea;}
   #board-download-btn{background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;}
@@ -3583,9 +3591,18 @@ function openBoard(){
   updateModePills(true);
   // Always open on Agents tab, reset badge
   switchBoardTab('agents');
-  // Update brief display + sprint badge
+  // Update brief strip — separate section below the header
   const briefEl=document.getElementById('board-brief-text');
-  if(briefEl)briefEl.textContent=window._projectBrief||'No brief set. Press Tab again or click the brief in the HUD to add one.';
+  const briefSection=document.getElementById('board-brief-section');
+  const briefToggle=document.getElementById('board-brief-toggle');
+  if(briefEl){
+    const hasBrief=!!(window._projectBrief&&window._projectBrief.trim().length>0);
+    briefEl.textContent=hasBrief?window._projectBrief:'No brief set — press Tab and add one.';
+    // Reset expand state each open
+    briefEl.classList.remove('expanded');
+    if(briefToggle)briefToggle.textContent='▾ more';
+    if(briefSection)briefSection.classList.toggle('has-brief',true);
+  }
   updateSprintBadge();
   renderBoardGrid();
   document.getElementById('board-overlay').classList.add('active');
@@ -6399,10 +6416,7 @@ function saveAgent(){
 <div id="board-overlay">
   <div id="board-panel">
     <div id="board-header">
-      <div>
-        <div id="board-title">Design Swarm — Project Board <span id="board-sprint-badge" class="board-sprint-badge">Sprint 1</span></div>
-        <div id="board-brief-text"></div>
-      </div>
+      <div id="board-title">Design Swarm — Project Board <span id="board-sprint-badge" class="board-sprint-badge">Sprint 1</span></div>
       <div id="board-actions">
         <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
         <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint with a new directive">↩ Iterate</button>
@@ -6417,6 +6431,12 @@ function saveAgent(){
         <button class="board-action-btn" onclick="pushToFigma()" style="color:#e879f9;border-color:rgba(232,121,249,0.35);background:#120a18">⟶ Figma</button>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
       </div>
+    </div>
+    <!-- Brief strip — outside header, collapses to 2 lines -->
+    <div id="board-brief-section">
+      <div id="board-brief-label">📋 Brief</div>
+      <div id="board-brief-text"></div>
+      <button id="board-brief-toggle" onclick="(function(){var t=document.getElementById('board-brief-text'),b=document.getElementById('board-brief-toggle');t.classList.toggle('expanded');b.textContent=t.classList.contains('expanded')?'▴ less':'▾ more';})()">▾ more</button>
     </div>
     <div id="board-tabs">
       <button class="board-tab active" id="tab-agents" onclick="switchBoardTab('agents')">⊞ Agents</button>
