@@ -4,9 +4,8 @@
     {
       "name": "pixel-world",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "."],
-      "port": 3000,
-      "autoPort": true
+      "runtimeArgs": ["serve", ".", "--no-port-switching"],
+      "port": 3001
     }
   ]
 }

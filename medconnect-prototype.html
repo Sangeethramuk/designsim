@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MedConnect — Prototype</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+  body { background: #0d0d14; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; gap: 32px; flex-wrap: wrap; }
+
+  /* Phone shell */
+  .phone { width: 375px; background: #ffffff; border-radius: 44px; overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 0 2px rgba(0,0,0,0.15); position: relative; flex-shrink: 0; }
+  .phone-notch { height: 44px; background: #f8f9fe; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; }
+  .notch-pill { width: 120px; height: 32px; background: #000; border-radius: 20px; }
+  .screen { overflow: hidden; }
+  .screen-label { text-align: center; margin-top: 16px; font-size: 11px; color: #666; letter-spacing: 1px; text-transform: uppercase; font-family: monospace; }
+
+  /* Colors */
+  :root {
+    --primary: #1a6efc;
+    --primary-light: #e8f0ff;
+    --accent: #00b894;
+    --warn: #e17055;
+    --bg: #f8f9fe;
+    --card: #ffffff;
+    --text: #1a1a2e;
+    --text2: #64748b;
+    --text3: #94a3b8;
+    --border: #e8ecf4;
+    --status-bar: #f8f9fe;
+  }
+
+  /* Status bar */
+  .status-bar { height: 44px; background: var(--status-bar); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
+  .status-time { font-size: 15px; font-weight: 600; color: var(--text); }
+  .status-icons { display: flex; gap: 6px; align-items: center; }
+  .status-icons svg { width: 16px; height: 16px; fill: var(--text); }
+
+  /* Screens */
+  .s-home { background: var(--bg); }
+  .s-search { background: var(--bg); }
+  .s-profile { background: var(--bg); }
+  .s-booking { background: var(--bg); }
+  .s-confirm { background: var(--bg); }
+
+  /* Home screen */
+  .home-header { background: var(--primary); padding: 20px 20px 40px; position: relative; overflow: hidden; }
+  .home-header::after { content: ''; position: absolute; width: 200px; height: 200px; background: rgba(255,255,255,0.07); border-radius: 50%; bottom: -80px; right: -40px; }
+  .home-header::before { content: ''; position: absolute; width: 120px; height: 120px; background: rgba(255,255,255,0.05); border-radius: 50%; top: -30px; right: 60px; }
+  .home-greeting { font-size: 13px; color: rgba(255,255,255,0.7); margin-bottom: 2px; }
+  .home-name { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 16px; }
+  .home-search-box { background: #fff; border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+  .home-search-box input { border: none; outline: none; font-size: 14px; color: var(--text2); flex: 1; background: transparent; }
+  .search-icon { color: var(--text3); flex-shrink: 0; }
+
+  .home-card-pull { margin-top: -20px; background: var(--bg); border-radius: 24px 24px 0 0; padding: 20px; min-height: 540px; }
+
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .section-title { font-size: 15px; font-weight: 700; color: var(--text); }
+  .section-link { font-size: 13px; color: var(--primary); font-weight: 500; }
+
+  /* Specialty chips */
+  .specialty-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; margin-bottom: 22px; }
+  .specialty-scroll::-webkit-scrollbar { display: none; }
+  .spec-chip { flex-shrink: 0; background: var(--card); border: 1.5px solid var(--border); border-radius: 40px; padding: 8px 14px; display: flex; align-items: center; gap: 7px; cursor: pointer; transition: all 0.15s; }
+  .spec-chip.active { background: var(--primary); border-color: var(--primary); }
+  .spec-chip .spec-icon { font-size: 16px; line-height: 1; }
+  .spec-chip span { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
+  .spec-chip.active span { color: #fff; }
+
+  /* Doctor cards - horizontal */
+  .doc-scroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; margin-bottom: 22px; }
+  .doc-scroll::-webkit-scrollbar { display: none; }
+  .doc-card-h { flex-shrink: 0; width: 160px; background: var(--card); border-radius: 16px; padding: 16px; border: 1px solid var(--border); }
+  .doc-avatar-wrap { position: relative; margin-bottom: 10px; }
+  .doc-avatar { width: 52px; height: 52px; border-radius: 16px; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .doc-avatar.av1 { background: linear-gradient(135deg, #667eea, #764ba2); }
+  .doc-avatar.av2 { background: linear-gradient(135deg, #f093fb, #f5576c); }
+  .doc-avatar.av3 { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+  .doc-avatar.av4 { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+  .online-dot { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; background: var(--accent); border-radius: 50%; border: 2px solid white; }
+  .doc-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .doc-spec { font-size: 11px; color: var(--text2); margin-bottom: 8px; }
+  .doc-meta { display: flex; justify-content: space-between; align-items: center; }
+  .doc-rating { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: #f59e0b; }
+  .doc-fee { font-size: 11px; color: var(--primary); font-weight: 600; }
+
+  /* Upcoming appointment */
+  .appt-card { background: linear-gradient(135deg, var(--primary) 0%, #0047c4 100%); border-radius: 16px; padding: 16px; color: white; position: relative; overflow: hidden; }
+  .appt-card::after { content: '+'; position: absolute; right: -10px; top: -20px; font-size: 100px; color: rgba(255,255,255,0.05); font-weight: 900; }
+  .appt-label { font-size: 11px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+  .appt-doc-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .appt-doc-avatar { width: 44px; height: 44px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .appt-doc-name { font-size: 15px; font-weight: 700; }
+  .appt-doc-spec { font-size: 12px; color: rgba(255,255,255,0.7); }
+  .appt-time-row { display: flex; gap: 16px; }
+  .appt-time-item { display: flex; align-items: center; gap: 6px; }
+  .appt-time-item span { font-size: 12px; color: rgba(255,255,255,0.8); }
+  .appt-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .appt-btn { flex: 1; padding: 8px; border-radius: 10px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; }
+  .appt-btn-primary { background: white; color: var(--primary); }
+  .appt-btn-secondary { background: rgba(255,255,255,0.2); color: white; }
+
+  /* Bottom nav */
+  .bottom-nav { display: flex; padding: 10px 0 24px; background: white; border-top: 1px solid var(--border); }
+  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 6px 0; }
+  .nav-icon { font-size: 20px; line-height: 1; }
+  .nav-label { font-size: 10px; color: var(--text3); font-weight: 500; }
+  .nav-item.active .nav-label { color: var(--primary); }
+  .nav-dot { width: 4px; height: 4px; background: var(--primary); border-radius: 50%; }
+
+  /* ── Search/List screen ── */
+  .search-header { background: white; padding: 16px 20px 12px; border-bottom: 1px solid var(--border); }
+  .search-back-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .back-btn { width: 32px; height: 32px; background: var(--bg); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; border: none; }
+  .search-title { font-size: 16px; font-weight: 700; color: var(--text); }
+  .search-box { background: var(--bg); border-radius: 12px; padding: 11px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .search-box input { border: none; outline: none; font-size: 14px; color: var(--text); flex: 1; background: transparent; }
+  .filter-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+  .filter-row::-webkit-scrollbar { display: none; }
+  .filter-pill { flex-shrink: 0; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; border: 1.5px solid var(--border); background: white; color: var(--text2); cursor: pointer; }
+  .filter-pill.on { background: var(--primary); border-color: var(--primary); color: white; }
+
+  .doc-list { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .doc-card-v { background: white; border-radius: 16px; padding: 16px; border: 1px solid var(--border); display: flex; gap: 14px; align-items: flex-start; }
+  .doc-card-v .doc-avatar { width: 60px; height: 60px; border-radius: 18px; font-size: 26px; flex-shrink: 0; }
+  .doc-card-v .doc-info { flex: 1; }
+  .doc-card-v .doc-name { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .doc-card-v .doc-qual { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+  .doc-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .doc-tag { padding: 3px 8px; background: var(--primary-light); color: var(--primary); border-radius: 6px; font-size: 10px; font-weight: 600; }
+  .doc-tag.green { background: #e6faf5; color: var(--accent); }
+  .doc-bottom { display: flex; justify-content: space-between; align-items: center; }
+  .doc-exp { font-size: 11px; color: var(--text3); }
+  .book-btn-s { background: var(--primary); color: white; border: none; border-radius: 10px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+
+  /* ── Doctor Profile screen ── */
+  .prof-hero { background: linear-gradient(180deg, #e8f0ff 0%, var(--bg) 100%); padding: 20px; text-align: center; padding-bottom: 0; }
+  .prof-avatar { width: 88px; height: 88px; border-radius: 26px; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 38px; background: linear-gradient(135deg, #667eea, #764ba2); box-shadow: 0 8px 24px rgba(102,126,234,0.35); }
+  .prof-name { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+  .prof-qual { font-size: 13px; color: var(--text2); margin-bottom: 12px; }
+  .prof-stats { display: flex; justify-content: center; gap: 0; margin-bottom: 0; background: white; border-radius: 16px 16px 0 0; margin: 0 -20px; }
+  .prof-stat { flex: 1; text-align: center; padding: 14px 8px; border-right: 1px solid var(--border); }
+  .prof-stat:last-child { border-right: none; }
+  .prof-stat-val { font-size: 17px; font-weight: 800; color: var(--text); }
+  .prof-stat-lbl { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+  .prof-body { background: white; padding: 0 20px 20px; }
+  .prof-tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .prof-tab { flex: 1; text-align: center; padding: 12px 0; font-size: 13px; font-weight: 600; color: var(--text3); border-bottom: 2px solid transparent; cursor: pointer; }
+  .prof-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+  .about-text { font-size: 13px; color: var(--text2); line-height: 1.7; margin-bottom: 16px; }
+  .clinic-card { background: var(--bg); border-radius: 12px; padding: 14px; display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+  .clinic-icon { width: 40px; height: 40px; background: var(--primary-light); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .clinic-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .clinic-addr { font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+  .clinic-dist { font-size: 11px; color: var(--primary); font-weight: 500; }
+
+  .consult-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .consult-opt { flex: 1; border: 1.5px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; cursor: pointer; }
+  .consult-opt.sel { border-color: var(--primary); background: var(--primary-light); }
+  .consult-opt .co-icon { font-size: 22px; margin-bottom: 4px; }
+  .consult-opt .co-label { font-size: 11px; font-weight: 600; color: var(--text); }
+  .consult-opt.sel .co-label { color: var(--primary); }
+  .consult-opt .co-fee { font-size: 12px; font-weight: 700; color: var(--primary); margin-top: 2px; }
+
+  .book-cta { background: var(--primary); color: white; border: none; border-radius: 14px; width: 100%; padding: 15px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 4px; }
+
+  /* ── Booking / Slot picker ── */
+  .booking-header { background: white; padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .booking-title { font-size: 16px; font-weight: 700; color: var(--text); }
+  .step-indicator { display: flex; gap: 4px; margin-left: auto; }
+  .step-dot { width: 20px; height: 4px; border-radius: 2px; background: var(--border); }
+  .step-dot.done { background: var(--accent); }
+  .step-dot.active { background: var(--primary); }
+
+  .booking-body { padding: 20px; }
+  .sub-section { margin-bottom: 22px; }
+  .sub-label { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 12px; }
+
+  /* Date strip */
+  .date-strip { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+  .date-strip::-webkit-scrollbar { display: none; }
+  .date-cell { flex-shrink: 0; width: 52px; height: 66px; border-radius: 14px; border: 1.5px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; background: white; }
+  .date-cell.sel { background: var(--primary); border-color: var(--primary); }
+  .date-cell.unavail { opacity: 0.4; }
+  .date-day { font-size: 10px; color: var(--text3); font-weight: 500; }
+  .date-num { font-size: 18px; font-weight: 800; color: var(--text); }
+  .date-cell.sel .date-day, .date-cell.sel .date-num { color: white; }
+  .date-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+  .date-cell.sel .date-dot { background: rgba(255,255,255,0.6); }
+
+  /* Time slots */
+  .time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .time-slot { border: 1.5px solid var(--border); border-radius: 10px; padding: 9px 6px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; background: white; }
+  .time-slot.sel { background: var(--primary); border-color: var(--primary); color: white; }
+  .time-slot.busy { background: var(--bg); color: var(--text3); cursor: default; text-decoration: line-through; }
+
+  .insurance-card { background: var(--bg); border-radius: 12px; padding: 14px; display: flex; align-items: center; gap: 12px; }
+  .ins-icon { width: 36px; height: 36px; background: linear-gradient(135deg, #a8edea, #fed6e3); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .ins-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .ins-num { font-size: 11px; color: var(--text2); }
+  .ins-check { margin-left: auto; font-size: 16px; color: var(--accent); }
+
+  .fee-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text2); }
+  .fee-row:last-child { border-bottom: none; font-weight: 700; color: var(--text); }
+
+  /* ── Confirmation screen ── */
+  .confirm-body { padding: 40px 20px 20px; text-align: center; }
+  .confirm-anim { width: 80px; height: 80px; background: linear-gradient(135deg, #e6faf5, #b8f5e5); border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; font-size: 36px; }
+  .confirm-title { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
+  .confirm-sub { font-size: 14px; color: var(--text2); line-height: 1.5; margin-bottom: 28px; }
+  .appt-summary-card { background: var(--bg); border-radius: 16px; padding: 16px; text-align: left; margin-bottom: 20px; }
+  .asm-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .asm-row:last-child { border-bottom: none; }
+  .asm-icon { width: 36px; height: 36px; background: white; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; border: 1px solid var(--border); }
+  .asm-label { font-size: 11px; color: var(--text3); margin-bottom: 1px; }
+  .asm-value { font-size: 13px; font-weight: 600; color: var(--text); }
+  .reminder-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start; margin-bottom: 20px; text-align: left; }
+  .reminder-card .ri { font-size: 18px; flex-shrink: 0; }
+  .reminder-card .rt { font-size: 12px; color: #92400e; line-height: 1.5; }
+  .home-btn { background: var(--primary); color: white; border: none; border-radius: 14px; width: 100%; padding: 15px; font-size: 15px; font-weight: 700; cursor: pointer; margin-bottom: 10px; }
+  .track-btn { background: var(--bg); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 14px; width: 100%; padding: 14px; font-size: 15px; font-weight: 700; cursor: pointer; }
+
+  /* Overlay label banner */
+  .screen-tag { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(26,110,252,0.9); color: white; font-size: 10px; font-weight: 700; padding: 4px 12px; border-radius: 20px; letter-spacing: 0.5px; text-transform: uppercase; backdrop-filter: blur(8px); z-index: 10; white-space: nowrap; }
+
+  .phone { position: relative; }
+
+  /* Page title */
+  .page-meta { text-align: center; margin-bottom: 8px; }
+  .page-meta h1 { font-size: 28px; font-weight: 800; color: white; margin-bottom: 6px; }
+  .page-meta p { font-size: 14px; color: #666; }
+
+  .phones-row { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+
+  /* Scrollable inner */
+  .scrollable { max-height: 700px; overflow-y: auto; scrollbar-width: none; }
+  .scrollable::-webkit-scrollbar { display: none; }
+
+  /* badge strip for whole page */
+  .top-bar { width: 100%; text-align: center; padding: 20px 0 32px; }
+  .top-bar .brand { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #4a9eea; text-transform: uppercase; font-family: monospace; margin-bottom: 8px; }
+  .top-bar h1 { font-size: 32px; font-weight: 900; color: white; margin-bottom: 6px; }
+  .top-bar p { font-size: 14px; color: #6b7280; }
+  .flow-arrow { color: #333; font-size: 24px; display: flex; align-items: center; padding-top: 120px; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="brand">Design Swarm Studio · MedConnect Sprint 1</div>
+  <h1>MedConnect Prototype</h1>
+  <p>Mobile-first healthcare appointment booking · India · Android-first</p>
+</div>
+
+<div class="phones-row">
+
+  <!-- SCREEN 1: Home -->
+  <div>
+    <div class="phone">
+      <div class="screen-tag">01 · Home</div>
+      <div class="phone-notch"><div class="notch-pill"></div></div>
+      <div class="screen s-home">
+        <div class="status-bar">
+          <span class="status-time">9:41</span>
+          <div class="status-icons">
+            <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <div class="home-header">
+          <div class="home-greeting">Good morning 👋</div>
+          <div class="home-name">Arjun Sharma</div>
+          <div class="home-search-box">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input placeholder="Search doctors, symptoms…" readonly>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="9" y2="18"/></svg>
+          </div>
+        </div>
+
+        <div class="home-card-pull scrollable">
+          <!-- Upcoming appt -->
+          <div style="margin-bottom:20px">
+            <div class="appt-card">
+              <div class="appt-label">Upcoming Appointment</div>
+              <div class="appt-doc-row">
+                <div class="appt-doc-avatar">👩‍⚕️</div>
+                <div>
+                  <div class="appt-doc-name">Dr. Priya Menon</div>
+                  <div class="appt-doc-spec">Cardiologist · Apollo Hospitals</div>
+                </div>
+              </div>
+              <div class="appt-time-row">
+                <div class="appt-time-item">📅 <span>Tomorrow, 24 Mar</span></div>
+                <div class="appt-time-item">🕙 <span>10:30 AM</span></div>
+              </div>
+              <div class="appt-actions">
+                <button class="appt-btn appt-btn-primary">Join Video Call</button>
+                <button class="appt-btn appt-btn-secondary">Reschedule</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Specialties -->
+          <div class="section-header">
+            <div class="section-title">Browse Specialties</div>
+            <div class="section-link">See all →</div>
+          </div>
+          <div class="specialty-scroll">
+            <div class="spec-chip active"><span class="spec-icon">🏥</span><span>General</span></div>
+            <div class="spec-chip"><span class="spec-icon">❤️</span><span>Cardiology</span></div>
+            <div class="spec-chip"><span class="spec-icon">🦷</span><span>Dental</span></div>
+            <div class="spec-chip"><span class="spec-icon">🧠</span><span>Neuro</span></div>
+            <div class="spec-chip"><span class="spec-icon">👁️</span><span>Eye</span></div>
+            <div class="spec-chip"><span class="spec-icon">🦴</span><span>Ortho</span></div>
+          </div>
+
+          <!-- Nearby doctors -->
+          <div class="section-header">
+            <div class="section-title">Doctors Near You</div>
+            <div class="section-link">View all</div>
+          </div>
+          <div class="doc-scroll">
+            <div class="doc-card-h">
+              <div class="doc-avatar-wrap">
+                <div class="doc-avatar av1">👨‍⚕️</div>
+                <div class="online-dot"></div>
+              </div>
+              <div class="doc-name">Dr. Rajesh Kumar</div>
+              <div class="doc-spec">General Physician</div>
+              <div class="doc-meta">
+                <div class="doc-rating">★ 4.9</div>
+                <div class="doc-fee">₹300</div>
+              </div>
+            </div>
+            <div class="doc-card-h">
+              <div class="doc-avatar-wrap">
+                <div class="doc-avatar av2">👩‍⚕️</div>
+              </div>
+              <div class="doc-name">Dr. Anita Rao</div>
+              <div class="doc-spec">Gynaecologist</div>
+              <div class="doc-meta">
+                <div class="doc-rating">★ 4.7</div>
+                <div class="doc-fee">₹500</div>
+              </div>
+            </div>
+            <div class="doc-card-h">
+              <div class="doc-avatar-wrap">
+                <div class="doc-avatar av3">👨‍⚕️</div>
+                <div class="online-dot"></div>
+              </div>
+              <div class="doc-name">Dr. Suresh V.</div>
+              <div class="doc-spec">Dermatologist</div>
+              <div class="doc-meta">
+                <div class="doc-rating">★ 4.8</div>
+                <div class="doc-fee">₹450</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Health tips banner -->
+          <div style="background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:14px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="font-size:32px;flex-shrink:0;">💊</div>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:#1b5e20;margin-bottom:2px;">Medication Reminder</div>
+              <div style="font-size:11px;color:#388e3c;">Metformin 500mg due in 2 hours</div>
+            </div>
+            <div style="margin-left:auto;font-size:18px;">›</div>
+          </div>
+        </div>
+
+        <div class="bottom-nav">
+          <div class="nav-item active">
+            <div class="nav-icon">🏠</div>
+            <div class="nav-label" style="color:#1a6efc;">Home</div>
+            <div class="nav-dot"></div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">🔍</div>
+            <div class="nav-label">Find</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">📅</div>
+            <div class="nav-label">Bookings</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">💬</div>
+            <div class="nav-label">Consult</div>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">👤</div>
+            <div class="nav-label">Profile</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="screen-label">Home Dashboard</div>
+  </div>
+
+  <div class="flow-arrow">›</div>
+
+  <!-- SCREEN 2: Search / Doctor List -->
+  <div>
+    <div class="phone">
+      <div class="screen-tag">02 · Search</div>
+      <div class="phone-notch"><div class="notch-pill"></div></div>
+      <div class="screen s-search">
+        <div class="status-bar" style="background:white;">
+          <span class="status-time">9:43</span>
+          <div class="status-icons">
+            <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <div class="search-header">
+          <div class="search-back-row">
+            <button class="back-btn">‹</button>
+            <div class="search-title">Cardiologists</div>
+            <div style="margin-left:auto;font-size:12px;color:#64748b;">14 found</div>
+          </div>
+          <div class="search-box">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input placeholder="Search by name or hospital…" readonly>
+          </div>
+          <div class="filter-row">
+            <div class="filter-pill on">Available Today</div>
+            <div class="filter-pill">Top Rated ★4.5+</div>
+            <div class="filter-pill">Video Consult</div>
+            <div class="filter-pill">₹ Under 500</div>
+            <div class="filter-pill">Insurance</div>
+          </div>
+        </div>
+        <div class="doc-list scrollable" style="max-height:600px">
+          <div class="doc-card-v">
+            <div class="doc-avatar av1" style="width:60px;height:60px;border-radius:18px;font-size:26px;flex-shrink:0;">👩‍⚕️</div>
+            <div class="doc-info">
+              <div class="doc-name">Dr. Priya Menon</div>
+              <div class="doc-qual">MBBS, MD · 14 years exp</div>
+              <div class="doc-tags">
+                <div class="doc-tag">Interventional</div>
+                <div class="doc-tag green">Available Now</div>
+              </div>
+              <div class="doc-bottom">
+                <div>
+                  <div style="font-size:12px;font-weight:700;color:#1a1a2e;">Apollo Hospitals · 2.3 km</div>
+                  <div style="font-size:12px;color:#1a6efc;font-weight:700;">₹600 · ★ 4.9 (312 reviews)</div>
+                </div>
+                <button class="book-btn-s">Book</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="doc-card-v">
+            <div class="doc-avatar av3" style="width:60px;height:60px;border-radius:18px;font-size:26px;flex-shrink:0;">👨‍⚕️</div>
+            <div class="doc-info">
+              <div class="doc-name">Dr. Vikram Nair</div>
+              <div class="doc-qual">MBBS, DM Cardiology · 22 yrs</div>
+              <div class="doc-tags">
+                <div class="doc-tag">Electrophysiology</div>
+              </div>
+              <div class="doc-bottom">
+                <div>
+                  <div style="font-size:12px;font-weight:700;color:#1a1a2e;">Fortis · 4.1 km</div>
+                  <div style="font-size:12px;color:#1a6efc;font-weight:700;">₹800 · ★ 4.7 (198 reviews)</div>
+                </div>
+                <button class="book-btn-s">Book</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="doc-card-v">
+            <div class="doc-avatar av2" style="width:60px;height:60px;border-radius:18px;font-size:26px;flex-shrink:0;">👩‍⚕️</div>
+            <div class="doc-info">
+              <div class="doc-name">Dr. Kavitha S.</div>
+              <div class="doc-qual">MBBS, MD, DM · 10 years</div>
+              <div class="doc-tags">
+                <div class="doc-tag">Preventive</div>
+                <div class="doc-tag green">Video ✓</div>
+              </div>
+              <div class="doc-bottom">
+                <div>
+                  <div style="font-size:12px;font-weight:700;color:#1a1a2e;">MIOT Hospital · 5.6 km</div>
+                  <div style="font-size:12px;color:#1a6efc;font-weight:700;">₹450 · ★ 4.8 (87 reviews)</div>
+                </div>
+                <button class="book-btn-s">Book</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="doc-card-v">
+            <div class="doc-avatar av4" style="width:60px;height:60px;border-radius:18px;font-size:26px;flex-shrink:0;">👨‍⚕️</div>
+            <div class="doc-info">
+              <div class="doc-name">Dr. Arun Babu</div>
+              <div class="doc-qual">MBBS, MD · 8 years exp</div>
+              <div class="doc-tags">
+                <div class="doc-tag">Pediatric Cardio</div>
+                <div class="doc-tag green">Available Today</div>
+              </div>
+              <div class="doc-bottom">
+                <div>
+                  <div style="font-size:12px;font-weight:700;color:#1a1a2e;">Sri Ramachandra · 3.8 km</div>
+                  <div style="font-size:12px;color:#1a6efc;font-weight:700;">₹350 · ★ 4.6 (54 reviews)</div>
+                </div>
+                <button class="book-btn-s">Book</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="screen-label">Search Results</div>
+  </div>
+
+  <div class="flow-arrow">›</div>
+
+  <!-- SCREEN 3: Doctor Profile -->
+  <div>
+    <div class="phone">
+      <div class="screen-tag">03 · Profile</div>
+      <div class="phone-notch"><div class="notch-pill"></div></div>
+      <div class="screen s-profile">
+        <div class="status-bar" style="background:#e8f0ff;">
+          <span class="status-time">9:45</span>
+          <div class="status-icons">
+            <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <div class="scrollable" style="max-height:750px">
+          <div class="prof-hero">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <button class="back-btn" style="background:rgba(26,110,252,0.1);">‹</button>
+              <div style="display:flex;gap:8px;">
+                <button class="back-btn" style="background:rgba(26,110,252,0.1);">🔖</button>
+                <button class="back-btn" style="background:rgba(26,110,252,0.1);">⬆</button>
+              </div>
+            </div>
+            <div class="prof-avatar">👩‍⚕️</div>
+            <div class="prof-name">Dr. Priya Menon</div>
+            <div class="prof-qual">MBBS, MD (Cardiology) · AIIMS Delhi</div>
+            <div style="display:flex;justify-content:center;gap:6px;margin-bottom:16px;">
+              <div style="background:var(--primary-light);color:var(--primary);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;">Cardiologist</div>
+              <div style="background:#e6faf5;color:var(--accent);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;">● Available Now</div>
+            </div>
+            <div class="prof-stats">
+              <div class="prof-stat"><div class="prof-stat-val">14+</div><div class="prof-stat-lbl">Years Exp</div></div>
+              <div class="prof-stat"><div class="prof-stat-val">4.9 ★</div><div class="prof-stat-lbl">Rating</div></div>
+              <div class="prof-stat"><div class="prof-stat-val">2,400+</div><div class="prof-stat-lbl">Patients</div></div>
+            </div>
+          </div>
+
+          <div class="prof-body">
+            <div class="prof-tabs">
+              <div class="prof-tab active">Overview</div>
+              <div class="prof-tab">Reviews</div>
+              <div class="prof-tab">Location</div>
+            </div>
+
+            <div class="about-text">Interventional cardiologist specialising in coronary artery disease, heart failure, and hypertension management. Trained at AIIMS Delhi and practiced for 14 years across top-tier hospitals in Chennai. Fluent in Tamil, Hindi, and English.</div>
+
+            <div class="clinic-card">
+              <div class="clinic-icon">🏥</div>
+              <div>
+                <div class="clinic-name">Apollo Hospitals, Greams Road</div>
+                <div class="clinic-addr">21 Greams Ln, Thousand Lights, Chennai</div>
+                <div class="clinic-dist">📍 2.3 km · 12 min drive</div>
+              </div>
+            </div>
+
+            <div class="sub-label">Consultation Type</div>
+            <div class="consult-row">
+              <div class="consult-opt sel">
+                <div class="co-icon">🏥</div>
+                <div class="co-label">In-Clinic</div>
+                <div class="co-fee">₹600</div>
+              </div>
+              <div class="consult-opt">
+                <div class="co-icon">📹</div>
+                <div class="co-label">Video Call</div>
+                <div class="co-fee">₹400</div>
+              </div>
+              <div class="consult-opt">
+                <div class="co-icon">💬</div>
+                <div class="co-label">Chat</div>
+                <div class="co-fee">₹150</div>
+              </div>
+            </div>
+
+            <button class="book-cta">Book Appointment →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="screen-label">Doctor Profile</div>
+  </div>
+
+  <div class="flow-arrow">›</div>
+
+  <!-- SCREEN 4: Slot Picker / Booking -->
+  <div>
+    <div class="phone">
+      <div class="screen-tag">04 · Booking</div>
+      <div class="phone-notch"><div class="notch-pill"></div></div>
+      <div class="screen s-booking">
+        <div class="status-bar" style="background:white;">
+          <span class="status-time">9:47</span>
+          <div class="status-icons">
+            <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <div class="booking-header">
+          <button class="back-btn">‹</button>
+          <div class="booking-title">Select Slot</div>
+          <div class="step-indicator">
+            <div class="step-dot done"></div>
+            <div class="step-dot active"></div>
+            <div class="step-dot"></div>
+          </div>
+        </div>
+
+        <!-- Mini doctor summary -->
+        <div style="background:var(--primary-light);padding:12px 20px;display:flex;gap:10px;align-items:center;">
+          <div style="width:36px;height:36px;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">👩‍⚕️</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text);">Dr. Priya Menon</div>
+            <div style="font-size:11px;color:var(--text2);">In-Clinic · Apollo Hospitals · ₹600</div>
+          </div>
+        </div>
+
+        <div class="booking-body scrollable" style="max-height:640px">
+          <div class="sub-section">
+            <div class="sub-label">Choose Date</div>
+            <div class="date-strip">
+              <div class="date-cell unavail"><div class="date-day">MON</div><div class="date-num">23</div></div>
+              <div class="date-cell sel"><div class="date-day">TUE</div><div class="date-num">24</div><div class="date-dot"></div></div>
+              <div class="date-cell"><div class="date-day">WED</div><div class="date-num">25</div><div class="date-dot"></div></div>
+              <div class="date-cell"><div class="date-day">THU</div><div class="date-num">26</div></div>
+              <div class="date-cell"><div class="date-day">FRI</div><div class="date-num">27</div><div class="date-dot"></div></div>
+              <div class="date-cell"><div class="date-day">SAT</div><div class="date-num">28</div><div class="date-dot"></div></div>
+            </div>
+          </div>
+
+          <div class="sub-section">
+            <div class="sub-label">Morning <span style="font-size:11px;font-weight:400;color:var(--text3);">9 AM – 1 PM</span></div>
+            <div class="time-grid">
+              <div class="time-slot busy">9:00</div>
+              <div class="time-slot busy">9:30</div>
+              <div class="time-slot">10:00</div>
+              <div class="time-slot sel">10:30</div>
+              <div class="time-slot">11:00</div>
+              <div class="time-slot">11:30</div>
+              <div class="time-slot busy">12:00</div>
+              <div class="time-slot">12:30</div>
+            </div>
+          </div>
+
+          <div class="sub-section">
+            <div class="sub-label">Evening <span style="font-size:11px;font-weight:400;color:var(--text3);">5 PM – 8 PM</span></div>
+            <div class="time-grid">
+              <div class="time-slot">5:00</div>
+              <div class="time-slot">5:30</div>
+              <div class="time-slot busy">6:00</div>
+              <div class="time-slot">6:30</div>
+            </div>
+          </div>
+
+          <div class="sub-section">
+            <div class="sub-label">Insurance / Payment</div>
+            <div class="insurance-card">
+              <div class="ins-icon">🛡️</div>
+              <div>
+                <div class="ins-name">Star Health Insurance</div>
+                <div class="ins-num">Policy: **** 4821 · Active</div>
+              </div>
+              <div class="ins-check">✓</div>
+            </div>
+          </div>
+
+          <div style="background:var(--bg);border-radius:12px;padding:14px;margin-bottom:16px;">
+            <div class="fee-row"><span>Consultation fee</span><span>₹600</span></div>
+            <div class="fee-row"><span>Insurance covers</span><span style="color:var(--accent);">− ₹400</span></div>
+            <div class="fee-row"><span>You pay</span><span style="color:var(--primary);">₹200</span></div>
+          </div>
+
+          <button class="book-cta">Confirm Booking · Pay ₹200 →</button>
+        </div>
+      </div>
+    </div>
+    <div class="screen-label">Slot Selection</div>
+  </div>
+
+  <div class="flow-arrow">›</div>
+
+  <!-- SCREEN 5: Confirmation -->
+  <div>
+    <div class="phone">
+      <div class="screen-tag">05 · Confirmed</div>
+      <div class="phone-notch"><div class="notch-pill"></div></div>
+      <div class="screen s-confirm">
+        <div class="status-bar" style="background:var(--bg);">
+          <span class="status-time">9:49</span>
+          <div class="status-icons">
+            <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          </div>
+        </div>
+        <div class="scrollable" style="max-height:750px">
+          <div class="confirm-body">
+            <div class="confirm-anim">✅</div>
+            <div class="confirm-title">Appointment Booked!</div>
+            <div class="confirm-sub">Your appointment is confirmed. You'll receive a reminder 30 minutes before.</div>
+
+            <div class="appt-summary-card">
+              <div class="asm-row">
+                <div class="asm-icon">👩‍⚕️</div>
+                <div>
+                  <div class="asm-label">Doctor</div>
+                  <div class="asm-value">Dr. Priya Menon · Cardiologist</div>
+                </div>
+              </div>
+              <div class="asm-row">
+                <div class="asm-icon">📅</div>
+                <div>
+                  <div class="asm-label">Date & Time</div>
+                  <div class="asm-value">Tue, 24 Mar 2026 · 10:30 AM</div>
+                </div>
+              </div>
+              <div class="asm-row">
+                <div class="asm-icon">🏥</div>
+                <div>
+                  <div class="asm-label">Location</div>
+                  <div class="asm-value">Apollo Hospitals, Greams Road</div>
+                </div>
+              </div>
+              <div class="asm-row">
+                <div class="asm-icon">💳</div>
+                <div>
+                  <div class="asm-label">Paid</div>
+                  <div class="asm-value">₹200 (insurance covered ₹400)</div>
+                </div>
+              </div>
+              <div class="asm-row">
+                <div class="asm-icon">🎫</div>
+                <div>
+                  <div class="asm-label">Booking ID</div>
+                  <div class="asm-value">MED-2026-00821</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="reminder-card">
+              <div class="ri">📋</div>
+              <div class="rt">
+                <strong>Bring for your visit:</strong><br>
+                Government ID · Insurance card · Previous reports · List of current medications
+              </div>
+            </div>
+
+            <button class="home-btn">Back to Home</button>
+            <button class="track-btn">Track Appointment</button>
+          </div>
+
+          <div class="bottom-nav" style="background:white;border-top:1px solid var(--border);">
+            <div class="nav-item">
+              <div class="nav-icon">🏠</div>
+              <div class="nav-label">Home</div>
+            </div>
+            <div class="nav-item">
+              <div class="nav-icon">🔍</div>
+              <div class="nav-label">Find</div>
+            </div>
+            <div class="nav-item active">
+              <div class="nav-icon">📅</div>
+              <div class="nav-label" style="color:#1a6efc;">Bookings</div>
+              <div class="nav-dot"></div>
+            </div>
+            <div class="nav-item">
+              <div class="nav-icon">💬</div>
+              <div class="nav-label">Consult</div>
+            </div>
+            <div class="nav-item">
+              <div class="nav-icon">👤</div>
+              <div class="nav-label">Profile</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="screen-label">Confirmation</div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div style="width:100%;text-align:center;padding:32px 0 48px;color:#333;font-size:12px;font-family:monospace;">
+  MedConnect · Sprint 1 Prototype · Generated by Design Swarm Studio · 5 screens · Full user journey
+</div>
+
+</body>
+</html>
