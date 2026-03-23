@@ -4807,7 +4807,10 @@ function sbSaveBrief(text){
 // Saves full sprint run (untruncated) to sprints + sprint_outputs tables.
 // Schema: supabase/sprint-analytics.sql
 async function sbSaveSprint(snap){
-  if(!window._sbClient||!window._sbUser)return;
+  if(!window._sbClient)return;
+  // Wait for anonymous auth to complete — sprint can finish before auth resolves
+  if(window._sbReady)await window._sbReady;
+  if(!window._sbUser)return;
   const uid=window._sbUser.id;
   try{
     // Build sprint row
