@@ -392,9 +392,12 @@
   #board-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:9000;display:none;flex-direction:column;align-items:center;justify-content:flex-start;padding:24px 16px;overflow-y:auto;}
   #board-overlay.active{display:flex;}
   #board-panel{width:100%;max-width:860px;}
-  #board-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;}
-  #board-title{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;letter-spacing:0.5px;}
-  #board-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap;}
+  #board-header{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}
+  #board-header-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  #board-title{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;letter-spacing:0.5px;white-space:nowrap;}
+  #board-actions{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;}
+  .board-btn-group{display:flex;align-items:center;gap:4px;}
+  .board-btn-sep{width:1px;height:20px;background:#1a2a3a;margin:0 4px;flex-shrink:0;}
   /* Brief section — sits between header and tabs, outside the header row */
   #board-brief-section{background:#060614;border:1px solid #0d1a2a;border-radius:5px;padding:9px 13px 6px;margin-bottom:12px;display:none;}
   #board-brief-section.has-brief{display:block;}
@@ -404,7 +407,7 @@
   #board-brief-text::-webkit-scrollbar{width:3px;}#board-brief-text::-webkit-scrollbar-thumb{background:#1a2a3a;}
   #board-brief-toggle{background:none;border:none;color:#4a6a8a;font-size:9px;cursor:pointer;font-family:monospace;padding:3px 0 0;display:block;letter-spacing:0.5px;}
   #board-brief-toggle:hover{color:#4a9eea;}
-  .board-action-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:7px 14px;cursor:pointer;font-size:11px;border-radius:4px;font-family:monospace;}
+  .board-action-btn{background:#0a1a2a;border:1px solid #1a3a5a;color:#4a9eea;padding:5px 10px;cursor:pointer;font-size:10.5px;border-radius:4px;font-family:monospace;white-space:nowrap;}
   .board-action-btn:hover{background:#102030;border-color:#4a9eea;}
   #board-download-btn{background:#0a1e12;border:1px solid #1a4a2a;color:#4acea0;}
   #board-download-btn:hover{background:#0d2818;border-color:#4acea0;}
@@ -6416,20 +6419,37 @@ function saveAgent(){
 <div id="board-overlay">
   <div id="board-panel">
     <div id="board-header">
-      <div id="board-title">Design Swarm — Project Board <span id="board-sprint-badge" class="board-sprint-badge">Sprint 1</span></div>
-      <div id="board-actions">
-        <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
-        <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint with a new directive">↩ Iterate</button>
-        <button class="board-action-btn" onclick="openCompareModal()" style="color:#63b3ed;border-color:rgba(99,179,237,0.35);background:#05101e" title="Compare two sprints side-by-side">↔ Compare</button>
-        <button class="board-action-btn" onclick="addNewAgent()" style="color:#666;border-color:rgba(100,100,100,0.3)">+ Agent</button>
-        <button class="board-action-btn" onclick="triggerImportAgent()" style="color:#4acea0;border-color:rgba(74,206,160,0.35)" title="Import an agent from a JSON file">⬇ Import</button>
-        <input type="file" id="agent-import-input" accept=".json" style="display:none" onchange="handleAgentImport(event)">
-        <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
-        <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
-        <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
-        <button id="board-share-btn" class="board-action-btn">🔗 Share</button>
-        <button class="board-action-btn" onclick="pushToFigma()" style="color:#e879f9;border-color:rgba(232,121,249,0.35);background:#120a18">⟶ Figma</button>
+      <!-- Row 1: title + close -->
+      <div id="board-header-top">
+        <div id="board-title">Design Swarm — Project Board <span id="board-sprint-badge" class="board-sprint-badge">Sprint 1</span></div>
         <button class="llm-close-btn" id="board-close-btn">✕</button>
+      </div>
+      <!-- Row 2: grouped action buttons -->
+      <div id="board-actions">
+        <!-- Swarm -->
+        <div class="board-btn-group">
+          <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
+          <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint">↩ Iterate</button>
+          <button class="board-action-btn" onclick="openCompareModal()" style="color:#63b3ed;border-color:rgba(99,179,237,0.35);background:#05101e" title="Compare sprints">↔ Compare</button>
+        </div>
+        <div class="board-btn-sep"></div>
+        <!-- Agents -->
+        <div class="board-btn-group">
+          <button class="board-action-btn" onclick="addNewAgent()" style="color:#666;border-color:rgba(100,100,100,0.3)">+ Agent</button>
+          <button class="board-action-btn" onclick="triggerImportAgent()" style="color:#4acea0;border-color:rgba(74,206,160,0.35)" title="Import agent JSON">⬇ Import</button>
+          <input type="file" id="agent-import-input" accept=".json" style="display:none" onchange="handleAgentImport(event)">
+        </div>
+        <div class="board-btn-sep"></div>
+        <!-- Export -->
+        <div class="board-btn-group">
+          <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
+          <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
+          <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
+          <button id="board-share-btn" class="board-action-btn">🔗 Share</button>
+        </div>
+        <div class="board-btn-sep"></div>
+        <!-- Figma -->
+        <button class="board-action-btn" onclick="pushToFigma()" style="color:#e879f9;border-color:rgba(232,121,249,0.35);background:#120a18">⟶ Figma</button>
       </div>
     </div>
     <!-- Brief strip — outside header, collapses to 2 lines -->
