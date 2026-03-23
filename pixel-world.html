@@ -2923,11 +2923,16 @@ function initAnonAuth(){
       if(typeof updateAuthHUD==='function')updateAuthHUD(); // show logout icon on auth button
       return session.user;
     }
-    // No session — not signed in via Google. Redirect to landing page.
+    // No session — on localhost allow dev access without auth; on production redirect to landing page.
+    if(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'){
+      console.info('[Dev] No session — running without auth on localhost');
+      return null;
+    }
     window.location.replace('/');
     return new Promise(()=>{}); // never resolves — page is navigating away
   }).catch(e=>{
     console.warn('[Supabase] auth error:',e.message);
+    if(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')return null;
     window.location.replace('/');
     return new Promise(()=>{});
   });
