@@ -4045,7 +4045,7 @@ function generateDossierHTML(){
     }
     // TOC entry — with warning indicator if issues detected
     const hasCorrIssues=art&&_hasCorruption(art.content).length>0;
-    const hasTrunc=swarmTruncated[a.id]|||(art&&_isTruncated(art.content));
+    const hasTrunc=swarmTruncated[a.id]||(art&&_isTruncated(art.content));
     const hasErr=!art&&swarmErrors[a.id];
     const tocSuffix=hasCorrIssues?' <span style="color:#e84855;font-size:9px">⚠</span>':hasTrunc?' <span style="color:#f0a040;font-size:9px">…</span>':hasErr?' <span style="color:#5a1a1a;font-size:9px">✗</span>':'';
     tocHtml+='<a href="#a-'+escHtml(a.id)+'" class="tl"><span class="td" style="background:'+ac+'"></span>'+escHtml(a.name)+tocSuffix+'</a>';
