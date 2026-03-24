@@ -5902,13 +5902,13 @@ async function runSwarm(){
     if(curSuperPhase>=0&&curSuperPhase!==window._lastToastedPhase){
       window._lastToastedPhase=curSuperPhase;
       const ph=SPRINT_PHASES[curSuperPhase];
-      showToast(ph.icon+' Phase '+(curSuperPhase+1)+'/3: '+ph.name,2500);
+      showToast(ph.icon+' '+ph.name+' phase — '+(curSuperPhase+1)+' of 3',2500);
       // Update phase badge in sprint viz
       const badge=document.getElementById('sprint-phase-badge-'+curSuperPhase);
       if(badge){badge.textContent='active';badge.style.color='#a78bfa';badge.style.borderColor='#4040a0';}
       // Update header indicator
       const indicator=document.getElementById('sprint-phase-indicator');
-      if(indicator)indicator.textContent=ph.icon+' P'+(curSuperPhase+1)+'/3';
+      if(indicator)indicator.textContent=ph.icon+' '+ph.name;
     }
     // Run all agents in this wave in parallel
     await Promise.all(wave.agents.map(async id=>{
