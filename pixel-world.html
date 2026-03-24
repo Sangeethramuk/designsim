@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d1a'/%3E%3C!-- honeycomb hex grid --%3E%3Cpolygon points='16,3 21,6 21,12 16,15 11,12 11,6' fill='%234a9eea' opacity='.9'/%3E%3Cpolygon points='22,10 27,13 27,19 22,22 17,19 17,13' fill='%234acea0' opacity='.85'/%3E%3Cpolygon points='10,10 15,13 15,19 10,22 5,19 5,13' fill='%23e879f9' opacity='.85'/%3E%3Cpolygon points='16,19 21,22 21,28 16,31 11,28 11,22' fill='%23f6ad55' opacity='.9'/%3E%3C/svg%3E">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh; connect-src 'self' https://*.supabase.co https://*.moonshot.ai https://*.openai.com https://*.anthropic.com https://api.figma.com https://*.workers.dev https://*.run.app wss://*.supabase.co https://huggingface.co https://*.huggingface.co https://esm.sh https://cdn.jsdelivr.net; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src blob:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh https://*.esm.sh; connect-src 'self' https://*.supabase.co https://*.moonshot.ai https://*.openai.com https://*.anthropic.com https://api.figma.com https://*.workers.dev https://*.run.app wss://*.supabase.co https://huggingface.co https://*.huggingface.co https://hf.co https://*.hf.co https://esm.sh https://*.esm.sh https://cdn.jsdelivr.net https://unpkg.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src blob: https://*.esm.sh;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Design Swarm Studio</title>
 <style>
@@ -1873,8 +1873,21 @@ async function initKokoro(dtype){
     }catch(e){
       _kokoroLoadPromise=null;
       window._kokoroReady=false;
-      _updateKokoroStatus('✗ Error: '+e.message,0);
+      // Diagnose common failure modes
+      let hint='';
+      const msg=e.message||'';
+      if(msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('fetch')){
+        hint=' — network blocked (try disabling browser extensions / ad-blocker, or use a VPN if esm.sh/HuggingFace is restricted in your region)';
+      }else if(msg.includes('wasm')||msg.includes('WebAssembly')){
+        hint=' — WebAssembly blocked (try Chrome / Edge, not Firefox with strict CSP)';
+      }else if(msg.includes('module')||msg.includes('import')){
+        hint=' — dynamic import blocked by CSP (try a different browser)';
+      }
+      _updateKokoroStatus('✗ '+msg+hint,0);
       console.error('[Kokoro] load failed:',e);
+      showToast('Kokoro load failed: '+msg,3500);
+      const loadBtn=document.getElementById('kokoro-load-btn');
+      if(loadBtn){loadBtn.textContent='Retry';loadBtn.disabled=false;}
       throw e;
     }
   })();
@@ -3051,9 +3064,9 @@ function kokoro_loadModel(){
   const dtype=document.getElementById('kokoro-dtype')?.value||'q8';
   const btn=document.getElementById('kokoro-load-btn');
   if(btn){btn.disabled=true;btn.textContent='Loading…';}
-  initKokoro(dtype).catch(e=>{
+  initKokoro(dtype).catch(()=>{
+    // error already handled + toasted inside initKokoro
     if(btn){btn.disabled=false;btn.textContent='Retry';}
-    showToast('Kokoro load failed: '+e.message,3000);
   });
 }
 
