@@ -567,6 +567,10 @@
   .sprint-done .sprint-card-name{color:#3a7a4a;}
   .sprint-done .sprint-card-check{display:inline;}
   .sprint-done .sprint-card-dot{background:#3a7a4a!important;}
+  .sprint-failed{border-color:#5a1a1a!important;background:#0d0404!important;opacity:1!important;}
+  .sprint-failed .sprint-card-name{color:#a04040!important;}
+  .sprint-failed .sprint-card-dot{background:#a04040!important;}
+  .sprint-failed .sprint-card-role{color:#4a1a1a!important;}
   @keyframes sprint-pulse{0%,100%{border-opacity:1;}50%{opacity:0.75;}}
   /* Phase 16b Sprint live output strip */
   #sprint-live-strip{border-top:1px solid #0d0d1e;padding:8px 12px;flex-shrink:0;max-height:110px;overflow-y:auto;background:#03030a;}
@@ -939,7 +943,7 @@ const AGENT_FORMAT_MAP={
 
   flow:'Include:\n## Primary Flow\n| Step | Screen | User Action | System Response |\n|---|---|---|---|\n| 1 | [screen name] | [action] | [response] |\n\n## State Coverage\n| Screen | Empty | Loading | Success | Error | Edge Case |\n|---|---|---|---|---|---|\n| [screen] | ✅/❌ | ✅/❌ | ✅/❌ | ✅/❌ | ✅/❌ |\n\n## State Machine\n```mermaid\nstateDiagram-v2\n  [*] --> [FirstState]\n```\n\n## Dead Ends\n- [screen/step]: [why it\'s a dead end] → Fix: [recovery path]',
 
-  blueprint:'Output one YAML block per component:\n```yaml\ncomponent:\n  name: [ComponentName]\n  variants: [default, hover, active, disabled, error]\n  layout:\n    type: auto-layout\n    direction: [horizontal|vertical]\n    gap: [Npx — must be multiple of 4]\n    padding: [top right bottom left]\n    align: [start|center|end|stretch]\n  tokens:\n    background: --color-[scale]-[step]\n    text: --color-[scale]-[step]\n    border: --color-[scale]-[step]\n  typography:\n    size: --text-[scale]\n    weight: [400|500|600|700]\n    lineHeight: [ratio]\n  interaction:\n    trigger: [event]\n    transition: [duration]ms [easing]\n    resultState: [variant name]\n```\n(one block per component, cover all components from Flow\'s screen inventory)',
+  blueprint:'FIRST: output a token dictionary resolving every colour token to its actual hex value:\n## Token Dictionary\n| Token | Hex Value | Contrast vs Bg | WCAG | Usage |\n|---|---|---|---|---|\n| --color-primary-500 | #XXXXXX | X.X:1 vs #bg | PASS/FAIL | [usage] |\n(every token used in components MUST appear here with its actual hex — this is required for Eye\'s contrast audit)\n\nTHEN output one YAML block per component:\n```yaml\ncomponent:\n  name: [ComponentName]\n  variants: [default, hover, active, disabled, error]\n  layout:\n    type: auto-layout\n    direction: [horizontal|vertical]\n    gap: [Npx — must be multiple of 4]\n    padding: [top right bottom left]\n    align: [start|center|end|stretch]\n  tokens:\n    background: --color-[scale]-[step]  # #XXXXXX\n    text: --color-[scale]-[step]  # #XXXXXX\n    border: --color-[scale]-[step]  # #XXXXXX\n  typography:\n    size: --text-[scale]  # Npx\n    weight: [400|500|600|700]\n    lineHeight: [ratio]\n  interaction:\n    trigger: [event]\n    transition: [duration]ms [easing]\n    resultState: [variant name]\n```\n(one block per component — token names required, resolved hex values required as inline comments)',
 
   forge:'Output each component as a fenced TSX block:\n```tsx\n// [ComponentName] — from Blueprint spec\n// Storybook: export const Default: Story = { args: { ... } };\n\ninterface [ComponentName]Props {\n  // explicit prop types here\n}\n\nexport const [ComponentName] = ({ ... }: [ComponentName]Props) => (\n  // semantic HTML + Tailwind + aria attributes\n);\n```\nAfter each component, add:\n```\n// ✅ Accessibility: aria-label, role, keyboard handler, focus-visible ring\n// ✅ Responsive: mobile-first (375px), sm:, md:, lg: breakpoints applied\n```',
 
@@ -947,7 +951,7 @@ const AGENT_FORMAT_MAP={
 
   eye:'Structure as:\n## Contrast Audit\n| Element | Foreground | Background | Ratio | WCAG Result |\n|---|---|---|---|---|\n| [element] | #hex | #hex | X.X:1 | PASS/FAIL |\n(include replacement hex for every FAIL)\n\n## Typography Audit\n| Scale Step | Size | Weight | Line Height | Issue |\n|---|---|---|---|---|\n\n## Spacing Audit\n- List every spacing value that is NOT a multiple of 4px\n\n## Component States\n- List every interactive element missing a visible state variant\n\n## Overall Visual Score: [X]/10\nTop 3 must-fix visual issues (blocking first).',
 
-  mirror:'For each persona, write:\n## Persona [N]: [Name], [Age], [Role]\n**Tech literacy:** [1–5] | **Emotional relationship with this domain:** [1 sentence]\n**Context of use:** [device, situation, time of day]\n**Biggest fear:** [what would make them abandon this product]\n\n### Journey Simulation\n| Stage | Task Completion | Emotion | Friction Quote |\n|---|---|---|---|\n| Day 1 (onboarding) | [%] | [state] | "[first-person quote]" |\n| Day 3 (habit forming) | [%] | [state] | "[quote]" |\n| Week 2 (return) | [%] | [state] | "[quote]" |\n| Month 2 (retention) | [%] | [state] | "[quote]" |\n\n## Churn Risk Summary\n- Highest churn risk: [persona] — because [reason]\n- Critical failure zones: [screens/flows no persona completes successfully]',
+  mirror:'For each persona, write:\n## Persona [N]: [Name], [Age], [Role]\n**Tech literacy:** [1–5] | **Emotional relationship with this domain:** [1 sentence]\n**Context of use:** [device, situation, time of day]\n**Biggest fear:** [what would make them abandon this product]\n\n### First-Person Journey (write entirely in first person — "I open the app...", "I see...", "I feel...")\n**Day 1 — First Contact** (completion: [N]% | emotion: [state])\n> "[2–3 sentences in persona\'s voice describing their actual experience — what they see, do, feel, and almost give up on]"\n\n**Day 7 — Returning** (completion: [N]% | emotion: [state])\n> "[2–3 sentences — what\'s still confusing, what they now understand, their workaround if any]"\n\n**Month 1 — Committed or Churned?** (completion: [N]% | emotion: [state])\n> "[2–3 sentences — is this habit now or did they delete it and why]"\n\n**The "oh forget it" moment:** [name the exact screen or interaction from Flow\'s output where this persona would abandon the task]\n**One thing the team didn\'t consider:** [the insight only this specific person in this specific situation would notice]\n\n## Churn Risk Summary\n- Highest churn risk: [persona] — because [reason citing specific screen/flow from Flow\'s output]\n- Critical failure zones: [screens/flows where NO persona reaches completion]',
 
   council:'Output as:\n## Reviewer A: [Domain-appropriate user title]\n**Score:** [X]/10\n**Concerns:** (1) [specific element/flow] (2) [specific element/flow]\n**What would change my score +2:** [specific change]\n\n## Reviewer B: [Domain-appropriate expert title]\n**Score:** [X]/10\n**Concerns:** (1) [specific] (2) [specific]\n**What would change my score +2:** [specific change]\n\n## Reviewer C: [Technical implementer title]\n**Score:** [X]/10\n**Concerns:** (1) [specific] (2) [specific]\n**What would change my score +2:** [specific change]\n\n## Panel Analysis\n**Conflicts:** [where A and B fundamentally disagree and why]\n**Blindspots:** [what all 3 reviewers missed]\n**Consensus verdict:** SHIP / REVISE / REJECT — [conditions]',
 
@@ -2017,7 +2021,7 @@ const AGENT_MAX_TOKENS={
   scout:1000,scholar:1000,
   palette:1200,flow:1200,blueprint:1800,forge:1800,
   lens:1000,eye:900,mirror:1200,
-  council:1600,weaver:2200,gate:1400,check:1400,
+  council:1600,weaver:3000,gate:1600,check:1600,
   lead:6000
 };
 
@@ -2201,6 +2205,15 @@ function buildAgentMessages(agent,message,history){
         :'Apply the refinement directive to your specialist domain. Build on the overall sprint direction. Be specific about what you are changing from the prior approach.');
   }
   sys+='\n\nBe direct, specific, and expert. Follow the output format strictly. Cite prior agent outputs by name when building on them.';
+  // ── Swarm-mode addendum: suppress thinking traces, tool leakage, and preamble ──
+  if(window._swarmRunning){
+    sys+='\n\n## SWARM MODE — BATCH GENERATION RULES (NON-NEGOTIABLE)\n'+
+      '1. Output ONLY your final artifact — no thinking steps, no "I need to...", no reasoning monologue, no self-commentary, no preamble.\n'+
+      '2. Do NOT output raw tool invocation syntax. If you have tool access, call tools directly. If you cannot call tools, work from your training knowledge — do not write XML tool call syntax as text.\n'+
+      '3. Every value requiring precision (hex colors, px measurements, contrast ratios, percentages) — provide the actual computed value. Placeholders and "TBD" are spec failures.\n'+
+      '4. End your output cleanly at a logical section boundary. Do not trail off mid-sentence or mid-value.\n'+
+      '5. Your output will be rendered directly in a design dossier. Write for that audience — not for this conversation.';
+  }
   const maxTokens=AGENT_MAX_TOKENS[agent.id]||800;
   const temperature=AGENT_TEMPERATURE[agent.id]??0.5;
   // Build real OpenAI-format tools array from agent.tools list
@@ -3689,6 +3702,26 @@ function generateDossierHTML(){
   // ── Zone colour map ──────────────────────────────────────────────────────────
   const ZC={'Research Library':'#4a9eea','Design Studio':'#4acea0','Critique Room':'#e879f9','Synthesis Hub':'#f6ad55','Corridor':'#ffd700'};
 
+  // ── Output quality helpers (inline — same logic as sanitizeSwarmResponse) ─────
+  const _hasCorruption=t=>{
+    if(!t)return[];
+    const iss=[];
+    if(/<function_calls>/i.test(t)||/<invoke\s+name=/i.test(t))iss.push('Tool call XML leaked into output');
+    if(/<\|[\w_]+\|>/.test(t))iss.push('Model-internal delimiter tokens in output');
+    if(/<thinking>|<\/thinking>/i.test(t))iss.push('Thinking trace tags in output');
+    if(/^(I need to (think|work out|figure)|Let me (think|work out)|First, I (need|should|will)|I should|Hmm,|Okay, so)/im.test(t.slice(0,500)))
+      iss.push('Probable thinking trace — response starts with internal reasoning');
+    return iss;
+  };
+  const _isTruncated=t=>{
+    if(!t||t.length<80)return false;
+    const trimmed=t.trimEnd();
+    return!/[.!?}\]>`\-*%]$|```$|\d$|px$|rem$|em$|ms$|:1$/.test(trimmed)&&/[a-zA-Z0-9#_]$/.test(trimmed);
+  };
+  const _wordCount=t=>t?(t.match(/\S+/g)||[]).length:0;
+  const swarmErrors=window._swarmErrors||{};
+  const swarmTruncated=window._swarmTruncated||{};
+
   // ── Build TOC + sections ─────────────────────────────────────────────────────
   let tocHtml='',sectHtml='',hasAny=false,lastZone='';
   AGENTS.forEach(a=>{
@@ -3698,8 +3731,6 @@ function generateDossierHTML(){
       if(last&&last.content&&!last.content.startsWith('\u26a0[swarm-error]'))
         art={type:'text',lang:'text',content:last.content.trim()};
     }
-    if(!art)return;
-    hasAny=true;
     const ac='#'+(a.zc||0x4a9eea).toString(16).padStart(6,'0');
     const zc=ZC[a.zone]||ac;
     // Zone header
@@ -3710,9 +3741,53 @@ function generateDossierHTML(){
         +'<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+zc+';margin-right:8px;vertical-align:middle"></span>'
         +escHtml(a.zone)+'</div>';
     }
-    // TOC entry
-    tocHtml+='<a href="#a-'+escHtml(a.id)+'" class="tl"><span class="td" style="background:'+ac+'"></span>'+escHtml(a.name)+'</a>';
-    // Content
+    // TOC entry — with warning indicator if issues detected
+    const hasCorrIssues=art&&_hasCorruption(art.content).length>0;
+    const hasTrunc=swarmTruncated[a.id]|||(art&&_isTruncated(art.content));
+    const hasErr=!art&&swarmErrors[a.id];
+    const tocSuffix=hasCorrIssues?' <span style="color:#e84855;font-size:9px">⚠</span>':hasTrunc?' <span style="color:#f0a040;font-size:9px">…</span>':hasErr?' <span style="color:#5a1a1a;font-size:9px">✗</span>':'';
+    tocHtml+='<a href="#a-'+escHtml(a.id)+'" class="tl"><span class="td" style="background:'+ac+'"></span>'+escHtml(a.name)+tocSuffix+'</a>';
+    // Failed agent card (no artifact, errored)
+    if(!art){
+      hasAny=true;
+      const errInfo=swarmErrors[a.id];
+      sectHtml+='<div class="ac ac-failed" id="a-'+escHtml(a.id)+'">'
+        +'<div class="ah" style="border-left-color:#5a1a1a">'
+        +'<span class="adot" style="background:#5a1a1a"></span>'
+        +'<span class="an" style="color:#a04040">'+escHtml(a.name)+'</span>'
+        +'<span class="ar" style="color:#5a1a1a">'+escHtml(a.role)+'</span>'
+        +'<span class="aq-badge aq-err">No Output</span>'
+        +'</div>'
+        +'<div class="ab">'
+        +'<div class="aq-warn aq-warn-err">Agent did not produce output during this sprint.'
+        +(errInfo?' Error: '+escHtml(errInfo.error):'')
+        +'<br><em>Re-run the sprint or manually chat with this agent to get its output.</em></div>'
+        +'</div>'
+        +'</div>';
+      return;
+    }
+    hasAny=true;
+    // Quality issue detection
+    const corrIssues=_hasCorruption(art.content);
+    const truncated=swarmTruncated[a.id]||_isTruncated(art.content);
+    const wc=_wordCount(art.content);
+    // Build quality badge
+    let qBadge='';
+    if(corrIssues.length)qBadge='<span class="aq-badge aq-err">⚠ Artifacts</span>';
+    else if(truncated)qBadge='<span class="aq-badge aq-warn-badge">… Truncated</span>';
+    else if(wc<30)qBadge='<span class="aq-badge aq-warn-badge">Sparse</span>';
+    // Build quality banner(s)
+    let qualBanners='';
+    if(corrIssues.length){
+      qualBanners+='<div class="aq-warn aq-warn-err"><strong>⚠ Output quality issues detected:</strong><ul style="margin:4px 0 0 16px">'+
+        corrIssues.map(i=>'<li>'+escHtml(i)+'</li>').join('')+'</ul>'+
+        '<em style="font-size:11px">This output may contain rendering artifacts from the LLM. The design content may still be usable but verify before acting on it.</em></div>';
+    }
+    if(truncated){
+      qualBanners+='<div class="aq-warn aq-warn-trunc">⏸ Output appears truncated — the response ended before reaching a logical stopping point. '+
+        'Re-run this agent with a higher token limit to get the complete output.</div>';
+    }
+    // Content body
     let body='';
     const codeTypes=['code','ts','tsx','js','jsx','python','css','html','json','yaml'];
     if(art.type==='code'||codeTypes.indexOf(art.lang)>=0){
@@ -3733,7 +3808,10 @@ function generateDossierHTML(){
       +'<span class="adot" style="background:'+ac+'"></span>'
       +'<span class="an">'+escHtml(a.name)+'</span>'
       +'<span class="ar">'+escHtml(a.role)+'</span>'
+      +qBadge
+      +'<span class="aq-wc">'+wc+' words</span>'
       +'</div>'
+      +(qualBanners?'<div class="ab-banners">'+qualBanners+'</div>':'')
       +'<div class="ab">'+body+'</div>'
       +'</div>';
   });
@@ -3785,7 +3863,16 @@ function generateDossierHTML(){
     +'.ah{display:flex;align-items:center;gap:9px;padding:12px 16px;background:var(--bg3);border-left:3px solid var(--ac);border-bottom:1px solid var(--bdr);}'
     +'.adot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}'
     +'.an{font-weight:700;color:#e8edf5;font-size:13px;}'
-    +'.ar{color:var(--ac);font-size:11px;font-family:monospace;margin-left:4px;}'
+    +'.ar{color:var(--ac);font-size:11px;font-family:monospace;margin-left:4px;flex:1;}'
+    +'.aq-wc{font-size:9px;color:#2a3a5a;font-family:monospace;margin-left:auto;white-space:nowrap;}'
+    +'.aq-badge{font-size:9px;padding:1px 7px;border-radius:8px;font-family:monospace;margin-left:6px;white-space:nowrap;}'
+    +'.aq-err{background:#2a0808;color:#e84855;border:1px solid #5a1a1a;}'
+    +'.aq-warn-badge{background:#2a1a08;color:#f0a040;border:1px solid #5a3a10;}'
+    +'.ab-banners{border-bottom:1px solid var(--bdr);}'
+    +'.aq-warn{font-size:12px;line-height:1.6;padding:10px 16px;}'
+    +'.aq-warn-err{background:#0d0404;color:#c07060;border-left:3px solid #5a1a1a;}'
+    +'.aq-warn-trunc{background:#0a0805;color:#a08040;border-left:3px solid #5a3a10;}'
+    +'.ac-failed{opacity:0.8;}'
     +'.ab{padding:18px 20px;}'
     // Markdown
     +'.ab h2{font-size:15px;color:#e8edf5;margin:16px 0 8px;font-weight:600;line-height:1.3;}'
@@ -5666,6 +5753,50 @@ function setAgentBubble(agentId, text){
   if(!window._swarmRunning)a.thoughtTimer=0;
 }
 
+// ── Sanitise raw LLM output before storing/displaying in the dossier ───────────
+// Strips: thinking traces, tool-call XML leakage, model-internal delimiters
+// Detects whether an LLM response appears truncated (cut off before completing)
+function detectResponseTruncation(text){
+  if(!text||text.length<80)return false;
+  const t=text.trimEnd();
+  // Good endings: sentence punctuation, code closing chars, list endings, markdown fences
+  const goodEnd=/[.!?}\]>`\-*]$|```$|\d$|%$|px$|rem$|em$|ms$|:1$/m;
+  if(goodEnd.test(t))return false;
+  // Red flags: ends mid-word, mid-hex-value, mid-property, mid-sentence
+  const badEnd=/[a-zA-Z0-9#_]$/;
+  return badEnd.test(t);
+}
+
+// Detects leaked thinking traces, tool-call XML, or model-internal tokens in output
+function detectOutputCorruption(text){
+  if(!text)return[];
+  const issues=[];
+  if(/<function_calls>/i.test(text)||/<invoke\s+name=/i.test(text))
+    issues.push('tool-call XML leakage — raw <function_calls> or <invoke> markup in output');
+  if(/<\|[\w_]+\|>/.test(text))
+    issues.push('model-internal delimiter leakage — <|token|> syntax in output');
+  if(/<thinking>|<\/thinking>/i.test(text))
+    issues.push('thinking trace leakage — <thinking> block in output');
+  // Thinking trace patterns that leaked without tags
+  if(/^(I need to (think|work out|figure|consider)|Let me (think|work out|figure|first)|First, I (need|should|will)|I'll (first|start|begin)|I should|Hmm,|Okay, so)/im.test(text.slice(0,400)))
+    issues.push('probable thinking trace — response begins with internal reasoning monologue');
+  return issues;
+}
+
+function sanitizeSwarmResponse(text){
+  if(!text)return text;
+  // 1. Strip <thinking>...</thinking> blocks (extended thinking / chain-of-thought)
+  text=text.replace(/<thinking>[\s\S]*?<\/thinking>/gi,'').trim();
+  // 2. Strip <function_calls>...</function_calls> XML that leaked without being executed
+  text=text.replace(/<function_calls>[\s\S]*?<\/function_calls>/gi,'').trim();
+  // 3. Strip model-internal token delimiters (e.g. Mistral/Yi models)
+  text=text.replace(/<\|[\w_]+\|>[\s\S]*?<\|[\w_]+\|>/g,'').trim();
+  text=text.replace(/<\|[\w_]+\|>/g,'').trim();
+  // 4. Strip residual empty XML-style tags
+  text=text.replace(/<[a-z_]+\s*\/>/gi,'').trim();
+  return text||'[Agent produced no usable output after sanitization]';
+}
+
 async function runSwarmAgent(agent, customPrompt){
   const msg=customPrompt||(window._projectBrief
     ?'Based on the project brief, generate your specialist output now.'
@@ -5712,10 +5843,30 @@ async function runSwarmAgent(agent, customPrompt){
     _swarmErrored=true;
     response='⚠[swarm-error] '+agent.name+' unavailable: '+e.message;
     console.warn('Swarm agent error ('+agent.id+'):',e.message);
+    // Track failed agent for dossier display
+    window._swarmErrors=window._swarmErrors||{};
+    window._swarmErrors[agent.id]={name:agent.name,error:e.message,timestamp:Date.now()};
+    // Mark sprint card as failed
+    const failCard=document.getElementById('sprint-card-'+agent.id);
+    if(failCard){failCard.classList.remove('sprint-active','sprint-queued');failCard.classList.add('sprint-failed');}
   }
   // Clear preview once done (card transitions to sprint-done hides it via CSS)
   const _p=_sprintPreviewEl();
   if(_p)_p.textContent='';
+  // ── Post-processing: sanitise raw LLM output before storing ─────────────────
+  // Strips thinking traces, tool-call XML leakage, and model-internal delimiters
+  if(!_swarmErrored&&response){
+    response=sanitizeSwarmResponse(response);
+    // Log corruption issues to console (visible in devtools, not to user)
+    const issues=detectOutputCorruption(response);
+    if(issues.length)console.warn('[swarm sanitize] '+agent.name+' output issues: '+issues.join('; '));
+    // Detect truncation — attach a flag so the dossier can display a warning
+    if(detectResponseTruncation(response)){
+      console.warn('[swarm sanitize] '+agent.name+' response appears truncated');
+      window._swarmTruncated=window._swarmTruncated||{};
+      window._swarmTruncated[agent.id]=true;
+    }
+  }
   let newHistory=[...history,{role:'user',content:msg},{role:'assistant',content:response}];
   if(newHistory.length>30){
     // Preserve system messages (injected context); trim oldest chat turns only
@@ -5842,6 +5993,7 @@ async function runSwarm(){
   window._prototypeHTML=null;window._prototypeGenerating=false; // reset for new sprint
   window._swarmStartTime=Date.now(); // track duration
   window._revisionCount=0;window._critiqueScore=null;window._lastToastedPhase=-1;
+  window._swarmErrors={};window._swarmTruncated={}; // reset per-sprint error/truncation tracking
   // Reset per-agent status bubbles and show immediately
   window._agentStatus={};
   AGENTS.forEach(a=>{
