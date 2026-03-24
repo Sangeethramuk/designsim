@@ -897,6 +897,15 @@ const AGENT_THOUGHTS={
   lead:     ["All agents: on task","Scout, check X...","Palette \u2192 show opt 3","Sync meeting: 3pm","Critique phase next","Quality gate: open"]
 };
 
+// Tile bounds within which each zone's agents can freely wander
+const ZONE_WANDER_BOUNDS={
+  'Research Library':{x1:1,  y1:1, x2:10, y2:5},
+  'Design Studio':   {x1:15, y1:1, x2:25, y2:5},
+  'Critique Room':   {x1:1,  y1:8, x2:11, y2:13},
+  'Synthesis Hub':   {x1:14, y1:8, x2:25, y2:13},
+  'Corridor':        {x1:11, y1:4, x2:13, y2:8},
+};
+
 // --- Scripted Agent Responses ---
 const SCRIPTED_RESPONSES={
   scout:{keywords:{'competitor|competition|refero|research':"I search Refero and competitor apps to find design patterns. There are often 3-5 existing solutions worth studying before designing fresh.",'pattern|flow|navigation|ui':"I've spotted this pattern across multiple apps. The key: study what works in the wild before inventing new solutions.",'help|what|who|do':"I'm Scout. I find existing solutions so we don't reinvent the wheel. Ask me about competitors, flows, or patterns."},default:"I'm analyzing competitor products right now. I check Refero for similar flows and extract the best patterns. What specific problem are you solving?"},
@@ -6381,6 +6390,8 @@ class GameScene extends Phaser.Scene{
         lookDuration:0,typeFrame:0,nextPauseAt:randInt(2000,5000),pauseDuration:0,
         homeX:a.tx*TILE+TILE/2,homeY:a.ty*TILE+TILE/2,
         walking:false,walkDir:a.facing,
+        wanderState:'waiting',wanderTimer:randInt(500,4000),wanderWaitTime:randInt(2000,5000),
+        wanderTarget:null,wanderDir:a.facing,wanderFrame:0,wanderFrameTimer:0,
       };
 
       spr.on('pointerdown',()=>{this._clickedAgent=true;openChat(agentData);});
@@ -6668,7 +6679,7 @@ class GameScene extends Phaser.Scene{
 
     // --- Agent Idle Animations (skip while agent is physically walking) ---
     this.agents.forEach(a=>{
-      if(a.walking)return; // walking animation is handled by walkAgentToHandoff()
+      if(a.walking||a.wanderState==='moving')return; // walking animation handled by wander/handoff
       a.idleTimer+=delta;
       if(a.idle==='look'){
         if(a.idleState==='idle'&&a.idleTimer>a.nextIdleAt){
@@ -6689,6 +6700,48 @@ class GameScene extends Phaser.Scene{
         }
         const fr=a.idleState==='typing'?a.typeFrame:0;
         a.spr.setTexture(a.id+'_'+a.facing+'_'+fr);
+      }
+    });
+
+    // --- Agent Idle Wander (random drift within zone) ---
+    this.agents.forEach(a=>{
+      if(a.walking)return; // swarm handoff takes priority over wander
+      const bounds=ZONE_WANDER_BOUNDS[a.zone];
+      if(!bounds)return;
+      if(a.wanderState==='moving'&&a.wanderTarget){
+        // Walk animation: flip between frame 0 and 1 every 300ms
+        a.wanderFrameTimer+=delta;
+        if(a.wanderFrameTimer>300){a.wanderFrame=1-a.wanderFrame;a.wanderFrameTimer=0;}
+        const dx=a.wanderTarget.x-a.spr.x,dy=a.wanderTarget.y-a.spr.y;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<1){
+          // Arrived — settle, face arrival direction, switch to waiting
+          a.spr.x=a.wanderTarget.x;a.spr.y=a.wanderTarget.y;
+          a.facing=a.wanderDir;
+          a.wanderState='waiting';a.wanderTimer=0;
+          a.wanderWaitTime=randInt(2000,5000);
+          a.wanderTarget=null;a.wanderFrame=0;
+        }else{
+          const spd=0.5*(delta/16);
+          a.spr.x+=dx/dist*spd;a.spr.y+=dy/dist*spd;
+          a.spr.setDepth(a.spr.y);
+          a.spr.setTexture(a.id+'_'+a.wanderDir+'_'+a.wanderFrame);
+        }
+      }else{
+        // Waiting — count down, then pick a new random tile in zone
+        a.wanderTimer+=delta;
+        if(a.wanderTimer>a.wanderWaitTime){
+          const tx=randInt(bounds.x1,bounds.x2),ty=randInt(bounds.y1,bounds.y2);
+          const wx=tx*TILE+TILE/2,wy=ty*TILE+TILE/2;
+          const ddx=wx-a.spr.x,ddy=wy-a.spr.y;
+          if(Math.abs(ddx)+Math.abs(ddy)>TILE){
+            a.wanderTarget={x:wx,y:wy};
+            a.wanderState='moving';a.wanderTimer=0;
+            a.wanderDir=Math.abs(ddx)>Math.abs(ddy)?(ddx>0?'right':'left'):(ddy>0?'down':'up');
+          }else{
+            a.wanderTimer=a.wanderWaitTime-500; // target too close, nudge timer
+          }
+        }
       }
     });
 
