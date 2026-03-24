@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d1a'/%3E%3C!-- honeycomb hex grid --%3E%3Cpolygon points='16,3 21,6 21,12 16,15 11,12 11,6' fill='%234a9eea' opacity='.9'/%3E%3Cpolygon points='22,10 27,13 27,19 22,22 17,19 17,13' fill='%234acea0' opacity='.85'/%3E%3Cpolygon points='10,10 15,13 15,19 10,22 5,19 5,13' fill='%23e879f9' opacity='.85'/%3E%3Cpolygon points='16,19 21,22 21,28 16,31 11,28 11,22' fill='%23f6ad55' opacity='.9'/%3E%3C/svg%3E">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://*.supabase.co https://*.moonshot.ai https://*.openai.com https://*.anthropic.com https://api.figma.com https://*.workers.dev https://*.run.app wss://*.supabase.co; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh; connect-src 'self' https://*.supabase.co https://*.moonshot.ai https://*.openai.com https://*.anthropic.com https://api.figma.com https://*.workers.dev https://*.run.app wss://*.supabase.co https://huggingface.co https://*.huggingface.co https://esm.sh https://cdn.jsdelivr.net; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; font-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src blob:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Design Swarm Studio</title>
 <style>
@@ -230,6 +230,29 @@
   .set-check-row{display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;background:#050510;border:1px solid #141430;border-radius:5px;margin-bottom:10px;}
   .set-check-row input[type=checkbox]{accent-color:#4acea0;width:14px;height:14px;flex-shrink:0;}
   .set-check-label{font-size:11px;color:#8888bb;line-height:1.4;}
+  /* Kokoro TTS settings styles */
+  .kokoro-engine-row{display:flex;gap:6px;margin-bottom:12px;}
+  .kokoro-engine-btn{flex:1;padding:8px 6px;background:#04040f;border:1px solid #1a1a36;color:#44446a;font-family:monospace;font-size:10px;border-radius:5px;cursor:pointer;transition:all 0.15s;text-align:center;}
+  .kokoro-engine-btn.active{background:#060e1a;border-color:#4a9eea;color:#4a9eea;}
+  .kokoro-engine-btn:hover:not(.active){border-color:#2a2a50;color:#8888bb;}
+  #kokoro-load-section{margin-bottom:12px;}
+  #kokoro-quality-row{display:flex;gap:6px;margin-bottom:10px;align-items:center;}
+  #kokoro-quality-row label{font-size:9px;color:#44446a;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;}
+  #kokoro-dtype{flex:1;background:#04040f;border:1px solid #1a1a36;color:#b0b8cc;padding:6px 8px;font-size:10px;font-family:monospace;border-radius:4px;outline:none;}
+  #kokoro-status-bar{background:#030308;border:1px solid #0f0f28;border-radius:5px;padding:8px 12px;margin-bottom:10px;min-height:36px;}
+  #kokoro-status-text{font-size:10px;font-family:monospace;color:#3a3a6a;margin-bottom:4px;}
+  #kokoro-progress-track{height:3px;background:#0a0a20;border-radius:2px;overflow:hidden;display:none;}
+  #kokoro-progress-fill{height:100%;background:linear-gradient(90deg,#4a9eea,#a78bfa);width:0%;transition:width 0.3s ease;}
+  #kokoro-progress-label{font-size:9px;color:#2a2a5a;margin-top:4px;font-family:monospace;display:none;}
+  .kokoro-voice-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px;}
+  .kokoro-voice-row{display:flex;align-items:center;gap:5px;padding:4px 6px;background:#04040f;border:1px solid #0f0f28;border-radius:4px;}
+  .kokoro-voice-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+  .kokoro-voice-name{font-size:9px;color:#444468;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .kokoro-voice-select{flex:1;background:transparent;border:none;color:#6868a8;font-size:9px;font-family:monospace;outline:none;cursor:pointer;min-width:0;}
+  .kokoro-voice-select:hover{color:#b0b8cc;}
+  #kokoro-test-btn{background:#04040f;border:1px solid #1a1a36;color:#444468;padding:5px 12px;border-radius:4px;font-size:10px;font-family:monospace;cursor:pointer;margin-top:8px;width:100%;transition:all 0.15s;}
+  #kokoro-test-btn:hover{border-color:#4acea0;color:#4acea0;}
+  #kokoro-test-btn:disabled{opacity:0.4;cursor:not-allowed;}
   .llm-close-btn{background:none;border:none;color:#484868;cursor:pointer;font-size:18px;line-height:1;padding:0;transition:color 0.15s;}.llm-close-btn:hover{color:#c0c8d8;}
   .llm-field{margin-bottom:14px;}.llm-field label{display:block;font-size:10px;color:#555;margin-bottom:5px;letter-spacing:0.8px;text-transform:uppercase;}
   .llm-field input{width:100%;background:#060614;border:1px solid #252548;color:#ccc;padding:8px 10px;font-size:12px;font-family:monospace;border-radius:4px;box-sizing:border-box;}.llm-field input:focus{outline:none;border-color:#4a9eea;}
@@ -1708,14 +1731,193 @@ function floorForTile(tx,ty){
   return'hallFloor'+((tx*7+ty*13)%2);
 }
 
-// --- TTS (Voice Output) ---
+// ── Kokoro TTS — Neural voices running entirely in the browser ────────────────
+// Uses kokoro-js (MIT) + ONNX Runtime Web — no server, no API key needed.
+// Model (~82MB q8) downloads once from HuggingFace and is cached by the browser.
+
+const KOKORO_VOICE_MAP={
+  scout:    'af_bella',    // energetic, curious
+  scholar:  'bm_george',   // measured, authoritative
+  palette:  'af_heart',    // warm, creative
+  flow:     'am_fenrir',   // focused, structured
+  blueprint:'am_michael',  // precise, clear
+  forge:    'am_puck',     // sharp, technical
+  lens:     'bf_emma',     // critical, considered
+  eye:      'af_nicole',   // observant, calm
+  mirror:   'af_sky',      // empathetic, reflective
+  council:  'bm_lewis',    // formal, deliberate
+  weaver:   'bf_isabella', // synthesizing, thoughtful
+  gate:     'bm_daniel',   // decisive, firm
+  check:    'af_kore',     // methodical, clear
+  lead:     'bm_george',   // commanding, strategic
+};
+
+// All available Kokoro voices with grade
+const KOKORO_ALL_VOICES=[
+  {id:'af_heart',label:'Heart ❤ (F·US·A)'},
+  {id:'af_bella',label:'Bella 🔥 (F·US·A-)'},
+  {id:'af_nicole',label:'Nicole 🎧 (F·US·B-)'},
+  {id:'af_sky',label:'Sky (F·US·C-)'},
+  {id:'af_sarah',label:'Sarah (F·US·C+)'},
+  {id:'af_kore',label:'Kore (F·US·C+)'},
+  {id:'af_aoede',label:'Aoede (F·US·C+)'},
+  {id:'am_fenrir',label:'Fenrir (M·US·C+)'},
+  {id:'am_michael',label:'Michael (M·US·C+)'},
+  {id:'am_puck',label:'Puck (M·US·C+)'},
+  {id:'am_echo',label:'Echo (M·US·D)'},
+  {id:'am_eric',label:'Eric (M·US·D)'},
+  {id:'bf_emma',label:'Emma 🚺 (F·GB·B-)'},
+  {id:'bf_isabella',label:'Isabella (F·GB·C)'},
+  {id:'bm_george',label:'George (M·GB·C)'},
+  {id:'bm_lewis',label:'Lewis (M·GB·D+)'},
+  {id:'bm_daniel',label:'Daniel 🚹 (M·GB·D)'},
+  {id:'bm_fable',label:'Fable 🚹 (M·GB·C)'},
+];
+
+let _kokoroInst=null;
+let _kokoroLoadPromise=null;
+let _kokoroSpeaking=false;
+let _kokoroQueue=[];
+window._kokoroEnabled=false;
+window._kokoroReady=false;
+// Mutable per-agent voice overrides (user-editable in settings)
+window._kokoroVoices={...KOKORO_VOICE_MAP};
+
+// Strip markdown from text before sending to TTS
+function _ttsStrip(text){
+  return text
+    .replace(/```[\s\S]*?```/g,'') // fenced code blocks
+    .replace(/`[^`]+`/g,'')        // inline code
+    .replace(/\*\*(.+?)\*\*/g,'$1') // bold
+    .replace(/\*(.+?)\*/g,'$1')    // italic
+    .replace(/^#{1,6}\s+/gm,'')   // headings
+    .replace(/\[(.+?)\]\(.+?\)/g,'$1') // links
+    .replace(/^\s*[-*+]\s+/gm,'') // bullets
+    .replace(/^\s*\d+\.\s+/gm,'') // ordered lists
+    .replace(/\|[^|\n]+/g,' ')    // table cells
+    .replace(/[-=]{3,}/g,'')      // horizontal rules / table separators
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+// Play a RawAudio object from kokoro-js using Web Audio API
+function _playKokoroAudio(audio){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const sr=audio.sampling_rate||24000;
+    const samples=new Float32Array(audio.data);
+    const buf=ctx.createBuffer(1,samples.length,sr);
+    buf.copyToChannel(samples,0);
+    const src=ctx.createBufferSource();
+    src.buffer=buf;
+    src.connect(ctx.destination);
+    src.start(0);
+    src.onended=()=>{ctx.close();_kokoroSpeaking=false;_processKokoroQueue();};
+    _kokoroSpeaking=true;
+  }catch(e){
+    console.warn('[Kokoro] playback error:',e);
+    _kokoroSpeaking=false;
+    _processKokoroQueue();
+  }
+}
+
+async function _kokoroGenAndPlay(text,voice){
+  if(!_kokoroInst||!window._kokoroReady)return;
+  try{
+    const audio=await _kokoroInst.generate(text,{voice,speed:1.0});
+    _playKokoroAudio(audio);
+  }catch(e){
+    console.warn('[Kokoro] generate error:',e.message);
+    _kokoroSpeaking=false;
+    _processKokoroQueue();
+  }
+}
+
+function _processKokoroQueue(){
+  if(_kokoroSpeaking||!_kokoroQueue.length)return;
+  const{text,voice}=_kokoroQueue.shift();
+  _kokoroGenAndPlay(text,voice);
+}
+
+// Load the Kokoro model — called once, subsequent calls return the cached instance
+async function initKokoro(dtype){
+  dtype=dtype||localStorage.getItem('kokoro_dtype')||'q8';
+  if(_kokoroLoadPromise)return _kokoroLoadPromise;
+  _kokoroLoadPromise=(async()=>{
+    _updateKokoroStatus('Importing kokoro-js…',0);
+    try{
+      // esm.sh applies package browser-field transforms (stubs path/fs for browser)
+      const{KokoroTTS}=await import('https://esm.sh/kokoro-js@1.2.1');
+      _updateKokoroStatus('Downloading model ('+dtype+')… first run takes a moment',5);
+      _kokoroInst=await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',{
+        dtype,
+        progress_callback:(p)=>{
+          if(p.status==='progress'&&p.total){
+            const pct=Math.round((p.loaded/p.total)*100);
+            _updateKokoroStatus('Downloading: '+p.file.split('/').pop()+' ('+pct+'%)',pct);
+          }else if(p.status==='done'){
+            _updateKokoroStatus('Loading into memory…',95);
+          }
+        }
+      });
+      window._kokoroReady=true;
+      localStorage.setItem('kokoro_dtype',dtype);
+      localStorage.setItem('kokoro_enabled','1');
+      _updateKokoroStatus('✓ Kokoro ready — '+dtype+' quality',100);
+      const loadBtn=document.getElementById('kokoro-load-btn');
+      if(loadBtn){loadBtn.textContent='✓ Loaded';loadBtn.disabled=true;loadBtn.style.color='#4acea0';}
+      const testBtn=document.getElementById('kokoro-test-btn');
+      if(testBtn)testBtn.disabled=false;
+      showToast('Kokoro TTS ready — neural voices active 🎙',2500);
+      return _kokoroInst;
+    }catch(e){
+      _kokoroLoadPromise=null;
+      window._kokoroReady=false;
+      _updateKokoroStatus('✗ Error: '+e.message,0);
+      console.error('[Kokoro] load failed:',e);
+      throw e;
+    }
+  })();
+  return _kokoroLoadPromise;
+}
+
+function _updateKokoroStatus(msg,pct){
+  const txt=document.getElementById('kokoro-status-text');
+  const track=document.getElementById('kokoro-progress-track');
+  const fill=document.getElementById('kokoro-progress-fill');
+  const lbl=document.getElementById('kokoro-progress-label');
+  if(txt)txt.textContent=msg;
+  if(pct>0&&pct<100){
+    if(track)track.style.display='block';
+    if(fill)fill.style.width=pct+'%';
+    if(lbl){lbl.style.display='block';lbl.textContent=pct+'%';}
+  }else if(pct>=100){
+    if(fill)fill.style.width='100%';
+    setTimeout(()=>{if(track)track.style.display='none';if(lbl)lbl.style.display='none';},800);
+  }
+}
+
+// --- TTS (Voice Output) — Kokoro-aware, falls back to Web Speech API ---
 function speakText(text,agent){
-  if(!window.speechSynthesis)return;
-  window.speechSynthesis.cancel();
-  const utt=new SpeechSynthesisUtterance(text);
-  const profile=VOICE_PROFILES[agent.id]||{pitch:1,rate:1};
-  utt.pitch=profile.pitch;utt.rate=profile.rate;
-  window.speechSynthesis.speak(utt);
+  window.speechSynthesis?.cancel();
+  if(!window._voiceEnabled)return;
+  const clean=_ttsStrip(text).slice(0,600);
+  if(!clean)return;
+  if(window._kokoroEnabled&&window._kokoroReady&&_kokoroInst){
+    const voice=(window._kokoroVoices[agent?.id]||'af_heart');
+    if(!_kokoroSpeaking){
+      _kokoroGenAndPlay(clean,voice);
+    }else{
+      // Queue if already speaking — max 2 in queue to avoid lag buildup
+      if(_kokoroQueue.length<2)_kokoroQueue.push({text:clean,voice});
+    }
+  }else{
+    if(!window.speechSynthesis)return;
+    const utt=new SpeechSynthesisUtterance(clean.slice(0,200));
+    const profile=VOICE_PROFILES[agent?.id]||{pitch:1,rate:1};
+    utt.pitch=profile.pitch;utt.rate=profile.rate;
+    window.speechSynthesis.speak(utt);
+  }
 }
 function speakWhisper(text){
   if(!window.speechSynthesis||!window._voiceEnabled)return;
@@ -1723,6 +1925,19 @@ function speakWhisper(text){
   const utt=new SpeechSynthesisUtterance(text);
   utt.pitch=1.0;utt.rate=0.8;utt.volume=0.3;
   window.speechSynthesis.speak(utt);
+}
+
+// Restore Kokoro state on page load
+function restoreKokoroState(){
+  if(localStorage.getItem('kokoro_enabled')==='1'){
+    window._kokoroEnabled=true;
+    // Restore voice overrides
+    try{const v=localStorage.getItem('kokoro_voices');if(v)Object.assign(window._kokoroVoices,JSON.parse(v));}catch(e){}
+    // Update UI
+    setTimeout(()=>{
+      _setKokoroEngineUI(true);
+    },200);
+  }
 }
 
 // --- STT (Voice Input) ---
@@ -2779,6 +2994,93 @@ function switchSettingsTab(tab){
   const btn=document.getElementById('stab-'+tab);
   if(pane)pane.classList.add('active');
   if(btn)btn.classList.add('active');
+  if(tab==='voice')_buildKokoroVoiceGrid();
+}
+
+// ── Kokoro Settings UI ────────────────────────────────────────────────────────
+function _buildKokoroVoiceGrid(){
+  const grid=document.getElementById('kokoro-voice-grid');
+  if(!grid||grid._built)return;
+  grid._built=true;
+  const opts=KOKORO_ALL_VOICES.map(v=>'<option value="'+v.id+'">'+v.label+'</option>').join('');
+  AGENTS.filter(a=>a.id!=='lead').forEach(a=>{
+    const cur=window._kokoroVoices[a.id]||'af_heart';
+    const color='#'+(a.zc||0x4a9eea).toString(16).padStart(6,'0');
+    const row=document.createElement('div');
+    row.className='kokoro-voice-row';
+    row.innerHTML='<span class="kokoro-voice-dot" style="background:'+color+'"></span>'
+      +'<span class="kokoro-voice-name">'+a.name+'</span>'
+      +'<select class="kokoro-voice-select" data-agent="'+a.id+'">'+opts+'</select>';
+    const sel=row.querySelector('select');
+    sel.value=cur;
+    sel.addEventListener('change',()=>{
+      window._kokoroVoices[a.id]=sel.value;
+      try{localStorage.setItem('kokoro_voices',JSON.stringify(window._kokoroVoices));}catch(e){}
+    });
+    grid.appendChild(row);
+  });
+}
+
+function _setKokoroEngineUI(useKokoro){
+  window._kokoroEnabled=useKokoro;
+  const kb=document.getElementById('engine-kokoro-btn');
+  const bb=document.getElementById('engine-browser-btn');
+  if(kb)kb.classList.toggle('active',useKokoro);
+  if(bb)bb.classList.toggle('active',!useKokoro);
+  const ls=document.getElementById('kokoro-load-section');
+  if(ls)ls.style.opacity=useKokoro?'1':'0.4';
+  if(useKokoro){
+    localStorage.setItem('kokoro_enabled','1');
+    // Restore saved dtype
+    const dtype=localStorage.getItem('kokoro_dtype')||'q8';
+    const sel=document.getElementById('kokoro-dtype');
+    if(sel)sel.value=dtype;
+    if(window._kokoroReady){
+      _updateKokoroStatus('✓ Kokoro ready',100);
+      const lb=document.getElementById('kokoro-load-btn');
+      if(lb){lb.textContent='✓ Loaded';lb.disabled=true;lb.style.color='#4acea0';}
+      const tb=document.getElementById('kokoro-test-btn');
+      if(tb)tb.disabled=false;
+    }
+  }else{
+    localStorage.removeItem('kokoro_enabled');
+  }
+}
+
+function kokoro_loadModel(){
+  const dtype=document.getElementById('kokoro-dtype')?.value||'q8';
+  const btn=document.getElementById('kokoro-load-btn');
+  if(btn){btn.disabled=true;btn.textContent='Loading…';}
+  initKokoro(dtype).catch(e=>{
+    if(btn){btn.disabled=false;btn.textContent='Retry';}
+    showToast('Kokoro load failed: '+e.message,3000);
+  });
+}
+
+function kokoro_unload(){
+  _kokoroInst=null;_kokoroLoadPromise=null;
+  window._kokoroReady=false;window._kokoroEnabled=false;
+  _kokoroSpeaking=false;_kokoroQueue=[];
+  localStorage.removeItem('kokoro_enabled');
+  _updateKokoroStatus('Unloaded.',0);
+  _setKokoroEngineUI(false);
+  const lb=document.getElementById('kokoro-load-btn');
+  if(lb){lb.disabled=false;lb.textContent='Load Model';lb.style.color='';}
+  const tb=document.getElementById('kokoro-test-btn');
+  if(tb)tb.disabled=true;
+  showToast('Kokoro TTS unloaded');
+}
+
+async function kokoro_testVoice(){
+  if(!window._kokoroReady||!_kokoroInst){showToast('Load Kokoro first');return;}
+  const agent=window._chatAgent||AGENTS[0];
+  const voice=window._kokoroVoices[agent.id]||'af_heart';
+  const sample='Hello, I am '+agent.name+', your '+agent.role+'. Ready to help with your design sprint.';
+  try{
+    _kokoroSpeaking=false;_kokoroQueue=[];
+    await _kokoroGenAndPlay(sample,voice);
+    showToast('Playing '+agent.name+' voice: '+voice);
+  }catch(e){showToast('Test failed: '+e.message);}
 }
 
 function loadCredentials(){
@@ -6670,6 +6972,7 @@ class GameScene extends Phaser.Scene{
     initFeed();
     initMemoryBrowser();
     initCmdPalette();
+    restoreKokoroState(); // restore Kokoro TTS if previously enabled
   }
 
   // --- Popover ---
@@ -7697,6 +8000,7 @@ function saveAgent(){
       <button class="settings-tab active" onclick="switchSettingsTab('llm')" id="stab-llm">⚡ LLM</button>
       <button class="settings-tab" onclick="switchSettingsTab('supabase')" id="stab-supabase">☁ Supabase</button>
       <button class="settings-tab" onclick="switchSettingsTab('figma')" id="stab-figma">🎨 Figma</button>
+      <button class="settings-tab" onclick="switchSettingsTab('voice')" id="stab-voice">🎙 Voice</button>
       <button class="settings-tab" onclick="switchSettingsTab('profile')" id="stab-profile">🧠 Profile</button>
     </div>
 
@@ -7782,6 +8086,48 @@ function saveAgent(){
         </div>
         <div id="figma-status" class="set-status"></div>
         <p class="set-note">Posts Blueprint spec + Director summary as a Figma comment. Pushes color tokens via Variables API (Enterprise plan required).<br><br>If a <b>Cloudflare Worker</b> is configured (see LLM tab), only the File Key is needed — the Figma token stays server-side in the Worker.</p>
+      </div>
+
+      <!-- ── Voice Tab ─────────────────────────────────────────────── -->
+      <div class="settings-pane" id="settings-pane-voice">
+        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:12px;letter-spacing:0.3px;">Voice Engine</p>
+        <div class="kokoro-engine-row">
+          <button class="kokoro-engine-btn active" id="engine-browser-btn" onclick="_setKokoroEngineUI(false)">
+            🌐 Browser<br><span style="font-size:8px;color:inherit;opacity:0.6;">Web Speech API · instant</span>
+          </button>
+          <button class="kokoro-engine-btn" id="engine-kokoro-btn" onclick="_setKokoroEngineUI(true)">
+            🧠 Kokoro<br><span style="font-size:8px;color:inherit;opacity:0.6;">Neural · per-agent voices</span>
+          </button>
+        </div>
+
+        <div id="kokoro-load-section">
+          <div id="kokoro-quality-row">
+            <label>Quality</label>
+            <select id="kokoro-dtype">
+              <option value="q8">q8 — ~82MB · balanced</option>
+              <option value="q4">q4 — ~41MB · faster</option>
+              <option value="fp16">fp16 — ~165MB · high quality</option>
+              <option value="fp32">fp32 — ~330MB · best quality</option>
+            </select>
+          </div>
+          <div id="kokoro-status-bar">
+            <div id="kokoro-status-text">Not loaded. Click Load to download the model.</div>
+            <div id="kokoro-progress-track"><div id="kokoro-progress-fill"></div></div>
+            <div id="kokoro-progress-label"></div>
+          </div>
+          <div class="set-btn-row" style="margin-bottom:12px;">
+            <button id="kokoro-load-btn" class="set-btn s-green" onclick="kokoro_loadModel()">Load Model</button>
+            <button id="kokoro-unload-btn" class="set-btn s-red" onclick="kokoro_unload()" style="display:none">Unload</button>
+          </div>
+        </div>
+
+        <hr class="set-divider">
+        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:8px;letter-spacing:0.3px;">Agent Voices</p>
+        <div class="kokoro-voice-grid" id="kokoro-voice-grid">
+          <!-- Populated by JS -->
+        </div>
+        <button id="kokoro-test-btn" disabled onclick="kokoro_testVoice()">▶ Test current agent voice</button>
+        <p class="set-note" style="margin-top:10px;">Model runs entirely in your browser. Downloaded once (~82MB) and cached. No API key, no server.<br><br>Voices rated A–F by quality. <strong style="color:#4a9eea">Heart ❤</strong> and <strong style="color:#4a9eea">Bella 🔥</strong> are highest quality.</p>
       </div>
 
       <!-- ── Profile Tab ───────────────────────────────────────────── -->
