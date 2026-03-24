@@ -312,26 +312,39 @@ async function handleServeShare(req, env, url) {
     return new Response('Missing share ID.', { status: 400, headers: { 'Content-Type': 'text/plain' } });
   }
 
-  const { value: html, metadata } = await env.SHARES.getWithMetadata(id, 'text');
-  if (!html) {
+  try {
+    const { value: html, metadata } = await env.SHARES.getWithMetadata(id, 'text');
+    if (!html) {
+      return new Response(
+        '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0d0d14;color:#fff">' +
+        '<h2>Link not found</h2><p>This share link does not exist or has been removed.</p>' +
+        '</body></html>',
+        { status: 404, headers: { 'Content-Type': 'text/html;charset=utf-8' } },
+      );
+    }
+
+    // Encode title for header — raw unicode/emoji in header values throws Error 1101
+    const safeTitle = encodeURIComponent((metadata?.title || '').slice(0, 100));
+
+    return new Response(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html;charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+        'X-Share-Id': id,
+        'X-Share-Title': safeTitle,
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (err) {
+    console.error('[Worker] handleServeShare error:', err?.message);
     return new Response(
       '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0d0d14;color:#fff">' +
-      '<h2>Link not found</h2><p>This share link does not exist or has been removed.</p>' +
+      '<h2>Error loading share</h2><p>' + (err?.message || 'Unknown error') + '</p>' +
       '</body></html>',
-      { status: 404, headers: { 'Content-Type': 'text/html;charset=utf-8' } },
+      { status: 500, headers: { 'Content-Type': 'text/html;charset=utf-8' } },
     );
   }
-
-  return new Response(html, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html;charset=utf-8',
-      'Cache-Control': 'public, max-age=300',
-      'X-Share-Id': id,
-      'X-Share-Title': (metadata?.title || '').slice(0, 100),
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
