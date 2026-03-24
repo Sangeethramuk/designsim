@@ -419,6 +419,11 @@
   #board-share-btn{background:#0a1220;border:1px solid rgba(99,179,237,0.4);color:#63b3ed;}
   #board-share-btn:hover{background:#0d1828;border-color:#63b3ed;}
   #board-share-btn:disabled{opacity:0.5;cursor:wait;}
+  /* Dropdown action buttons */
+  .board-dd-wrap{position:relative;display:inline-block;}
+  .board-dd-menu{position:absolute;top:calc(100% + 4px);left:0;background:#0a0a1e;border:1px solid #1a2a4a;border-radius:6px;padding:4px;min-width:160px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.6);}
+  .board-dd-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:#b0b8d0;padding:6px 10px;font-size:10.5px;font-family:monospace;cursor:pointer;border-radius:4px;white-space:nowrap;}
+  .board-dd-menu button:hover{background:#1a2a4a;color:#e8edf5;}
   /* Share link modal */
   #share-link-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10600;align-items:center;justify-content:center;}
   #share-link-modal.active{display:flex;}
@@ -4774,6 +4779,25 @@ async function _expandSprintCard(card,sprintId){
   }
 }
 
+// --- Board dropdown helpers ---
+function toggleBoardDropdown(id){
+  var all=['share-dd','export-dd','agent-dd'];
+  all.forEach(function(dd){
+    var el=document.getElementById(dd);
+    if(el) el.style.display=(dd===id&&el.style.display==='none')?'block':'none';
+  });
+}
+function closeBoardDropdowns(){
+  ['share-dd','export-dd','agent-dd'].forEach(function(dd){
+    var el=document.getElementById(dd);
+    if(el) el.style.display='none';
+  });
+}
+// Close dropdowns when clicking outside
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.board-dd-wrap'))closeBoardDropdowns();
+});
+
 // --- Phase 5: Sprint Comparison ---
 function openCompareModal(){
   const hist=window._sprintHistory||[];
@@ -7634,28 +7658,45 @@ function saveAgent(){
       </div>
       <!-- Row 2: grouped action buttons -->
       <div id="board-actions">
-        <!-- Swarm -->
+        <!-- Sprint -->
         <div class="board-btn-group">
           <button id="swarm-run-btn" class="board-action-btn" onclick="runSwarm()" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">▶ Run Swarm</button>
           <button class="board-action-btn" onclick="openIterateModal()" style="color:#a78bfa;border-color:rgba(167,139,250,0.35);background:#0e0a1e" title="Refine last sprint">↩ Iterate</button>
-          <button class="board-action-btn" onclick="openCompareModal()" style="color:#63b3ed;border-color:rgba(99,179,237,0.35);background:#05101e" title="Compare sprints">↔ Compare</button>
-          <button class="board-action-btn" onclick="loadDemoSprint()" style="color:#f6ad55;border-color:rgba(246,173,85,0.35);background:#1a0f00" title="Instantly load pre-built demo sprint for testing the output UI">🧪 Demo</button>
+        </div>
+        <div class="board-btn-sep"></div>
+        <!-- Output -->
+        <div class="board-btn-group">
+          <button id="board-preview-btn" class="board-action-btn" style="color:#4acea0;border-color:rgba(74,206,160,0.4);background:#0a1e12">▶ Open Prototype</button>
+          <!-- Share dropdown (dossier + prototype) -->
+          <div class="board-dd-wrap">
+            <button id="board-share-btn" class="board-action-btn" onclick="toggleBoardDropdown('share-dd')" title="Share dossier or prototype">🔗 Share ▾</button>
+            <div id="share-dd" class="board-dd-menu" style="display:none">
+              <button onclick="shareDossier();closeBoardDropdowns()">🔗 Share Dossier</button>
+              <button id="board-share-proto-btn" onclick="sharePrototype();closeBoardDropdowns()" title="Share HTML prototype">🔗 Share Prototype</button>
+            </div>
+          </div>
+          <!-- Export dropdown (copy MD + download HTML) -->
+          <div class="board-dd-wrap">
+            <button class="board-action-btn" onclick="toggleBoardDropdown('export-dd')">↓ Export ▾</button>
+            <div id="export-dd" class="board-dd-menu" style="display:none">
+              <button id="board-copy-btn" onclick="closeBoardDropdowns()">📋 Copy Markdown</button>
+              <button id="board-download-btn" onclick="closeBoardDropdowns()">⬇ Download HTML</button>
+              <button onclick="openCompareModal();closeBoardDropdowns()" style="border-top:1px solid #1a2a4a;margin-top:4px;padding-top:8px">↔ Compare Sprints</button>
+              <button onclick="loadDemoSprint();closeBoardDropdowns()" style="color:#f6ad55">🧪 Load Demo</button>
+            </div>
+          </div>
         </div>
         <div class="board-btn-sep"></div>
         <!-- Agents -->
         <div class="board-btn-group">
-          <button class="board-action-btn" onclick="addNewAgent()" style="color:#666;border-color:rgba(100,100,100,0.3)">+ Agent</button>
-          <button class="board-action-btn" onclick="triggerImportAgent()" style="color:#4acea0;border-color:rgba(74,206,160,0.35)" title="Import agent JSON">⬇ Import</button>
+          <div class="board-dd-wrap">
+            <button class="board-action-btn" onclick="toggleBoardDropdown('agent-dd')" style="color:#888;border-color:rgba(100,100,100,0.3)">+ Agent ▾</button>
+            <div id="agent-dd" class="board-dd-menu" style="display:none">
+              <button onclick="addNewAgent();closeBoardDropdowns()">✚ New Agent</button>
+              <button onclick="triggerImportAgent();closeBoardDropdowns()">⬇ Import JSON</button>
+            </div>
+          </div>
           <input type="file" id="agent-import-input" accept=".json" style="display:none" onchange="handleAgentImport(event)">
-        </div>
-        <div class="board-btn-sep"></div>
-        <!-- Export -->
-        <div class="board-btn-group">
-          <button id="board-copy-btn" class="board-action-btn">Copy MD</button>
-          <button id="board-download-btn" class="board-action-btn">⬇ HTML</button>
-          <button id="board-preview-btn" class="board-action-btn">▶ Preview</button>
-          <button id="board-share-btn" class="board-action-btn">🔗 Share</button>
-          <button id="board-share-proto-btn" class="board-action-btn" onclick="sharePrototype()" title="Get a permanent shareable link for the HTML prototype" style="color:#4acea0;border-color:rgba(74,206,160,0.35);background:#0a1e12">🔗 Prototype</button>
         </div>
         <div class="board-btn-sep"></div>
         <!-- Figma -->
