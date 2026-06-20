@@ -1,5 +1,7 @@
 # Design Floor
 
+[![CI](https://github.com/Sangeethramuk/designsim/actions/workflows/ci.yml/badge.svg)](https://github.com/Sangeethramuk/designsim/actions/workflows/ci.yml)
+
 AI design studio with 14 specialized agents in a pixel-art world. Walk around, chat with agents, relay artifacts between them, and export a project dossier.
 
 ## Architecture

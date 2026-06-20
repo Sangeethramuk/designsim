@@ -2,7 +2,7 @@ import prettier from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '*.html'],
+    ignores: ['dist/**', 'node_modules/**', '*.html', 'supabase/functions/**'],
   },
   {
     files: ['**/*.js', '**/*.ts'],
@@ -139,6 +139,11 @@ export default [
         beforeAll: 'readonly',
         afterAll: 'readonly',
         vi: 'readonly',
+        process: 'readonly',
+        global: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
       },
     },
   },
