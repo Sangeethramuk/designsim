@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Design Swarm Studio — Sprint Analytics Tables
+-- Design Floor Studio — Sprint Analytics Tables
 -- Run once in: Supabase Dashboard → SQL Editor
 -- ─────────────────────────────────────────────────────────────────────────────
 

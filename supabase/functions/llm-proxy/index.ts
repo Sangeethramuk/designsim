@@ -1,18 +1,40 @@
-// Design Swarm Studio — LLM Proxy Edge Function
+// Design Floor Studio — LLM Proxy Edge Function (DEPRECATED)
+//
+// ⚠️  DEPRECATED — Do not use for new deployments.
+//     The Cloudflare Worker (worker/src/index.js) is now the canonical LLM proxy.
+//     This file is kept for backward compatibility only.
+//
+// To migrate:
+//   1. Deploy the Cloudflare Worker (see worker/wrangler.toml)
+//   2. Set secrets: wrangler secret put LLM_BASE_URL, LLM_API_KEY, WORKER_SECRET
+//   3. Update your client to use the Worker URL instead of the Supabase Edge Function
+//   4. Delete this file once migration is complete
+//
 // Forwards chat completions to your LLM provider using server-side secrets.
 // Supports both streaming (SSE, stream:true) and non-streaming JSON responses.
 // Deploy: Supabase Dashboard → Edge Functions → New Function → paste this code
 // Secrets: Dashboard → Settings → Edge Function Secrets
-//   LLM_BASE_URL  = e.g. https://api.moonshot.ai
-//   LLM_API_KEY   = your API key
+//   LLM_BASE_URL   = e.g. https://api.moonshot.ai
+//   LLM_API_KEY    = your API key
+//   ALLOWED_ORIGINS = comma-separated allowed CORS origins (e.g. "https://yourapp.com")
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || ''
+  const allowed = (Deno.env.get('ALLOWED_ORIGINS') || '').split(',').map(s => s.trim()).filter(Boolean)
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  }
+  if (allowed.length > 0 && (allowed.includes(origin) || allowed.includes('*'))) {
+    headers['Access-Control-Allow-Origin'] = origin
+    headers['Vary'] = 'Origin'
+  }
+  return headers
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req)
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })

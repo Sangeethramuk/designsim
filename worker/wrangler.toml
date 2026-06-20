@@ -20,4 +20,8 @@ id = "ced93a56336145f2aca876b3ef12191a"
 # LLM_BASE_URL   — e.g. https://api.moonshot.cn
 # LLM_API_KEY    — your LLM provider API key
 # FIGMA_TOKEN    — Figma personal access token (optional)
-# WORKER_SECRET  — optional passphrase to protect the worker
+# BRAVE_API_KEY  — Brave Search API key (optional)
+# WORKER_SECRET  — REQUIRED passphrase for all non-public routes (header: X-Worker-Secret)
+#
+# Public vars (set in [vars] above or via dashboard):
+# ALLOWED_ORIGINS — comma-separated list of allowed CORS origins (e.g. "https://yourapp.com,https://www.yourapp.com")

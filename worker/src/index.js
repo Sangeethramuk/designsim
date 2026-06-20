@@ -1,120 +1,316 @@
 /**
- * Design Swarm Worker
+ * Design Floor Worker
  * Cloudflare Worker — LLM proxy + server-side tools
  *
  * Routes:
  *   POST /v1/chat/completions   → LLM proxy (drop-in OpenAI-compatible)
  *   POST /tool/webfetch         → server-side page fetch (no CORS issues)
+ *   POST /tool/brave-search     → Brave web search
  *   POST /tool/figma            → Figma REST API calls
  *   POST /share                 → store HTML in KV, return permanent public URL
  *   GET  /s/:id                 → serve shared HTML publicly (no auth required)
  *   GET  /health                → health check
+ *
+ * Security:
+ *   - WORKER_SECRET is REQUIRED for all non-public routes
+ *   - CORS is restricted to origins listed in ALLOWED_ORIGINS env var
+ *   - SSRF protection blocks private/internal IPs on /tool/webfetch
+ *   - Shared HTML is served with strict CSP (script-src 'none')
+ *
+ * Setup:
+ *   wrangler secret put WORKER_SECRET
+ *   wrangler secret put LLM_BASE_URL
+ *   wrangler secret put LLM_API_KEY
+ *   Set ALLOWED_ORIGINS in [vars] (comma-separated origins)
  */
 
-// ─── CORS Headers ────────────────────────────────────────────────────────────
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Worker-Secret',
-};
+// ─── CORS: Origin-based allowlist ────────────────────────────────────────────
 
-function json(data, status = 200) {
+/**
+ * Get the allowed CORS origin from the request, based on ALLOWED_ORIGINS env var.
+ * @param {Request} req - The incoming request
+ * @param {Object} env - Cloudflare Worker environment bindings
+ * @param {string} [env.ALLOWED_ORIGINS] - Comma-separated list of allowed origins
+ * @returns {string|null} The allowed origin string, or null if not allowed
+ */
+function getAllowedOrigin(req, env) {
+  const origin = req.headers.get('Origin');
+  if (!origin) return null;
+  const allowed = (env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowed.length === 0) return null;
+  if (allowed.includes(origin)) return origin;
+  return null;
+}
+
+/**
+ * Build CORS response headers for the given allowed origin.
+ * @param {string|null} allowedOrigin - The allowed origin or null
+ * @returns {Record<string, string>} CORS headers object
+ */
+function corsHeaders(allowedOrigin) {
+  const h = {
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Worker-Secret',
+  };
+  if (allowedOrigin) {
+    h['Access-Control-Allow-Origin'] = allowedOrigin;
+    h['Vary'] = 'Origin';
+  }
+  return h;
+}
+
+/**
+ * Create a JSON Response with CORS headers.
+ * @param {Object} data - The data to JSON-stringify
+ * @param {number} status - HTTP status code
+ * @param {Record<string, string>} cors - CORS headers
+ * @returns {Response}
+ */
+function json(data, status, cors) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...CORS },
+    headers: { 'Content-Type': 'application/json', ...cors },
   });
 }
 
-function errorJson(message, status = 400) {
-  return json({ error: { message } }, status);
+/**
+ * Create an error JSON Response.
+ * @param {string} message - Error message
+ * @param {number} status - HTTP status code
+ * @param {Record<string, string>} cors - CORS headers
+ * @returns {Response}
+ */
+function errorJson(message, status, cors) {
+  return json({ error: { message } }, status, cors);
 }
 
-// ─── Auth guard (optional) ───────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+const LLM_TIMEOUT_MS = 120000;
+const WEBFETCH_TIMEOUT_MS = 10000;
+const BRAVE_TIMEOUT_MS = 8000;
+const FIGMA_TIMEOUT_MS = 15000;
+const MAX_SHARE_SIZE = 10 * 1024 * 1024;
+const MAX_BODY_SIZE = 10 * 1024 * 1024;
+const MAX_WEBFETCH_SNIPPET = 5000;
+const MAX_BRAVE_RESULTS = 10;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 60;
+
+// ─── Input validation helpers ────────────────────────────────────────────────
+/**
+ * Validate that a value is a string within a max length.
+ * @param {unknown} val - The value to validate
+ * @param {string} field - Field name for error messages
+ * @param {number} [maxLen=10000] - Maximum allowed length
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateString(val, field, maxLen = 10000) {
+  if (typeof val !== 'string') return { ok: false, error: `${field} must be a string` };
+  if (val.length > maxLen) return { ok: false, error: `${field} too long (max ${maxLen} chars)` };
+  return { ok: true };
+}
+
+/**
+ * Validate that a value is a valid HTTP/HTTPS URL.
+ * @param {unknown} urlStr - The value to validate
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateUrl(urlStr) {
+  if (typeof urlStr !== 'string' || !urlStr.startsWith('http')) {
+    return { ok: false, error: 'url is required and must start with http' };
+  }
+  try {
+    new URL(urlStr);
+  } catch {
+    return { ok: false, error: 'Invalid URL format' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Validate that a Figma file key is alphanumeric.
+ * @param {unknown} fileKey - The value to validate
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateFileKey(fileKey) {
+  if (typeof fileKey !== 'string' || !/^[a-zA-Z0-9]+$/.test(fileKey)) {
+    return { ok: false, error: 'fileKey must be alphanumeric' };
+  }
+  return { ok: true };
+}
+
+// ─── Rate limiting (KV-based) ────────────────────────────────────────────────
+/**
+ * Check rate limit for the requesting IP using KV storage.
+ * @param {Request} req - The incoming request
+ * @param {Object} env - Worker environment with SHARES KV namespace
+ * @param {Record<string, string>} _cors - CORS headers (unused)
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+async function checkRateLimit(req, env, _cors) {
+  if (!env.SHARES) return { ok: true };
+
+  const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
+  const key = 'rl:' + ip;
+  const now = Date.now();
+
+  try {
+    const raw = await env.SHARES.get(key);
+    const entry = raw ? JSON.parse(raw) : { count: 0, windowStart: now };
+
+    if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+      entry.count = 0;
+      entry.windowStart = now;
+    }
+
+    entry.count++;
+
+    await env.SHARES.put(key, JSON.stringify(entry), { expirationTtl: 120 });
+
+    if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
+      return { ok: false, error: 'Rate limit exceeded — too many requests. Try again in a minute.' };
+    }
+  } catch {
+    // KV errors shouldn't block requests
+  }
+
+  return { ok: true };
+}
+
+// ─── Auth guard ──────────────────────────────────────────────────────────────
+/**
+ * Check if the request is authorized via X-Worker-Secret header.
+ * @param {Request} req - The incoming request
+ * @param {Object} env - Worker environment
+ * @param {string} [env.WORKER_SECRET] - Required secret passphrase
+ * @returns {{ok: boolean, reason?: string}}
+ */
 function isAuthorized(req, env) {
-  // If no WORKER_SECRET set → open access (personal use)
-  if (!env.WORKER_SECRET) return true;
+  if (!env.WORKER_SECRET) {
+    return { ok: false, reason: 'WORKER_SECRET not configured — set it via: wrangler secret put WORKER_SECRET' };
+  }
   const header = req.headers.get('X-Worker-Secret') || '';
-  return header === env.WORKER_SECRET;
+  // Timing-safe comparison to prevent timing attacks
+  const a = new TextEncoder().encode(header);
+  const b = new TextEncoder().encode(env.WORKER_SECRET);
+  if (a.length !== b.length) return { ok: false, reason: 'Invalid or missing X-Worker-Secret header' };
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  if (diff !== 0) return { ok: false, reason: 'Invalid or missing X-Worker-Secret header' };
+  return { ok: true };
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────
 export default {
   async fetch(req, env) {
+    const cors = corsHeaders(getAllowedOrigin(req, env));
+
     try {
       const url = new URL(req.url);
 
       // CORS preflight
       if (req.method === 'OPTIONS') {
-        return new Response(null, { status: 204, headers: CORS });
+        return new Response(null, { status: 204, headers: cors });
       }
 
-      // Health check
+      // Health check — public, no auth
       if (url.pathname === '/health') {
-        return json({
-          status: 'ok',
-          version: env.WORKER_VERSION || '1.0.0',
-          llm: !!env.LLM_BASE_URL,
-          figma: !!env.FIGMA_TOKEN,
-          brave: !!env.BRAVE_API_KEY,
-          shares: !!env.SHARES,
-        });
+        return json(
+          {
+            status: 'ok',
+            version: env.WORKER_VERSION || '1.0.0',
+            llm: !!env.LLM_BASE_URL,
+            figma: !!env.FIGMA_TOKEN,
+            brave: !!env.BRAVE_API_KEY,
+            shares: !!env.SHARES,
+          },
+          200,
+          cors
+        );
       }
 
       // ── Route: Serve shared page — PUBLIC, no auth ─────────────────────────
       if (url.pathname.startsWith('/s/') && req.method === 'GET') {
-        return handleServeShare(req, env, url);
+        return handleServeShare(req, env, url, cors);
       }
 
       // Auth check on all other routes
-      if (!isAuthorized(req, env)) {
-        return errorJson('Unauthorized', 401);
+      const auth = isAuthorized(req, env);
+      if (!auth.ok) {
+        return errorJson(auth.reason, 401, cors);
+      }
+
+      // Rate limiting
+      const rateLimit = await checkRateLimit(req, env, cors);
+      if (!rateLimit.ok) {
+        return errorJson(rateLimit.error, 429, cors);
+      }
+
+      // Body size check for POST requests
+      if (req.method === 'POST') {
+        const contentLength = parseInt(req.headers.get('Content-Length') || '0', 10);
+        if (contentLength > MAX_BODY_SIZE) {
+          return errorJson('Request body too large (max 10 MB)', 413, cors);
+        }
       }
 
       // ── Route: LLM Proxy ───────────────────────────────────────────────────
       if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
-        return handleLLM(req, env);
+        return handleLLM(req, env, cors);
       }
 
       // ── Route: Brave Search tool ───────────────────────────────────────────
       if (url.pathname === '/tool/brave-search' && req.method === 'POST') {
-        return handleBraveSearch(req, env);
+        return handleBraveSearch(req, env, cors);
       }
 
       // ── Route: Webfetch tool ───────────────────────────────────────────────
       if (url.pathname === '/tool/webfetch' && req.method === 'POST') {
-        return handleWebfetch(req, env);
+        return handleWebfetch(req, env, cors);
       }
 
       // ── Route: Figma tool ──────────────────────────────────────────────────
       if (url.pathname.startsWith('/tool/figma') && req.method === 'POST') {
-        return handleFigma(req, env);
+        return handleFigma(req, env, cors);
       }
 
       // ── Route: Share — store HTML in KV, return permanent public URL ────────
       if (url.pathname === '/share' && req.method === 'POST') {
-        return handleShare(req, env, url);
+        return handleShare(req, env, url, cors);
       }
 
-      return errorJson('Not found', 404);
+      return errorJson('Not found', 404, cors);
     } catch (err) {
-      // Top-level catch — prevents Cloudflare 1101 "Worker threw exception"
       console.error('[Worker] unhandled error:', err?.message, err?.stack);
-      return json({ error: { message: 'Internal worker error: ' + (err?.message || String(err)) } }, 500);
+      return json({ error: { message: 'Internal worker error' } }, 500, cors);
     }
   },
 };
 
 // ─── LLM Proxy ───────────────────────────────────────────────────────────────
-async function handleLLM(req, env) {
+async function handleLLM(req, env, cors) {
   if (!env.LLM_BASE_URL || !env.LLM_API_KEY) {
-    return errorJson('LLM not configured — set LLM_BASE_URL and LLM_API_KEY secrets', 503);
+    return errorJson('LLM not configured — set LLM_BASE_URL and LLM_API_KEY secrets', 503, cors);
   }
 
   let body;
   try {
     body = await req.json();
   } catch (e) {
-    return errorJson('Invalid JSON body');
+    return errorJson('Invalid JSON body', 400, cors);
+  }
+
+  if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
+    return errorJson('messages array is required and must not be empty', 400, cors);
+  }
+  if (body.model && typeof body.model !== 'string') {
+    return errorJson('model must be a string', 400, cors);
+  }
+  if (body.max_tokens !== undefined && (typeof body.max_tokens !== 'number' || body.max_tokens < 1)) {
+    return errorJson('max_tokens must be a positive number', 400, cors);
   }
 
   const isStreaming = body.stream === true;
@@ -126,63 +322,125 @@ async function handleLLM(req, env) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + env.LLM_API_KEY,
+        Authorization: 'Bearer ' + env.LLM_API_KEY,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000), // 2 min — long enough for large generations
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
     });
   } catch (e) {
-    return errorJson('LLM upstream error: ' + e.message, 502);
+      return errorJson('LLM upstream error', 502, cors);
   }
 
-  // Streaming — pipe directly to client
   if (isStreaming && upstream.body) {
     return new Response(upstream.body, {
       status: upstream.status,
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        ...CORS,
+        ...cors,
       },
     });
   }
 
-  // Non-streaming — parse and forward
   try {
     const data = await upstream.json();
-    return json(data, upstream.status);
+    return json(data, upstream.status, cors);
   } catch (e) {
-    return errorJson('LLM response parse error: ' + e.message, 502);
+      return errorJson('LLM response parse error', 502, cors);
   }
+}
+
+// ─── SSRF Protection ────────────────────────────────────────────────────────────
+/**
+ * Check if a URL points to a private, internal, or metadata address.
+ * @param {string} urlStr - The URL to check
+ * @returns {boolean} true if the URL is private/blocked
+ */
+function isPrivateUrl(urlStr) {
+  let parsed;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    return true; // Invalid URL — block
+  }
+
+  // Only allow http and https schemes
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return true;
+  }
+
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, ''); // strip IPv6 brackets
+
+  // Block localhost variants
+  if (host === 'localhost' || host === '0.0.0.0' || host === '::1') {
+    return true;
+  }
+
+  // Check IPv4 literals against private/reserved ranges
+  const ipMatch = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipMatch) {
+    const a = parseInt(ipMatch[1], 10);
+    const b = parseInt(ipMatch[2], 10);
+    if (a === 0) return true; // 0.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8 (private)
+    if (a === 127) return true; // 127.0.0.0/8 (loopback)
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local + cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 (private)
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16 (private)
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 (CGNAT)
+    if (a >= 224) return true; // 224.0.0.0/4 (multicast/reserved)
+  }
+
+  // Block IPv6 link-local / unique-local
+  if (host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) {
+    return true;
+  }
+
+  // Block known cloud metadata endpoints
+  const blockedHosts = ['metadata.google.internal', 'metadata.aws.internal', '169.254.169.254'];
+  if (blockedHosts.includes(host)) return true;
+
+  return false;
 }
 
 // ─── Webfetch Tool ────────────────────────────────────────────────────────────
 // Server-side fetch — no CORS restrictions, no corsproxy.io dependency
-async function handleWebfetch(req, env) {
+async function handleWebfetch(req, env, cors) {
   let body;
   try {
     body = await req.json();
   } catch (e) {
-    return errorJson('Invalid JSON body');
+    return errorJson('Invalid JSON body', 400, cors);
   }
 
   const { url, reason } = body;
-  if (!url || !url.startsWith('http')) {
-    return errorJson('url is required and must start with http');
+
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.ok) {
+    return errorJson(urlCheck.error, 400, cors);
+  }
+
+  if (reason) {
+    const reasonCheck = validateString(reason, 'reason', 500);
+    if (!reasonCheck.ok) return errorJson(reasonCheck.error, 400, cors);
+  }
+
+  // SSRF check — block private/internal/metadata URLs
+  if (isPrivateUrl(url)) {
+    return errorJson('Blocked: URL resolves to a private, internal, or metadata address', 403, cors);
   }
 
   try {
     const resp = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; DesignSwarm/1.0)',
-        'Accept': 'text/html,application/json,*/*',
+        'User-Agent': 'Mozilla/5.0 (compatible; DesignFloor/1.0)',
+        Accept: 'text/html,application/json,*/*',
       },
-      // 10 second timeout
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(WEBFETCH_TIMEOUT_MS),
     });
 
     if (!resp.ok) {
-      return json({ content: `HTTP ${resp.status} fetching ${url}`, url, ok: false });
+      return json({ content: `HTTP ${resp.status} fetching ${url}`, url, ok: false }, 200, cors);
     }
 
     const ct = resp.headers.get('content-type') || '';
@@ -190,56 +448,60 @@ async function handleWebfetch(req, env) {
 
     let content;
     if (ct.includes('json')) {
-      // JSON — return directly
-      content = `[webfetch: ${url}]\n` + raw.slice(0, 5000);
+      content = `[webfetch: ${url}]\n` + raw.slice(0, MAX_WEBFETCH_SNIPPET);
     } else {
-      // HTML — strip tags, extract readable text
       content = stripHtml(raw, url, reason);
     }
 
-    return json({ content, url, ok: true });
+    return json({ content, url, ok: true }, 200, cors);
   } catch (e) {
-    return json({ content: `webfetch failed: ${e.message}`, url, ok: false });
+    return json({ content: `webfetch failed: ${e.message}`, url, ok: false }, 200, cors);
   }
 }
 
 // ─── Brave Search Tool ────────────────────────────────────────────────────────
-async function handleBraveSearch(req, env) {
+async function handleBraveSearch(req, env, cors) {
   if (!env.BRAVE_API_KEY) {
-    return errorJson('Brave Search not configured — set BRAVE_API_KEY secret', 503);
+    return errorJson('Brave Search not configured — set BRAVE_API_KEY secret', 503, cors);
   }
 
   let body;
   try {
     body = await req.json();
   } catch (e) {
-    return errorJson('Invalid JSON body');
+    return errorJson('Invalid JSON body', 400, cors);
   }
 
   const { query, count = 8 } = body;
-  if (!query || !query.trim()) {
-    return errorJson('query is required');
+
+  const queryCheck = validateString(query, 'query', 500);
+  if (!queryCheck.ok) return errorJson(queryCheck.error, 400, cors);
+  if (!query.trim()) {
+    return errorJson('query is required', 400, cors);
   }
 
+  const resultCount = Math.min(Math.max(parseInt(count, 10) || 8, 1), MAX_BRAVE_RESULTS);
+
   try {
-    const searchUrl = 'https://api.search.brave.com/res/v1/web/search?' +
-      new URLSearchParams({ q: query, count: Math.min(count, 10), search_lang: 'en' });
+    const searchUrl =
+      'https://api.search.brave.com/res/v1/web/search?' +
+      new URLSearchParams({ q: query, count: resultCount, search_lang: 'en' });
 
     const resp = await fetch(searchUrl, {
       headers: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
         'Accept-Encoding': 'gzip',
         'X-Subscription-Token': env.BRAVE_API_KEY,
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(BRAVE_TIMEOUT_MS),
     });
 
     if (!resp.ok) {
-      return json({ results: [], error: `Brave API error: HTTP ${resp.status}`, query });
+      return json({ results: [], error: `Brave API error: HTTP ${resp.status}`, query }, 200, cors);
     }
 
     const data = await resp.json();
-    const results = (data.web?.results || []).map(r => ({
+    const results = (data.web?.results || []).map((r) => ({
       title: r.title,
       url: r.url,
       description: r.description,
@@ -247,59 +509,102 @@ async function handleBraveSearch(req, env) {
     }));
 
     // Format as readable text for the LLM
-    const formatted = results.map((r, i) =>
-      `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}${r.age ? ' (' + r.age + ')' : ''}`
-    ).join('\n\n');
+    const formatted = results
+      .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}${r.age ? ' (' + r.age + ')' : ''}`)
+      .join('\n\n');
 
     const content = `[brave_search: "${query}"]\n\n${formatted || 'No results found.'}`;
-    return json({ content, results, query, ok: true });
+    return json({ content, results, query, ok: true }, 200, cors);
   } catch (e) {
-    return json({ content: `brave_search failed for "${query}": ${e.message}`, results: [], query, ok: false });
+    return json(
+      { content: `brave_search failed for "${query}": ${e.message}`, results: [], query, ok: false },
+      200,
+      cors
+    );
   }
 }
 
 // ─── Share: Store HTML in KV ──────────────────────────────────────────────────
+/**
+ * Generate a random alphanumeric ID.
+ * @param {number} [len=8] - Length of the ID
+ * @returns {string}
+ */
 function generateId(len = 8) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const buf = new Uint8Array(len);
+  crypto.getRandomValues(buf);
   let id = '';
   for (let i = 0; i < len; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
+    id += chars[buf[i] % chars.length];
   }
   return id;
 }
 
-async function handleShare(req, env, url) {
+async function handleShare(req, env, url, cors) {
   if (!env.SHARES) {
-    return errorJson('KV namespace SHARES not configured — run: wrangler kv:namespace create SHARES', 503);
+    return errorJson('KV namespace SHARES not configured — run: wrangler kv:namespace create SHARES', 503, cors);
   }
 
   let body;
   try {
     body = await req.json();
   } catch (e) {
-    return errorJson('Invalid JSON body');
+    return errorJson('Invalid JSON body', 400, cors);
   }
 
-  const { html, title = 'Design Swarm Export', type = 'dossier' } = body;
+  const { html, title = 'Design Floor Export', type = 'dossier' } = body;
+
   if (!html || typeof html !== 'string') {
-    return errorJson('html field is required');
+    return errorJson('html field is required', 400, cors);
   }
-  if (html.length > 10 * 1024 * 1024) {
-    return errorJson('HTML too large (max 10 MB)');
+  const titleCheck = validateString(title, 'title', 200);
+  if (!titleCheck.ok) return errorJson(titleCheck.error, 400, cors);
+  const typeCheck = validateString(type, 'type', 50);
+  if (!typeCheck.ok) return errorJson(typeCheck.error, 400, cors);
+
+  if (html.length > MAX_SHARE_SIZE) {
+    return errorJson('HTML too large (max 10 MB)', 413, cors);
   }
 
   const id = generateId(8);
   const meta = { title, type, created: new Date().toISOString(), size: html.length };
 
-  // Store permanently in KV (no TTL = never expires)
   await env.SHARES.put(id, html, { metadata: meta });
 
   const shareUrl = `${url.origin}/s/${id}`;
-  return json({ ok: true, url: shareUrl, id, meta });
+  return json({ ok: true, url: shareUrl, id, meta }, 200, cors);
 }
 
 // ─── Share: Serve stored HTML publicly ────────────────────────────────────────
-async function handleServeShare(req, env, url) {
+
+// Strip dangerous tags from shared HTML before serving to prevent XSS/meta-redirect attacks
+/**
+ * Strip dangerous tags from shared HTML before serving.
+ * Removes meta refresh redirects, base tags, object/embed/applet elements.
+ * @param {string} html - Raw HTML to sanitize
+ * @returns {string} Sanitized HTML
+ */
+function sanitizeSharedHtml(html) {
+  return html
+    .replace(/<meta[^>]+http-equiv=["']?refresh["']?[^>]*>/gi, '')
+    .replace(/<meta[^>]+http-equiv=["']?content-type["']?[^>]*>/gi, '')
+    .replace(/<base[^>]*>/gi, '')
+    .replace(/<object[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[^>]*>/gi, '')
+    .replace(/<applet[\s\S]*?<\/applet>/gi, '');
+}
+
+/**
+ * Escape HTML special characters in a string for safe rendering.
+ * @param {unknown} str - Value to escape (converted to string)
+ * @returns {string} HTML-escaped string
+ */
+function escapeHtmlText(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function handleServeShare(req, env, url, _cors) {
   if (!env.SHARES) {
     return new Response('Sharing not configured on this worker.', {
       status: 503,
@@ -317,57 +622,73 @@ async function handleServeShare(req, env, url) {
     if (!html) {
       return new Response(
         '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0d0d14;color:#fff">' +
-        '<h2>Link not found</h2><p>This share link does not exist or has been removed.</p>' +
-        '</body></html>',
-        { status: 404, headers: { 'Content-Type': 'text/html;charset=utf-8' } },
+          '<h2>Link not found</h2><p>This share link does not exist or has been removed.</p>' +
+          '</body></html>',
+        { status: 404, headers: { 'Content-Type': 'text/html;charset=utf-8' } }
       );
     }
 
     // Encode title for header — raw unicode/emoji in header values throws Error 1101
     const safeTitle = encodeURIComponent((metadata?.title || '').slice(0, 100));
 
-    return new Response(html, {
+    // Sanitize: strip dangerous tags, then serve with strict CSP that blocks all script execution
+    const safeHtml = sanitizeSharedHtml(html);
+
+    return new Response(safeHtml, {
       status: 200,
       headers: {
         'Content-Type': 'text/html;charset=utf-8',
+        'Content-Security-Policy':
+          "default-src 'self' data: blob: https:; script-src 'none'; connect-src 'none'; frame-ancestors 'none'",
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
         'Cache-Control': 'public, max-age=300',
         'X-Share-Id': id,
         'X-Share-Title': safeTitle,
-        'Access-Control-Allow-Origin': '*',
       },
     });
   } catch (err) {
+    const errMsg = escapeHtmlText(err?.message || 'Unknown error');
     console.error('[Worker] handleServeShare error:', err?.message);
     return new Response(
       '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0d0d14;color:#fff">' +
-      '<h2>Error loading share</h2><p>' + (err?.message || 'Unknown error') + '</p>' +
-      '</body></html>',
-      { status: 500, headers: { 'Content-Type': 'text/html;charset=utf-8' } },
+        '<h2>Error loading share</h2><p>' +
+        errMsg +
+        '</p>' +
+        '</body></html>',
+      { status: 500, headers: { 'Content-Type': 'text/html;charset=utf-8' } }
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Strip HTML tags and extract readable text from an HTML string.
+ * @param {string} html - Raw HTML
+ * @param {string} url - Source URL for the output header
+ * @param {string} [reason] - Optional reason for fetching
+ * @returns {string} Extracted text with URL header
+ */
 function stripHtml(html, url, reason) {
   // Remove script, style, nav, footer, header blocks
-  let text = html
+  const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<nav[\s\S]*?<\/nav>/gi, '')
     .replace(/<footer[\s\S]*?<\/footer>/gi, '')
     .replace(/<header[\s\S]*?<\/header>/gi, '')
     .replace(/<aside[\s\S]*?<\/aside>/gi, '')
-    .replace(/<[^>]+>/g, ' ')           // strip remaining tags
+    .replace(/<[^>]+>/g, ' ') // strip remaining tags
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/\s{2,}/g, ' ')            // collapse whitespace
+    .replace(/\s{2,}/g, ' ') // collapse whitespace
     .trim();
 
-  const snippet = text.slice(0, 5000) + (text.length > 5000 ? '\n…(truncated)' : '');
+  const snippet = text.slice(0, MAX_WEBFETCH_SNIPPET) + (text.length > MAX_WEBFETCH_SNIPPET ? '\n…(truncated)' : '');
   return `[webfetch: ${url}${reason ? ' | ' + reason : ''}]\n\n${snippet}`;
 }
 
@@ -375,20 +696,29 @@ function stripHtml(html, url, reason) {
 
 // Build the Figma Variables API payload from a flat colors array
 // colors: [{name: string, r: number, g: number, b: number}]
+/**
+ * Build the Figma Variables API payload from a flat colors array.
+ * @param {Array<{name: string, r: number, g: number, b: number}>} colors
+ * @returns {Object} Figma Variables API payload
+ */
 function buildVariablesPayload(colors) {
   return {
-    variableCollections: [{
-      action: 'CREATE',
-      id: 'coll1',
-      name: 'Design Swarm Tokens',
-      initialModeId: 'mode1',
-    }],
-    variableModes: [{
-      action: 'CREATE',
-      id: 'mode1',
-      name: 'Default',
-      variableCollectionId: 'coll1',
-    }],
+    variableCollections: [
+      {
+        action: 'CREATE',
+        id: 'coll1',
+        name: 'Design Floor Tokens',
+        initialModeId: 'mode1',
+      },
+    ],
+    variableModes: [
+      {
+        action: 'CREATE',
+        id: 'mode1',
+        name: 'Default',
+        variableCollectionId: 'coll1',
+      },
+    ],
     variables: colors.map((c, i) => ({
       action: 'CREATE',
       id: 'var' + i,
@@ -405,72 +735,79 @@ function buildVariablesPayload(colors) {
   };
 }
 
-async function handleFigma(req, env) {
+async function handleFigma(req, env, cors) {
   if (!env.FIGMA_TOKEN) {
-    return errorJson('Figma not configured — set FIGMA_TOKEN secret', 503);
+    return errorJson('Figma not configured — set FIGMA_TOKEN secret', 503, cors);
   }
 
   let body;
   try {
     body = await req.json();
   } catch (e) {
-    return errorJson('Invalid JSON body');
+    return errorJson('Invalid JSON body', 400, cors);
   }
 
   const { action, fileKey, nodeIds } = body;
+
+  if (!action || typeof action !== 'string') {
+    return errorJson('action is required', 400, cors);
+  }
+  if (fileKey) {
+    const keyCheck = validateFileKey(fileKey);
+    if (!keyCheck.ok) return errorJson(keyCheck.error, 400, cors);
+  }
 
   const figmaHeaders = {
     'X-Figma-Token': env.FIGMA_TOKEN,
     'Content-Type': 'application/json',
   };
 
-  // ── Combined action: post spec comment + push design tokens ─────────────────
   if (action === 'push_design_spec') {
-    if (!fileKey) return errorJson('fileKey is required');
+    if (!fileKey) return errorJson('fileKey is required', 400, cors);
 
-    const comment = body.comment || '🤖 Design Swarm Export';
-    const colors  = Array.isArray(body.colors) ? body.colors : [];
+    const comment = body.comment || '🤖 Design Floor Export';
+    if (comment) {
+      const cCheck = validateString(comment, 'comment', 10000);
+      if (!cCheck.ok) return errorJson(cCheck.error, 400, cors);
+    }
+    const colors = Array.isArray(body.colors) ? body.colors : [];
 
     try {
-      // Step 1: Post comment
-      const commentResp = await fetch(
-        `https://api.figma.com/v1/files/${fileKey}/comments`,
-        {
-          method: 'POST',
-          headers: figmaHeaders,
-          body: JSON.stringify({ message: comment }),
-          signal: AbortSignal.timeout(15000),
-        },
-      );
+      const commentResp = await fetch(`https://api.figma.com/v1/files/${fileKey}/comments`, {
+        method: 'POST',
+        headers: figmaHeaders,
+        body: JSON.stringify({ message: comment }),
+        signal: AbortSignal.timeout(FIGMA_TIMEOUT_MS),
+      });
       const commentData = await commentResp.json();
       if (!commentResp.ok) {
-        return json({
-          ok: false,
-          tokenCount: 0,
-          error: commentData.err || `Figma comment API: ${commentResp.status}`,
-        });
+        return json(
+          {
+            ok: false,
+            tokenCount: 0,
+            error: commentData.err || `Figma comment API: ${commentResp.status}`,
+          },
+          200,
+          cors
+        );
       }
 
-      // Step 2: Push color tokens (best-effort; Variables API requires Enterprise)
       let tokenCount = 0;
       if (colors.length > 0) {
         try {
-          const varResp = await fetch(
-            `https://api.figma.com/v1/files/${fileKey}/variables`,
-            {
-              method: 'POST',
-              headers: figmaHeaders,
-              body: JSON.stringify(buildVariablesPayload(colors)),
-              signal: AbortSignal.timeout(15000),
-            },
-          );
+          const varResp = await fetch(`https://api.figma.com/v1/files/${fileKey}/variables`, {
+            method: 'POST',
+            headers: figmaHeaders,
+            body: JSON.stringify(buildVariablesPayload(colors)),
+            signal: AbortSignal.timeout(FIGMA_TIMEOUT_MS),
+          });
           if (varResp.ok) tokenCount = colors.length;
-        } catch (_) { /* Variables API is Enterprise-only; swallow errors */ }
+        } catch (_) {}
       }
 
-      return json({ ok: true, tokenCount, commentId: commentData.id });
+      return json({ ok: true, tokenCount, commentId: commentData.id }, 200, cors);
     } catch (e) {
-      return errorJson('Figma push_design_spec error: ' + e.message, 500);
+        return errorJson('Figma push_design_spec error', 500, cors);
     }
   }
 
@@ -480,48 +817,40 @@ async function handleFigma(req, env) {
     let figmaBody;
 
     switch (action) {
-      // Get full file
       case 'get_file':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}`;
         break;
 
-      // Get specific nodes
       case 'get_nodes':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/nodes?ids=${(nodeIds || []).join(',')}`;
         break;
 
-      // Get local variables
       case 'get_variables':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/variables/local`;
         break;
 
-      // Get file styles
       case 'get_styles':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/styles`;
         break;
 
-      // Get file components
       case 'get_components':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/components`;
         break;
 
-      // Get comments
       case 'get_comments':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/comments`;
         break;
 
-      // Post a comment
       case 'post_comment':
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/comments`;
         figmaMethod = 'POST';
         figmaBody = JSON.stringify({ message: body.message, client_meta: body.client_meta });
         break;
 
-      // Push color design tokens as Figma Variables
       case 'push_variables': {
-        if (!fileKey) return errorJson('fileKey is required');
+        if (!fileKey) return errorJson('fileKey is required', 400, cors);
         const colors = Array.isArray(body.colors) ? body.colors : [];
-        if (!colors.length) return errorJson('colors array is required');
+        if (!colors.length) return errorJson('colors array is required', 400, cors);
         figmaUrl = `https://api.figma.com/v1/files/${fileKey}/variables`;
         figmaMethod = 'POST';
         figmaBody = JSON.stringify(buildVariablesPayload(colors));
@@ -529,7 +858,7 @@ async function handleFigma(req, env) {
       }
 
       default:
-        return errorJson(`Unknown Figma action: ${action}`);
+        return errorJson(`Unknown Figma action: ${action}`, 400, cors);
     }
 
     const figmaResp = await fetch(figmaUrl, {
@@ -540,8 +869,11 @@ async function handleFigma(req, env) {
     });
 
     const data = await figmaResp.json();
-    return json(data, figmaResp.status);
+    return json(data, figmaResp.status, cors);
   } catch (e) {
-    return errorJson('Figma API error: ' + e.message, 500);
+    return errorJson('Figma API error', 500, cors);
   }
 }
+
+// ─── Exports for testing ────────────────────────────────────────────────────────
+export { stripHtml, generateId, isPrivateUrl, validateString, validateUrl, validateFileKey, buildVariablesPayload, sanitizeSharedHtml, escapeHtmlText };
