@@ -131,7 +131,7 @@ const AGENTS=[
    shirt:0x8b6914,hair:0x1a1a1a,idle:'look',
    brain:'kimi-latest',
     systemPrompt:'You are the Director of the Design Floor — 14 AI agents, one design sprint, your call.\n\nYou operate in two modes depending on what the user needs:\n\nPLANNING MODE (user shares a brief or asks for a sprint plan):\n- Read the brief carefully. Identify: the primary user, the core task, the emotional stakes, and the platform.\n- Calibrate agent selection to complexity:\n  Simple (single flow, landing page, MVP) → 4–6 agents, 3 phases\n  Medium (dashboard, multi-flow app, redesign) → 8–10 agents, 4 phases\n  Complex (design system, multi-platform, regulated domain) → all 13 agents, 5 phases\n- Give the Researcher and Strategist specific search queries to run — not "research the domain" but "search for \'[exact domain] onboarding flow UX problems 2024\'"\n- Give the Visual Designer the emotional register and 1–2 creative constraints from the brief\n- Tell the Developer which component library to default to (Radix, shadcn, or none)\n\nCOORDINATION MODE (during or after a sprint):\n- Read ALL agent outputs in your context. Identify what is missing, what conflicts, what is exceptional.\n- When agents disagree, name the conflict and propose a resolution with a reason.\n- Surface the finding that would most surprise the user — the thing no individual agent highlighted but that emerges from reading them together.\n\nDirector\'s Brief (write after every completed sprint):\n  What is being built: [one precise sentence — not a description, a definition]\n  5 defining decisions: [each with a reason citing the brief and agent findings — not generic]\n  Must not be compromised: [the non-negotiables and why]\n  Deferred to v2: [with explicit reasons — "deferred because X" not just omitted]\n  First engineering ticket: [the single most important thing to implement first and why]',
-   tools:['webfetch'],mcp:[],skills:['design-quality-gate'],noCollide:true},
+    tools:[],mcp:[],skills:['design-quality-gate'],noCollide:true},
 ];
 
 // --- Agent Thoughts (proximity bubbles) ---
@@ -1360,17 +1360,24 @@ function saveProxyConfig(val){
 // Collect outputs from a list of completed agent IDs into a context block
 function collectWaveOutputs(agentIds, recentIds=[]){
   const parts=[];
+  // Patterns that indicate the output is a thinking trace, not an artifact
+  const thinkingPatterns=/^(The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|I need to (think|work out|figure|consider)|Let me (think|work out|figure|first|reconsider|check|look|parse)|First, I (need|should|will)|I'll (first|start|begin)|I should|Hmm,|Okay, so|Wait,|Actually,|So essentially)/im;
   agentIds.forEach(id=>{
     const a=AGENTS.find(x=>x.id===id);if(!a)return;
     const art=window._agentArtifacts&&window._agentArtifacts[id];
     const sess=window._agentSessions&&window._agentSessions[id]||[];
     const lastReply=sess.filter(m=>m.role==='assistant').pop();
     const content=art?art.content:lastReply?lastReply.content:null;
-    // Skip swarm-error sentinels and tool-loop failures — don't pollute downstream context with failure messages
+    // Skip: empty, error sentinels, tool-loop failures, and thinking traces
     if(!content||content.startsWith('⚠[swarm-error]')||content==='No response after tool calls.'||content==='No response.')return;
-    // Tiered compression: recent wave agents get 1400 chars, older waves get 500 chars
-    // This keeps token budget manageable for synthesis agents (up to 9 prior agents)
-    const maxLen=recentIds.includes(id)?1400:500;
+    // Skip thinking traces — outputs that start with reasoning patterns instead of actual artifacts
+    if(thinkingPatterns.test(content.slice(0,400))){
+      // Check if there's real content after the thinking trace
+      const afterThinking=content.match(/\n(#{1,4} |\*\*[^*]+\*\*|## )/m);
+      if(!afterThinking||afterThinking.index>2000)return; // mostly thinking, skip
+    }
+    // Tiered compression: recent wave agents get 1800 chars, older waves get 700 chars
+    const maxLen=recentIds.includes(id)?1800:700;
     parts.push('['+id+']\n### '+a.name+' ('+a.role+')\n'+content.slice(0,maxLen));
   });
   return parts.length
@@ -1501,10 +1508,10 @@ const AGENT_TEMPERATURE={
 };
 // Per-agent max_tokens: spec/code writers and synthesizers need more room
 const AGENT_MAX_TOKENS={
-  scout:1000,scholar:1000,
-  palette:1200,flow:1200,blueprint:1800,forge:1800,
-  lens:1000,eye:900,mirror:1200,
-  council:1600,weaver:3000,gate:1600,check:1600,
+  scout:2000,scholar:2000,
+  palette:3000,flow:3000,blueprint:4000,forge:4000,
+  lens:2500,eye:2500,mirror:2500,
+  council:3000,weaver:4000,gate:3000,check:3000,
   lead:6000
 };
 
@@ -1709,11 +1716,13 @@ function buildAgentMessages(agent,message,history){
   // ── Swarm-mode addendum: suppress thinking traces, tool leakage, and preamble ──
   if(window._swarmRunning){
     sys+='\n\n## SWARM MODE — BATCH GENERATION RULES (NON-NEGOTIABLE)\n'+
-      '1. Output ONLY your final artifact — no thinking steps, no "I need to...", no reasoning monologue, no self-commentary, no preamble.\n'+
-      '2. Do NOT output raw tool invocation syntax. If you have tool access, call tools directly. If you cannot call tools, work from your training knowledge — do not write XML tool call syntax as text.\n'+
-      '3. Every value requiring precision (hex colors, px measurements, contrast ratios, percentages) — provide the actual computed value. Placeholders and "TBD" are spec failures.\n'+
-      '4. End your output cleanly at a logical section boundary. Do not trail off mid-sentence or mid-value.\n'+
-      '5. Your output will be rendered directly in a design dossier. Write for that audience — not for this conversation.';
+      '1. START YOUR RESPONSE WITH THE ACTUAL ARTLOG. Do not write "The user wants me to...", "Looking at...", "I need to...", "Let me...", "Wait,", "Actually,", or ANY other meta-commentary. Do not analyze the task. Do not describe what you plan to do. JUST PRODUCE THE OUTPUT.\n'+
+      '2. Your very first character must be a markdown heading (##) or the first line of your artifact. Anything before that is a failure.\n'+
+      '3. Do NOT output raw tool invocation syntax. If you have tool access, call tools directly. If you cannot call tools, work from your training knowledge — do not write XML tool call syntax as text.\n'+
+      '4. Every value requiring precision (hex colors, px measurements, contrast ratios, percentages) — provide the actual computed value. Placeholders and "TBD" are spec failures.\n'+
+      '5. End your output cleanly at a logical section boundary. Do not trail off mid-sentence or mid-value.\n'+
+      '6. Your output will be rendered directly in a design dossier. Write for that audience — not for this conversation.\n'+
+      '7. If prior agent outputs are missing or empty, note it in ONE line at the top, then proceed with your best work based on the brief. Do not spend your entire response discussing what is missing.';
   }
   const maxTokens=AGENT_MAX_TOKENS[agent.id]||800;
   const temperature=AGENT_TEMPERATURE[agent.id]??0.5;
@@ -5733,20 +5742,36 @@ function sanitizeSwarmResponse(text){
   // 5. Strip untagged thinking traces — meta-commentary that leaked as plain text
   //    Pattern: response starts with reasoning about the task, not the actual artifact
   //    Look for the first markdown heading or structured output as the real start
-  const thinkingPatterns=[
-    /^(The user (wants|is asking|is telling) me to[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
-    /^(I need to (think|work out|figure|consider)[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
-    /^(Let me (think|work out|figure|first|reconsider|check|look|parse)[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
-    /^(Looking at (the |prior |my )[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
+  const thinkingStartPatterns=[
+    /^(The user (wants|is asking|is telling) me to)/im,
+    /^(I need to (think|work out|figure|consider))/im,
+    /^(Let me (think|work out|figure|first|reconsider|check|look|parse))/im,
+    /^(Looking at (the |prior |my ))/im,
+    /^(First, I (need|should|will))/im,
+    /^(I'll (first|start|begin))/im,
+    /^(I should|Hmm,|Okay, so|Wait,|Actually,|So essentially)/im,
   ];
-  // Try to find where actual content starts (first markdown heading or structured output)
-  const contentStartMatch=text.match(/\n(#{1,4} |\*\*[^*]+\*\*|## )/m);
-  if(contentStartMatch&&contentStartMatch.index>100){
-    // Check if the text before the content start is thinking trace
-    const prefix=text.slice(0,contentStartMatch.index);
-    const isThinking=thinkingPatterns.some(p=>p.test(prefix));
-    if(isThinking){
-      text=text.slice(contentStartMatch.index+1).trim();
+  const isThinkingTrace=thinkingStartPatterns.some(p=>p.test(text.slice(0,400)));
+  if(isThinkingTrace){
+    // Find where actual content starts — first markdown heading, bold text, numbered list, table, or YAML
+    const contentMarkers=[
+      /\n#{1,4} [A-Z]/m,           // Markdown heading: ## Title
+      /\n\*\*[A-Z]/m,               // Bold text: **Title**
+      /\n\d+\. [A-Z]/m,             // Numbered list: 1. Title
+      /\n\| .+\|/m,                 // Table: | col1 | col2 |
+      /\n```/m,                      // Code block
+      /\n## [A-Z]/m,                // Section heading
+      /\n-[A-Z]/m,                  // Bullet list: - Title
+    ];
+    let earliestStart=-1;
+    for(const marker of contentMarkers){
+      const m=text.match(marker);
+      if(m&&m.index>0){
+        if(earliestStart===-1||m.index<earliestStart)earliestStart=m.index;
+      }
+    }
+    if(earliestStart>0&&earliestStart<text.length){
+      text=text.slice(earliestStart+1).trim();
     }
   }
   return text||'[Agent produced no usable output after sanitization]';
