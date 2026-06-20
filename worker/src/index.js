@@ -3,6 +3,7 @@
  * Cloudflare Worker — LLM proxy + server-side tools
  *
  * Routes:
+ *   GET  /config               → public config (Supabase URL, anon key, worker URL)
  *   POST /v1/chat/completions   → LLM proxy (drop-in OpenAI-compatible)
  *   POST /tool/webfetch         → server-side page fetch (no CORS issues)
  *   POST /tool/brave-search     → Brave web search
@@ -12,16 +13,17 @@
  *   GET  /health                → health check
  *
  * Security:
- *   - WORKER_SECRET is REQUIRED for all non-public routes
+ *   - Supabase JWT verification (Authorization: Bearer <token>) for per-user auth
+ *   - WORKER_SECRET fallback for dev/legacy clients (X-Worker-Secret header)
  *   - CORS is restricted to origins listed in ALLOWED_ORIGINS env var
  *   - SSRF protection blocks private/internal IPs on /tool/webfetch
  *   - Shared HTML is served with strict CSP (script-src 'none')
  *
  * Setup:
- *   wrangler secret put WORKER_SECRET
+ *   wrangler secret put SUPABASE_JWT_SECRET  (from Supabase Project Settings → API → JWT Secret)
  *   wrangler secret put LLM_BASE_URL
  *   wrangler secret put LLM_API_KEY
- *   Set ALLOWED_ORIGINS in [vars] (comma-separated origins)
+ *   Set SUPABASE_URL, SUPABASE_ANON_KEY, ALLOWED_ORIGINS in [vars]
  */
 
 // ─── CORS: Origin-based allowlist ────────────────────────────────────────────
@@ -180,27 +182,78 @@ async function checkRateLimit(req, env, _cors) {
   return { ok: true };
 }
 
+/**
+ * Verify a Supabase JWT token.
+ * Uses Web Crypto API (available in Cloudflare Workers) for HMAC verification.
+ * @param {string} token - The JWT token from Authorization header
+ * @param {string} secret - The Supabase JWT secret
+ * @returns {{ok: boolean, userId?: string, reason?: string}}
+ */
+async function verifyJwt(token, secret) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return { ok: false, reason: 'Invalid token format' };
+    const [headerB64, payloadB64, signatureB64] = parts;
+
+    // Decode header and payload
+    const decode = (b64) => JSON.parse(atob(b64.replace(/-/g, '+').replace(/_/g, '/')));
+    const header = decode(headerB64);
+    const payload = decode(payloadB64);
+
+    if (header.alg !== 'HS256') return { ok: false, reason: 'Unsupported algorithm' };
+    if (payload.exp && Date.now() >= payload.exp * 1000) return { ok: false, reason: 'Token expired' };
+    if (payload.iss && payload.iss !== payload.aud) {
+      // Supabase tokens have iss matching the project URL; we just check format
+    }
+
+    // Verify signature
+    const keyData = new TextEncoder().encode(secret);
+    const key = await crypto.subtle.importKey(
+      'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+    );
+    const data = new TextEncoder().encode(headerB64 + '.' + payloadB64);
+    const signature = Uint8Array.from(atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const valid = await crypto.subtle.verify('HMAC', key, signature, data);
+    if (!valid) return { ok: false, reason: 'Invalid signature' };
+
+    return { ok: true, userId: payload.sub || null };
+  } catch (e) {
+    return { ok: false, reason: 'Token verification failed' };
+  }
+}
+
 // ─── Auth guard ──────────────────────────────────────────────────────────────
 /**
- * Check if the request is authorized via X-Worker-Secret header.
+ * Check if the request is authorized.
+ * Primary: Supabase JWT via Authorization: Bearer <token>
+ * Fallback: WORKER_SECRET via X-Worker-Secret header (dev/legacy)
  * @param {Request} req - The incoming request
  * @param {Object} env - Worker environment
- * @param {string} [env.WORKER_SECRET] - Required secret passphrase
- * @returns {{ok: boolean, reason?: string}}
+ * @returns {Promise<{ok: boolean, reason?: string, userId?: string}>}
  */
-function isAuthorized(req, env) {
-  if (!env.WORKER_SECRET) {
-    return { ok: false, reason: 'WORKER_SECRET not configured — set it via: wrangler secret put WORKER_SECRET' };
+async function isAuthorized(req, env) {
+  // Try JWT auth first
+  const authHeader = req.headers.get('Authorization') || '';
+  if (authHeader.startsWith('Bearer ') && env.SUPABASE_JWT_SECRET) {
+    const token = authHeader.slice(7);
+    const result = await verifyJwt(token, env.SUPABASE_JWT_SECRET);
+    if (result.ok) return { ok: true, userId: result.userId };
+    // Fall through to WORKER_SECRET if JWT fails
   }
-  const header = req.headers.get('X-Worker-Secret') || '';
-  // Timing-safe comparison to prevent timing attacks
-  const a = new TextEncoder().encode(header);
-  const b = new TextEncoder().encode(env.WORKER_SECRET);
-  if (a.length !== b.length) return { ok: false, reason: 'Invalid or missing X-Worker-Secret header' };
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  if (diff !== 0) return { ok: false, reason: 'Invalid or missing X-Worker-Secret header' };
-  return { ok: true };
+
+  // Fallback: shared secret for dev/legacy
+  if (env.WORKER_SECRET) {
+    const header = req.headers.get('X-Worker-Secret') || '';
+    const a = new TextEncoder().encode(header);
+    const b = new TextEncoder().encode(env.WORKER_SECRET);
+    if (a.length !== b.length) return { ok: false, reason: 'Authentication required' };
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    if (diff !== 0) return { ok: false, reason: 'Authentication required' };
+    return { ok: true };
+  }
+
+  return { ok: false, reason: 'No authentication configured — set SUPABASE_JWT_SECRET or WORKER_SECRET' };
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────
@@ -232,13 +285,23 @@ export default {
         );
       }
 
+      // ── Route: Public config — no auth needed ──────────────────────────────
+      if (url.pathname === '/config' && req.method === 'GET') {
+        return json({
+          supabaseUrl: env.SUPABASE_URL || '',
+          supabaseAnonKey: env.SUPABASE_ANON_KEY || '',
+          workerUrl: url.origin,
+          authMode: env.SUPABASE_JWT_SECRET ? 'jwt' : (env.WORKER_SECRET ? 'secret' : 'none'),
+        }, 200, cors);
+      }
+
       // ── Route: Serve shared page — PUBLIC, no auth ─────────────────────────
       if (url.pathname.startsWith('/s/') && req.method === 'GET') {
         return handleServeShare(req, env, url, cors);
       }
 
       // Auth check on all other routes
-      const auth = isAuthorized(req, env);
+      const auth = await isAuthorized(req, env);
       if (!auth.ok) {
         return errorJson(auth.reason, 401, cors);
       }

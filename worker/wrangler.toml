@@ -6,6 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 WORKER_VERSION = "1.0.0"
 ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+SUPABASE_URL = "https://ofidqxlnqvjpflicopcz.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9maWRxeGxucXZqcGZsaWNvcGN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MjI5OTgsImV4cCI6MjA4OTQ5ODk5OH0.fAKq1PFe9AZUjFm9kxqz_t3YNLnvxqSNk4EbiMMPjxE"
 
 # ── KV Namespace: permanent share storage ────────────────────────────────────
 # Setup (one-time):
@@ -18,11 +20,14 @@ binding = "SHARES"
 id = "ced93a56336145f2aca876b3ef12191a"
 
 # Secrets (set via: wrangler secret put SECRET_NAME)
+# SUPABASE_JWT_SECRET — REQUIRED for per-user JWT auth (Supabase → Project Settings → API → JWT Secret)
 # LLM_BASE_URL   — e.g. https://api.moonshot.cn
 # LLM_API_KEY    — your LLM provider API key
 # FIGMA_TOKEN    — Figma personal access token (optional)
 # BRAVE_API_KEY  — Brave Search API key (optional)
-# WORKER_SECRET  — REQUIRED passphrase for all non-public routes (header: X-Worker-Secret)
+# WORKER_SECRET  — OPTIONAL fallback for dev/legacy (X-Worker-Secret header)
 #
 # Public vars (set in [vars] above or via dashboard):
-# ALLOWED_ORIGINS — comma-separated list of allowed CORS origins (e.g. "https://yourapp.com,https://www.yourapp.com")
+# SUPABASE_URL       — your Supabase project URL
+# SUPABASE_ANON_KEY — your Supabase anon/public key
+# ALLOWED_ORIGINS   — comma-separated list of allowed CORS origins

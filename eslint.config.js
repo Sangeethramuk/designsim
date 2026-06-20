@@ -49,6 +49,7 @@ export default [
       globals: {
         crypto: 'readonly',
         TextEncoder: 'readonly',
+        atob: 'readonly',
         console: 'readonly',
         fetch: 'readonly',
         URL: 'readonly',

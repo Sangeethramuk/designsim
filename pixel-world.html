@@ -292,61 +292,33 @@
     <!-- Tab panes -->
     <div id="settings-body">
 
-      <!-- ── LLM Tab ───────────────────────────────────────────────── -->
+      <!-- ── General Tab ────────────────────────────────────────────── -->
       <div class="settings-pane active" id="settings-pane-llm">
         <div id="llm-status" class="set-status"></div>
-        <p class="set-note" style="margin-bottom:16px;">LLM API keys stay server-side in the Cloudflare Worker. No API keys are stored in the browser.</p>
+        <p class="set-note" style="margin-bottom:16px;">LLM and tools are managed server-side. Your Supabase login authenticates all requests — no API keys needed.</p>
 
         <hr class="set-divider">
         <button id="llm-clear-data-btn" class="set-btn s-full s-dim">Clear Session Data</button>
         <p class="set-note" style="margin-top:10px;">Session data stored in browser localStorage and Supabase (if connected).</p>
 
         <hr class="set-divider">
-        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:10px;letter-spacing:0.3px;">☁ Cloudflare Worker (required)</p>
+        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:10px;letter-spacing:0.3px;">☁ Advanced: Custom Worker URL</p>
         <div class="set-field">
-          <label>Worker URL</label>
-          <input id="worker-url" class="set-input" type="text" placeholder="https://your-worker.workers.dev" autocomplete="off" spellcheck="false"/>
-        </div>
-        <div class="set-field">
-          <label>Worker Secret</label>
-          <input id="worker-secret" class="set-input" type="password" placeholder="wrangler secret put WORKER_SECRET" autocomplete="off" spellcheck="false"/>
+          <label>Worker URL (auto-detected — override only if needed)</label>
+          <input id="worker-url" class="set-input" type="text" placeholder="Auto-configured" autocomplete="off" spellcheck="false"/>
         </div>
         <div id="worker-status" class="set-status"></div>
         <div class="set-btn-row">
-          <button class="set-btn s-green" onclick="saveWorkerUrl()">Save Worker</button>
+          <button class="set-btn s-green" onclick="saveWorkerUrl()">Save</button>
           <button class="set-btn" onclick="testWorkerUrl()">Test</button>
-          <button class="set-btn s-red" onclick="clearWorkerUrl()">Clear</button>
+          <button class="set-btn s-red" onclick="clearWorkerUrl()">Reset</button>
         </div>
-        <p class="set-note" style="margin-top:10px;">When set, all LLM calls and tool calls route through your Worker. API key stays in Worker secrets — never in the browser.</p>
       </div>
 
-      <!-- ── Supabase Tab ──────────────────────────────────────────── -->
+      <!-- ── Supabase Tab (simplified — auto-configured) ────────────── -->
       <div class="settings-pane" id="settings-pane-supabase">
-        <div class="set-field">
-          <label>Project URL</label>
-          <input id="sb-url" class="set-input" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="set-field">
-          <label>Anon / Public Key</label>
-          <input id="sb-anon-key" class="set-input" placeholder="eyJ…" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="set-btn-row" style="margin-bottom:4px;">
-          <button id="sb-save-btn" class="set-btn s-green">Save &amp; Connect</button>
-        </div>
         <div id="sb-status" class="set-status"></div>
-        <p class="set-note">All data is scoped to your account via Row Level Security. Sessions, artifacts, memories, and relay logs are synced.</p>
-
-        <hr class="set-divider">
-        <p class="set-field" style="font-size:10px;color:#5a5a80;margin-bottom:10px;letter-spacing:0.3px;">LLM Proxy (Edge Function)</p>
-        <label class="set-check-row">
-          <input type="checkbox" id="use-proxy-toggle">
-          <span class="set-check-label">Route LLM calls through Supabase<br><span style="color:#38385a;font-size:9px;">API key stays server-side, hidden from browser</span></span>
-        </label>
-        <div class="set-btn-row">
-          <button id="proxy-test-btn" class="set-btn s-green">Test Proxy</button>
-        </div>
-        <div id="proxy-status" class="set-status"></div>
-        <p class="set-note">Deploy <code>supabase/functions/llm-proxy/index.ts</code> then set <code>LLM_BASE_URL</code> + <code>LLM_API_KEY</code> as Edge Function secrets.</p>
+        <p class="set-note">Authentication and data sync are managed automatically via Supabase. All data is scoped to your account via Row Level Security.</p>
       </div>
 
       <!-- ── Figma Tab ─────────────────────────────────────────────── -->

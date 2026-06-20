@@ -1533,7 +1533,7 @@ async function executeWebfetch(url,reason){
     try{
       const resp=await fetch(window._workerUrl+'/tool/webfetch',{
         method:'POST',
-        headers:workerHeaders(),
+        headers:await workerHeaders(),
         body:JSON.stringify({url,reason:reason||''}),
         signal:AbortSignal.timeout(15000)
       });
@@ -1597,7 +1597,7 @@ async function executeBraveSearch(query,count){
   try{
     const resp=await fetch(window._workerUrl+'/tool/brave-search',{
       method:'POST',
-      headers:workerHeaders(),
+      headers:await workerHeaders(),
       body:JSON.stringify({query,count:count||8}),
       signal:AbortSignal.timeout(12000)
     });
@@ -1728,7 +1728,10 @@ async function getAgentResponseStream(agent,message,history,baseUrl,apiKey,onTok
   const effectiveKey=window._workerUrl?null:apiKey;
   const headers={'content-type':'application/json'};
   if(effectiveKey)headers['authorization']='Bearer '+effectiveKey;
-  if(window._workerUrl&&window._workerSecret)headers['X-Worker-Secret']=window._workerSecret;
+  if(window._workerUrl){
+    const authH=await getWorkerAuthHeader();
+    Object.assign(headers,authH);
+  }
   const resp=await fetch(effectiveBase+'/v1/chat/completions',{
     method:'POST',headers,
     body:JSON.stringify({model,max_tokens:maxTokens,temperature,messages,stream:true})
@@ -1841,7 +1844,10 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   const effectiveKey=window._workerUrl?null:apiKey;
   const headers={'content-type':'application/json'};
   if(effectiveKey)headers['authorization']='Bearer '+effectiveKey;
-  if(window._workerUrl&&window._workerSecret)headers['X-Worker-Secret']=window._workerSecret;
+  if(window._workerUrl){
+    const authH=await getWorkerAuthHeader();
+    Object.assign(headers,authH);
+  }
   // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
   for(let round=0;round<3;round++){
@@ -2339,39 +2345,80 @@ function loadCredentials(){
   }
 }
 
-function workerHeaders(extra){
+/**
+ * Get the Supabase access token for Worker auth.
+ * Uses the current Supabase session JWT if available, falls back to workerSecret.
+ */
+async function getWorkerAuthHeader(){
+  if(window._sbClient){
+    try{
+      const{data:{session}}=await window._sbClient.auth.getSession();
+      if(session?.access_token)return{'Authorization':'Bearer '+session.access_token};
+    }catch(e){}
+  }
+  if(window._workerSecret)return{'X-Worker-Secret':window._workerSecret};
+  return{};
+}
+
+/**
+ * Build headers for Worker requests — includes auth automatically.
+ */
+async function workerHeaders(extra){
+  const auth=await getWorkerAuthHeader();
+  return Object.assign({'Content-Type':'application/json'},auth,extra||{});
+}
+
+// Synchronous version for non-async contexts (streaming init)
+function workerHeadersSync(extra){
   const h=Object.assign({'Content-Type':'application/json'},extra||{});
   if(window._workerSecret)h['X-Worker-Secret']=window._workerSecret;
   return h;
 }
 
-// ── Cloudflare Worker URL helpers ──────────────────────────────────────────
+// ── Auto-config: fetch public config from Worker ─────────────────────────────
+async function autoConfig(){
+  if(window._autoConfigDone)return;
+  window._autoConfigDone=true;
+  const workerUrl=window._workerUrl||DEFAULT_WORKER_URL;
+  if(!workerUrl)return;
+  try{
+    const resp=await fetch(workerUrl+'/config',{signal:AbortSignal.timeout(5000)});
+    if(!resp.ok)return;
+    const cfg=await resp.json();
+    if(cfg.supabaseUrl&&cfg.supabaseAnonKey){
+      window._autoSupabaseUrl=cfg.supabaseUrl;
+      window._autoSupabaseAnonKey=cfg.supabaseAnonKey;
+    }
+    if(cfg.workerUrl){
+      window._workerUrl=cfg.workerUrl;
+      window._workerAutoConfigured=true;
+    }
+    console.log('[AutoConfig] Worker config loaded — auth mode:',cfg.authMode);
+  }catch(e){
+    console.warn('[AutoConfig] Failed, will use config.local.js:',e.message);
+  }
+}
+
+// ── Cloudflare Worker URL helpers (legacy manual config) ─────────────────────
 function saveWorkerUrl(){
   const input=document.getElementById('worker-url');
-  const secretInput=document.getElementById('worker-secret');
   const st=document.getElementById('worker-status');
   const url=(input?.value||'').trim().replace(/\/$/,'');
   if(!url){st.className='err';st.textContent='⚠ Enter a Worker URL first';return;}
   if(!url.startsWith('https://')){st.className='err';st.textContent='⚠ URL must start with https://';return;}
-  const secret=(secretInput?.value||'').trim();
-  if(!secret){st.className='err';st.textContent='⚠ Worker Secret is required (set via wrangler secret put WORKER_SECRET)';return;}
   window._workerUrl=url;
-  window._workerSecret=secret;
-  try{localStorage.setItem('worker_url',url);localStorage.setItem('worker_secret',secret);}catch(e){}
-  st.className='ok';st.textContent='✓ Worker URL + Secret saved';
+  try{localStorage.setItem('worker_url',url);}catch(e){}
+  st.className='ok';st.textContent='✓ Worker URL saved';
   updateWorkerStatus();
 }
 
 async function testWorkerUrl(){
   const st=document.getElementById('worker-status');
   const url=(document.getElementById('worker-url')?.value||'').trim().replace(/\/$/,'')||window._workerUrl;
-  const secret=(document.getElementById('worker-secret')?.value||'').trim()||window._workerSecret;
   if(!url){st.className='err';st.textContent='⚠ Enter a Worker URL first';return;}
   st.className='pending';st.textContent='⏳ Testing…';
   try{
-    const headers={};
-    if(secret)headers['X-Worker-Secret']=secret;
-    const resp=await fetch(url+'/health',{headers,signal:AbortSignal.timeout(8000)});
+    const resp=await fetch(url+'/health',{signal:AbortSignal.timeout(8000)});
     const data=await resp.json();
     if(data.status==='ok'){
       st.className='ok';
@@ -2385,20 +2432,15 @@ function clearWorkerUrl(){
   window._workerSecret=null;
   try{localStorage.removeItem('worker_url');localStorage.removeItem('worker_secret');}catch(e){}
   const input=document.getElementById('worker-url');
-  const secretInput=document.getElementById('worker-secret');
   const st=document.getElementById('worker-status');
   if(input)input.value='';
-  if(secretInput)secretInput.value='';
   if(st){st.className='';st.textContent='Worker URL cleared';}
 }
 
 function updateWorkerStatus(){
-  const input=document.getElementById('worker-url');
-  const secretInput=document.getElementById('worker-secret');
   const st=document.getElementById('worker-status');
-  if(input&&window._workerUrl)input.value=window._workerUrl;
-  if(secretInput&&window._workerSecret)secretInput.value=window._workerSecret;
-  if(st&&window._workerUrl){
+  if(!st)return;
+  if(window._workerUrl){
     st.className='ok';st.textContent='✓ Worker configured — API key stays server-side';
   }
 }
@@ -2441,7 +2483,7 @@ function updateLLMBtn(){
   btn.title=window._workerUrl?'⚡ Worker: '+window._workerUrl:(window._llmBaseUrl?'⚡ '+window._llmBaseUrl:'Settings');
 }
 
-// --- Supabase / Worker config — read from config.local.js or localStorage ---
+// --- Supabase / Worker config — read from config.local.js, localStorage, or auto-config ---
 const SUPABASE_URL      = (window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||'';
 const SUPABASE_ANON_KEY = (window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||'';
 const DEFAULT_WORKER_URL = (window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl)||null;
@@ -2453,8 +2495,8 @@ window._sbReady=Promise.resolve(null); // resolves to user or null
 
 function loadSupabaseConfig(){
   try{
-    const url=localStorage.getItem('sb_url')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||'';
-    const key=localStorage.getItem('sb_anon_key')||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||'';
+    const url=localStorage.getItem('sb_url')||window._autoSupabaseUrl||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||SUPABASE_URL||'';
+    const key=localStorage.getItem('sb_anon_key')||window._autoSupabaseAnonKey||(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||SUPABASE_ANON_KEY||'';
     return {url,key};
   }catch(e){return {url:'',key:''};}
 }
@@ -3863,7 +3905,7 @@ async function shareDossier(){
     if(window._workerUrl){
       try{
         if(statusEl)statusEl.textContent='Uploading to Worker…';
-        const headers=workerHeaders();
+        const headers=await workerHeaders();
         const resp=await fetch(window._workerUrl.replace(/\/$/,'')+'/share',{
           method:'POST',
           headers,
@@ -3943,7 +3985,7 @@ async function sharePrototype(){
     // ── Option A: Cloudflare Worker KV ───────────────────────────────────────
     if(window._workerUrl){
       try{
-        const headers=workerHeaders();
+        const headers=await workerHeaders();
         const resp=await fetch(window._workerUrl.replace(/\/$/,'')+'/share',{
           method:'POST',headers,
           body:JSON.stringify({html,title,type:'prototype'}),
@@ -5186,7 +5228,7 @@ async function pushToFigma(){
     try{
       const r=await fetch(window._workerUrl+'/tool/figma',{
         method:'POST',
-        headers:workerHeaders(),
+        headers:await workerHeaders(),
         body:JSON.stringify({action:'push_design_spec',fileKey:cfg.fileKey,comment,colors:tokens.colors})
       });
       const data=await r.json();
@@ -6182,6 +6224,7 @@ class GameScene extends Phaser.Scene{
     // Init DOM chat panel
     initChatPanel();
     initAgentSkills(); // inject impeccable skill library into each agent's mdSkills
+    autoConfig(); // fetch public config from Worker (async, non-blocking)
     initLLMSettings();
     initSupabase();
     initAuthUI();

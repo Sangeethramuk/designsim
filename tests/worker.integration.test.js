@@ -18,6 +18,8 @@ describe('Worker Integration Tests', () => {
       LLM_API_KEY: 'test-api-key',
       WORKER_VERSION: '1.0.0-test',
       ALLOWED_ORIGINS: 'http://localhost:5173',
+      SUPABASE_URL: 'https://test.supabase.co',
+      SUPABASE_ANON_KEY: 'test-anon-key',
       SHARES: {
         get: vi.fn().mockResolvedValue(null),
         put: vi.fn().mockResolvedValue(undefined),
@@ -46,18 +48,41 @@ describe('Worker Integration Tests', () => {
     });
   });
 
+  describe('GET /config', () => {
+    it('returns public config without auth', async () => {
+      const req = new Request('https://worker.test/config', { method: 'GET' });
+      const resp = await handler.fetch(req, mockEnv);
+      const data = await resp.json();
+
+      expect(resp.status).toBe(200);
+      expect(data.supabaseUrl).toBe('https://test.supabase.co');
+      expect(data.supabaseAnonKey).toBe('test-anon-key');
+      expect(data.workerUrl).toContain('worker.test');
+      expect(data.authMode).toBe('secret'); // WORKER_SECRET is set, no JWT
+    });
+
+    it('reflects JWT auth mode when SUPABASE_JWT_SECRET is set', async () => {
+      const req = new Request('https://worker.test/config', { method: 'GET' });
+      const resp = await handler.fetch(req, { ...mockEnv, SUPABASE_JWT_SECRET: 'jwt-secret' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(200);
+      expect(data.authMode).toBe('jwt');
+    });
+  });
+
   describe('Auth enforcement', () => {
-    it('returns 401 without WORKER_SECRET configured', async () => {
+    it('returns 401 when no auth configured', async () => {
       const req = new Request('https://worker.test/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: [] }),
       });
-      const resp = await handler.fetch(req, { ...mockEnv, WORKER_SECRET: undefined });
+      const resp = await handler.fetch(req, { ...mockEnv, WORKER_SECRET: undefined, SUPABASE_JWT_SECRET: undefined });
       const data = await resp.json();
 
       expect(resp.status).toBe(401);
-      expect(data.error.message).toContain('WORKER_SECRET not configured');
+      expect(data.error.message).toContain('No authentication configured');
     });
 
     it('returns 401 with wrong X-Worker-Secret header', async () => {
