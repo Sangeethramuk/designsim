@@ -1489,6 +1489,34 @@ async function runDirectorPlanning(brief){
       .map(w=>({...w,agents:(w.agents||[]).filter(id=>knownIds.includes(id))}))
       .filter(w=>w.agents&&w.agents.length>0);
     if(!plan.waves.length)return null;
+    // Enforce wave ordering constraints
+    const critiqueAgents=new Set(['lens','eye']);
+    const designAgents=new Set(['palette','flow','blueprint','forge']);
+    let designSeen=false,critiqueSeen=false;
+    for(const w of plan.waves){
+      const hasCritique=w.agents.some(id=>critiqueAgents.has(id));
+      const hasDesign=w.agents.some(id=>designAgents.has(id));
+      // Critique agents must not run in the same wave as design agents
+      if(hasCritique&&hasDesign){
+        // Split: remove critique agents from this wave, they'll be dropped
+        w.agents=w.agents.filter(id=>!critiqueAgents.has(id));
+        console.warn('[Director] removed critique agents from wave with design agents:',w.name);
+      }
+      // mirror must not be in Wave 0 (needs design outputs to simulate against)
+      if(w===plan.waves[0]&&w.agents.includes('mirror')){
+        w.agents=w.agents.filter(id=>id!=='mirror');
+        console.warn('[Director] removed mirror from Wave 1 (needs design outputs)');
+      }
+      if(hasDesign)designSeen=true;
+      if(hasCritique)critiqueSeen=true;
+      // Critique agents must come after at least one design wave
+      if(hasCritique&&!designSeen){
+        w.agents=w.agents.filter(id=>!critiqueAgents.has(id));
+        console.warn('[Director] removed critique agents from wave before any design output:',w.name);
+      }
+      if(w.agents.length===0)return null; // wave became empty after filtering
+    }
+    if(!plan.waves.length)return null;
     if(window._sprintTrace){window._sprintTrace.wavePlan=plan;window._sprintTrace.planSource='director';}
     return plan;
   }catch(e){
@@ -4842,6 +4870,9 @@ function closeCompareModal(){
 // Heuristic quality score 1–10 for an agent output text
 function computeQualityScore(text){
   if(!text||text.length<20)return 1;
+  // Penalize thinking traces heavily — they look like artifacts but aren't
+  const thinkingPatterns=/^(The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|I need to (think|work out|figure|consider)|Let me (think|work out|figure|first)|First, I (need|should|will)|I'll (first|start|begin)|I should|Hmm,|Okay, so|Wait,|Actually,|So essentially)/im;
+  if(thinkingPatterns.test(text.slice(0,400)))return Math.max(1,Math.min(3,Math.floor(text.length/2000)));
   let s=4;
   if(text.length>300)s++;if(text.length>700)s++;if(text.length>1200)s++;
   const marks=['#','%','px','WCAG','component','screen','flow','state','variant','token','→','- ','1.'];
@@ -6349,9 +6380,12 @@ async function scoreCritiqueWave(critiqueAgentIds){
     }else{
       return 8; // no LLM — default pass
     }
-    const match=response.trim().match(/\b([1-9]|10)\b/);
-    const score=match?parseInt(match[0]):8;
-    console.log('[Swarm] Critique score:',score,'(raw:',response.trim().slice(0,30)+')');
+    // Sanitize thinking traces before extracting score
+    response=sanitizeSwarmResponse(response);
+    // Try to find a standalone integer 1-10 in the response
+    const match=response.trim().match(/(?:^|\D)([1-9]|10)(?:\D|$)/);
+    const score=match?parseInt(match[1]):8;
+    console.log('[Swarm] Critique score:',score,'(raw:',response.trim().slice(0,60)+')');
     return score;
   }catch(e){
     console.warn('[Swarm] scoreCritiqueWave error:',e.message);
@@ -6390,11 +6424,10 @@ function _swarmEnd(done){
   const sprintN=window._sprintNumber||1;
   showToast(window._swarmAbort?'Swarm stopped':'✦ Sprint '+sprintN+' complete — '+done+' agents ran');
   if(!window._swarmAbort){
-    saveSprintSnapshot(); // persist sprint artifacts + iteration note
-    window._iterationNote=null; // clear for next run
-    setTimeout(()=>{if(!window._boardOpen)openBoard();},800);
-    setTimeout(()=>openSprintPreviewTab(),1500); // auto-open dossier preview in new tab
     saveSprintSnapshot().then(()=>{
+      window._iterationNote=null; // clear for next run
+      setTimeout(()=>{if(!window._boardOpen)openBoard();},800);
+      setTimeout(()=>openSprintPreviewTab(),1500); // auto-open dossier preview in new tab
       setTimeout(()=>generatePrototypeHTML(),1500);
     }).catch(()=>{
       setTimeout(()=>generatePrototypeHTML(),1500);
