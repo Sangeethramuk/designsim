@@ -1450,6 +1450,9 @@ async function runDirectorPlanning(brief){
     '- Agents within a wave run in parallel — their prompts must avoid overlap\n'+
     '- Blueprint must come after palette/flow if both exist\n'+
     '- Forge must come after blueprint if blueprint is included\n'+
+    '- CRITICAL: Critique agents (lens, eye) must be in a SEPARATE LATER wave from the agents they critique. Never put lens or eye in the same wave as palette, flow, or blueprint.\n'+
+    '- CRITICAL: mirror (Persona Simulator) must NOT be in Wave 1. It needs design outputs to simulate against — place it after palette and flow have produced screens.\n'+
+    '- CRITICAL: Do not infer domain, language, location, or demographics unless the user explicitly states them in the brief. Do not add Tamil, Indian, or any cultural context unless the brief mentions it.\n'+
     '- Always end with at least one synthesis agent (weaver, council, or gate)\n'+
     '- If the brief is simple: skip forge and council to keep it lean\n'+
     '- If any agent errors: downstream waves must note the gap and compensate\n'+
@@ -6204,18 +6207,29 @@ async function runSwarm(){
     }
 
     // ── Critique-gate: score after critique wave, inject revision loop if score < 6 ──
-    const isCritiqueWave=wave.agents.some(id=>['lens','eye','mirror'].includes(id));
-    if(isCritiqueWave&&!window._swarmAbort&&window._revisionCount<1){
+    // Only trigger for actual critique agents (lens, eye) — NOT mirror (persona simulator)
+    // AND only if design agents have actually produced output (not "No response after tool calls.")
+    const isCritiqueWave=wave.agents.some(id=>['lens','eye'].includes(id));
+    const hasDesignOutput=(window._agentArtifacts?.palette?.content||window._agentArtifacts?.flow?.content)?.length>50;
+    if(isCritiqueWave&&!window._swarmAbort&&window._revisionCount<1&&hasDesignOutput){
       showToast('Scoring critique quality…',2000);
       const score=await scoreCritiqueWave(wave.agents);
       window._critiqueScore=score;
       if(score<6){
         window._revisionCount++;
+        // Dynamically select revision agents: design agents that already have output
+        const revAgents=AGENTS.filter(a=>{
+          if(!['palette','flow','blueprint','forge'].includes(a.id))return false;
+          const art=window._agentArtifacts?.[a.id];
+          return art&&art.content&&art.content.length>50;
+        }).map(a=>a.id);
+        // Dynamically select re-critique agents: critique agents from this wave
+        const reCritiqueAgents=wave.agents.filter(id=>['lens','eye','mirror'].includes(id));
         if(window._sprintTrace){
           window._sprintTrace.revisionLoops.push({
             triggeredAt:Date.now(),
             critiqueScore:score,
-            agentsSpliced:['palette','flow','blueprint']
+            agentsSpliced:revAgents
           });
         }
         showToast('Critique score '+score+'/10 — triggering revision loop…',3500);
@@ -6224,13 +6238,13 @@ async function runSwarm(){
           'Address every critical issue explicitly. State what changed and why.\n'+
           'Your revised output must be materially better than the first pass.';
         const reCritiquePrompt='RE-CRITIQUE (Revision Round '+window._revisionCount+').\n'+
-          'Compare the REVISED outputs from Palette, Flow, and Blueprint against the originals.\n'+
+          'Compare the REVISED outputs from the design agents against the originals.\n'+
           'Score the overall design quality 1–10. What was fixed? What remains?\n'+
           'Be specific. Cite agent names and exact changes made.';
         // Splice revision + re-critique waves immediately after this position
         waveQueue.splice(waveIdx+1,0,
-          {name:'Revision (Loop '+window._revisionCount+')',agents:['palette','flow','blueprint'],prompt:revPrompt},
-          {name:'Re-Critique',agents:['lens','eye','mirror'],prompt:reCritiquePrompt}
+          {name:'Revision (Loop '+window._revisionCount+')',agents:revAgents,prompt:revPrompt},
+          {name:'Re-Critique',agents:reCritiqueAgents,prompt:reCritiquePrompt}
         );
         // Re-open sprint viz to reflect new queue
         openSprintViz({waves:waveQueue,rationale:window._sprintPlan?.rationale||''},
