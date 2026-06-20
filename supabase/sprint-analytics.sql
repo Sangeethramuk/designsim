@@ -138,7 +138,8 @@ CREATE POLICY "Users manage their own memories"
 CREATE INDEX IF NOT EXISTS memories_user_id_idx ON memories (user_id, created_at DESC);
 
 -- ─── Optional: helper view for the history tab ────────────────────────────────
-CREATE OR REPLACE VIEW sprint_summary AS
+-- security_invoker=true makes RLS apply so each user only sees their own sprints
+CREATE OR REPLACE VIEW sprint_summary WITH (security_invoker = true) AS
 SELECT
   s.id,
   s.user_id,

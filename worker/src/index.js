@@ -300,7 +300,8 @@ export default {
             version: env.WORKER_VERSION || '1.0.0',
             llm: !!env.LLM_BASE_URL,
             figma: !!env.FIGMA_TOKEN,
-            brave: !!env.BRAVE_API_KEY,
+            search: !!(env.TAVILY_API_KEY || env.BRAVE_API_KEY),
+            searchProvider: env.TAVILY_API_KEY ? 'tavily' : env.BRAVE_API_KEY ? 'brave' : 'none',
             shares: !!env.SHARES,
           },
           200,
@@ -553,12 +554,8 @@ async function handleWebfetch(req, env, cors) {
   }
 }
 
-// ─── Brave Search Tool ────────────────────────────────────────────────────────
+// ─── Web Search Tool (Tavily preferred, Brave fallback) ──────────────────────
 async function handleBraveSearch(req, env, cors) {
-  if (!env.BRAVE_API_KEY) {
-    return errorJson('Brave Search not configured — set BRAVE_API_KEY secret', 503, cors);
-  }
-
   let body;
   try {
     body = await req.json();
@@ -576,46 +573,83 @@ async function handleBraveSearch(req, env, cors) {
 
   const resultCount = Math.min(Math.max(parseInt(count, 10) || 8, 1), MAX_BRAVE_RESULTS);
 
-  try {
-    const searchUrl =
-      'https://api.search.brave.com/res/v1/web/search?' +
-      new URLSearchParams({ q: query, count: resultCount, search_lang: 'en' });
+  // ── Tavily ────────────────────────────────────────────────────────────────
+  if (env.TAVILY_API_KEY) {
+    try {
+      const resp = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: env.TAVILY_API_KEY, query, max_results: resultCount }),
+        signal: AbortSignal.timeout(BRAVE_TIMEOUT_MS),
+      });
 
-    const resp = await fetch(searchUrl, {
-      headers: {
-        Accept: 'application/json',
-        'Accept-Encoding': 'gzip',
-        'X-Subscription-Token': env.BRAVE_API_KEY,
-      },
-      signal: AbortSignal.timeout(BRAVE_TIMEOUT_MS),
-    });
+      if (!resp.ok) {
+        return json({ results: [], error: `Tavily API error: HTTP ${resp.status}`, query }, 200, cors);
+      }
 
-    if (!resp.ok) {
-      return json({ results: [], error: `Brave API error: HTTP ${resp.status}`, query }, 200, cors);
+      const data = await resp.json();
+      const results = (data.results || []).map((r) => ({
+        title: r.title,
+        url: r.url,
+        description: r.content,
+      }));
+
+      const formatted = results
+        .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}`)
+        .join('\n\n');
+
+      const content = `[web_search: "${query}"]\n\n${formatted || 'No results found.'}`;
+      return json({ content, results, query, ok: true }, 200, cors);
+    } catch (e) {
+      return json({ content: `web_search failed for "${query}": ${e.message}`, results: [], query, ok: false }, 200, cors);
     }
-
-    const data = await resp.json();
-    const results = (data.web?.results || []).map((r) => ({
-      title: r.title,
-      url: r.url,
-      description: r.description,
-      age: r.age,
-    }));
-
-    // Format as readable text for the LLM
-    const formatted = results
-      .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}${r.age ? ' (' + r.age + ')' : ''}`)
-      .join('\n\n');
-
-    const content = `[brave_search: "${query}"]\n\n${formatted || 'No results found.'}`;
-    return json({ content, results, query, ok: true }, 200, cors);
-  } catch (e) {
-    return json(
-      { content: `brave_search failed for "${query}": ${e.message}`, results: [], query, ok: false },
-      200,
-      cors
-    );
   }
+
+  // ── Brave Search ──────────────────────────────────────────────────────────
+  if (env.BRAVE_API_KEY) {
+    try {
+      const searchUrl =
+        'https://api.search.brave.com/res/v1/web/search?' +
+        new URLSearchParams({ q: query, count: resultCount, search_lang: 'en' });
+
+      const resp = await fetch(searchUrl, {
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': env.BRAVE_API_KEY,
+        },
+        signal: AbortSignal.timeout(BRAVE_TIMEOUT_MS),
+      });
+
+      if (!resp.ok) {
+        return json({ results: [], error: `Brave API error: HTTP ${resp.status}`, query }, 200, cors);
+      }
+
+      const data = await resp.json();
+      const results = (data.web?.results || []).map((r) => ({
+        title: r.title,
+        url: r.url,
+        description: r.description,
+        age: r.age,
+      }));
+
+      const formatted = results
+        .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}${r.age ? ' (' + r.age + ')' : ''}`)
+        .join('\n\n');
+
+      const content = `[web_search: "${query}"]\n\n${formatted || 'No results found.'}`;
+      return json({ content, results, query, ok: true }, 200, cors);
+    } catch (e) {
+      return json({ content: `web_search failed for "${query}": ${e.message}`, results: [], query, ok: false }, 200, cors);
+    }
+  }
+
+  // ── No search key configured ──────────────────────────────────────────────
+  return json(
+    { results: [], ok: false, content: '[web_search: not configured — set TAVILY_API_KEY or BRAVE_API_KEY]', query },
+    200,
+    cors
+  );
 }
 
 // ─── Share: Store HTML in KV ──────────────────────────────────────────────────
