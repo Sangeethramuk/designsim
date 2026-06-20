@@ -1369,7 +1369,7 @@ function collectWaveOutputs(agentIds, recentIds=[]){
     const lastReply=sess.filter(m=>m.role==='assistant').pop();
     const content=art?art.content:lastReply?lastReply.content:null;
     // Skip: empty, error sentinels, tool-loop failures, and thinking traces
-    if(!content||content.startsWith('⚠[swarm-error]')||content==='No response after tool calls.'||content==='No response.')return;
+    if(!content||content.startsWith('⚠[swarm-error]')||content==='No response after tool calls.'||content==='No response.'||content==='[Agent produced no usable output after sanitization]')return;
     // Skip thinking traces — outputs that start with reasoning patterns instead of actual artifacts
     if(thinkingPatterns.test(content.slice(0,400))){
       // Check if there's real content after the thinking trace
@@ -1502,10 +1502,10 @@ async function runDirectorPlanning(brief){
         w.agents=w.agents.filter(id=>!critiqueAgents.has(id));
         console.warn('[Director] removed critique agents from wave with design agents:',w.name);
       }
-      // mirror must not be in Wave 0 (needs design outputs to simulate against)
-      if(w===plan.waves[0]&&w.agents.includes('mirror')){
+      // mirror must not run before any design agent has produced output
+      if(w.agents.includes('mirror')&&!designSeen){
         w.agents=w.agents.filter(id=>id!=='mirror');
-        console.warn('[Director] removed mirror from Wave 1 (needs design outputs)');
+        console.warn('[Director] removed mirror from wave before design agents have run:',w.name);
       }
       if(hasDesign)designSeen=true;
       if(hasCritique)critiqueSeen=true;
