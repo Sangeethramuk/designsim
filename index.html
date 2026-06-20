@@ -7,7 +7,7 @@
 <meta name="description" content="14 specialized AI design agents in one pixel-art studio. Research, design, critique, and ship — together.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.2/dist/umd/supabase.min.js" integrity="sha256-8G6j59erYsz6JyeNArQtCqvGynLbeCyJpm4WZRblxug=" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
 <style>
 :root{--bg:#0a0a14;--bg2:#0d0d1e;--bg3:#10102a;--border:#1a2a4a;--blue:#4a9eea;--green:#4acea0;--text:#c0c8d8;--dim:#506080;--white:#e8edf5;}
@@ -286,8 +286,17 @@ if(!SB_URL||!SB_KEY){
 } else {
   const sb=window.supabase.createClient(SB_URL,SB_KEY);
 
-  // Already signed in? Go straight to studio
+  // Already signed in? Go straight to studio (but not if we just came from an auth error)
   (async()=>{
+    const params=new URLSearchParams(window.location.search);
+    if(params.get('auth_error')){
+      document.getElementById('loading-overlay').style.display='none';
+      var banner=document.createElement('div');
+      banner.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a0a0a;color:#e84855;font-family:monospace;font-size:13px;padding:16px 20px;text-align:center';
+      banner.textContent='⚠ Authentication failed. Please sign in again.';
+      document.body.prepend(banner);
+      return;
+    }
     const{data:{session}}=await sb.auth.getSession();
     if(session?.user) window.location.replace('/pixel-world.html');
   })();

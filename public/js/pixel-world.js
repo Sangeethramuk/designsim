@@ -1333,7 +1333,7 @@ function getScriptedResponse(agent,message){
 // --- Phase 10e: LLM Proxy via Supabase Edge Function ---
 function loadProxyConfig(){
   const v=localStorage.getItem('use_llm_proxy');
-  return v===null?true:v==='true'; // default ON for public hosting
+  return v==='true'; // default OFF — Worker is the primary path
 }
 function saveProxyConfig(val){
   localStorage.setItem('use_llm_proxy',val?'true':'false');
@@ -1436,8 +1436,8 @@ async function runDirectorPlanning(brief){
   try{
     window._headlessMode=true;
     let resp;
-    if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,planningPrompt,[]);
-    else if(window._workerUrl||window._llmBaseUrl)resp=await getAgentResponse(lead,planningPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    if(window._workerUrl||window._llmBaseUrl)resp=await getAgentResponse(lead,planningPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    else if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,planningPrompt,[]);
     else{window._headlessMode=false;return null;}
     window._headlessMode=false;
     // Strip code fences, then extract first JSON object
@@ -1927,10 +1927,10 @@ async function sendChatMessage(){
   };
 
   try{
-    if(window._sbClient&&loadProxyConfig()){
-      response=await getProxyResponseStream(agent,msg,window._chatHistory||[],onToken);
-    }else if(window._workerUrl||window._llmBaseUrl){
+    if(window._workerUrl||window._llmBaseUrl){
       response=await getAgentResponseStream(agent,msg,window._chatHistory||[],window._llmBaseUrl,window._llmApiKey,onToken);
+    }else if(window._sbClient&&loadProxyConfig()){
+      response=await getProxyResponseStream(agent,msg,window._chatHistory||[],onToken);
     }else{
       // Scripted fallback — word-by-word simulation
       const scripted=getScriptedResponse(agent,msg);
@@ -2485,13 +2485,23 @@ function initAnonAuth(){
       console.info('[Dev] No session — running without auth on localhost');
       return null;
     }
-    window.location.replace('/');
+    // Prevent redirect loop: only redirect if we haven't already been redirected
+    if(!new URLSearchParams(window.location.search).get('auth_error')){
+      window.location.replace('/?auth_error=1');
+    }
     return new Promise(()=>{}); // never resolves — page is navigating away
   }).catch(e=>{
     console.warn('[Supabase] auth error:',e.message);
     if(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')return null;
-    window.location.replace('/');
-    return new Promise(()=>{});
+    // Don't redirect on auth error — show error message to prevent redirect loop
+    var c=document.querySelector('.auth-container')||document.body;
+    var div=document.createElement('div');
+    div.style.cssText='position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a0a0a;color:#e84855;font-family:monospace;font-size:13px;padding:16px 20px;text-align:center';
+    div.textContent='⚠ Authentication error: '+(e.message||'Unknown error')+'. Click here to retry.';
+    div.style.cursor='pointer';
+    div.onclick=function(){window.location.href='/';};
+    document.body.prepend(div);
+    return null;
   });
 }
 
@@ -3516,15 +3526,14 @@ async function generatePrototypeHTML(){
     if(!lead)throw new Error('no lead agent');
     let raw;
     // Try proxy first, fall back to direct LLM on any failure
-    if(window._sbClient&&loadProxyConfig()&&window._workerUrl){
+    if(window._workerUrl||window._llmBaseUrl){
+      raw=await getAgentResponse(lead,prompt,[],window._llmBaseUrl,window._llmApiKey);
+    }else if(window._sbClient&&loadProxyConfig()){
       try{raw=await getProxyResponse(lead,prompt,[]);}
       catch(proxyErr){
-        console.warn('[Prototype] proxy failed, falling back to direct LLM:',proxyErr?.message);
-        if(window._workerUrl||window._llmBaseUrl)raw=await getAgentResponse(lead,prompt,[],window._llmBaseUrl,window._llmApiKey);
-        else throw proxyErr;
+        console.warn('[Prototype] proxy failed:',proxyErr?.message);
+        throw proxyErr;
       }
-    }else if(window._workerUrl||window._llmBaseUrl){
-      raw=await getAgentResponse(lead,prompt,[],window._llmBaseUrl,window._llmApiKey);
     }else{
       throw new Error('No LLM configured — add API key in ⚙ Settings');
     }
@@ -3590,46 +3599,7 @@ function _wireBannerToPrototype(html){
   showToast('✦ Prototype ready — click the banner to preview',3000);
 }
 
-function _openHtmlBlob(html,label){
-  try{
-    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const win=window.open(url,'_blank');
-    if(!win){
-      const link=document.getElementById('preview-ready-link');
-      if(link)link.href=url;
-      const banner=document.getElementById('preview-ready-banner');
-      if(banner)banner.classList.add('show');
-      showToast('Pop-up blocked — click the banner to open',3000);
-      return;
-    }
-    setTimeout(()=>URL.revokeObjectURL(url),120000);
-    showToast((label==='prototype'?'Prototype':'Dossier')+' opened in new tab');
-  }catch(e){showToast('Preview error: '+e.message,3000);}
-}
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Open dossier as a live preview in a new browser tab (instant, no upload needed)
-// Called from user click on "▶ Preview" board button — window.open is safe here (direct click)
-function openDossierPreview(){
-  try{
-    const html=generateDossierHTMLWithActions();
-    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const win=window.open(url,'_blank');
-    if(!win){
-      // Fallback: update the banner link instead so user can click it
-      const link=document.getElementById('preview-ready-link');
-      if(link)link.href=url;
-      const banner=document.getElementById('preview-ready-banner');
-      if(banner)banner.classList.add('show');
-      showToast('Pop-up blocked — click the banner at top to open preview',3000);
-      return;
-    }
-    setTimeout(()=>URL.revokeObjectURL(url),120000);
-    showToast('Dossier opened in new tab');
-  }catch(e){showToast('Preview error: '+e.message,3000);}
-}
 
 // Called automatically after sprint completes — shows a clickable banner (avoids popup blocker)
 function openSprintPreviewTab(){
@@ -3670,7 +3640,7 @@ function generateDossierHTMLWithActions(){
     figmaToken:localStorage.getItem('figma_token')||'',
     figmaKey:localStorage.getItem('figma_file_key')||'',
     workerUrl:window._workerUrl||''
-  });
+  }).replace(/<\//g,'<\\/').replace(/<!--/g,'<\\!--');
   const cs=window._critiqueScore;
   const scoreBadge=cs!=null
     ?'<span style="font-size:10px;font-family:monospace;padding:3px 10px;border-radius:3px;border:1px solid #2a3a5a;color:'+(cs>=6?'#4acea0':'#e88888')+'">Critique '+cs+'/10'+(cs<6?' — revised':' ✓')+'</span>'
@@ -4230,7 +4200,7 @@ function saveSprintSnapshot(){
   try{localStorage.setItem('swarm_sprint_history',JSON.stringify(window._sprintHistory));}catch(e){}
   try{localStorage.setItem('swarm_sprint_number',String(window._sprintNumber||1));}catch(e){}
   // Save full outputs to Supabase asynchronously
-  sbSaveSprint(snap).catch(e=>console.warn('[SB] sbSaveSprint failed:',e?.message));
+  return sbSaveSprint(snap).catch(e=>{console.warn('[SB] sbSaveSprint failed:',e?.message);});
 }
 
 function updateSprintBadge(){
@@ -4876,8 +4846,8 @@ async function extractSprintLearnings(){
   try{
     window._headlessMode=true;
     let resp;
-    if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,extractPrompt,[]);
-    else if(window._workerUrl||window._llmBaseUrl)resp=await getAgentResponse(lead,extractPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    if(window._workerUrl||window._llmBaseUrl)resp=await getAgentResponse(lead,extractPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    else if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,extractPrompt,[]);
     else{window._headlessMode=false;return null;}
     window._headlessMode=false;
     return resp&&resp.trim()?resp.trim():null;
@@ -4899,8 +4869,8 @@ async function mergeUserProfile(newLearnings){
     try{
       window._headlessMode=true;
       let resp;
-      if(lead&&window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,mergePrompt,[]);
-      else if(lead&&(window._workerUrl||window._llmBaseUrl))resp=await getAgentResponse(lead,mergePrompt,[],window._llmBaseUrl,window._llmApiKey);
+      if(lead&&(window._workerUrl||window._llmBaseUrl))resp=await getAgentResponse(lead,mergePrompt,[],window._llmBaseUrl,window._llmApiKey);
+      else if(lead&&window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,mergePrompt,[]);
       else resp=null;
       window._headlessMode=false;
       merged=(resp&&resp.trim())?resp.trim():newLearnings;
@@ -5349,19 +5319,17 @@ async function runSwarmAgent(agent, customPrompt){
   const hasTools=(agent.tools||[]).length>0;
 
   try{
-    if(window._sbClient&&loadProxyConfig()){
-      if(hasTools){
-        // Tool-using agents (e.g. scout/forge): non-streaming, handles tool rounds
-        response=await getProxyResponse(agent,msg,history);
-      }else{
-        // All other agents: stream tokens → live preview in sprint card
-        response=await getProxyResponseStream(agent,msg,history,_onToken);
-      }
-    }else if(window._workerUrl||window._llmBaseUrl){
+    if(window._workerUrl||window._llmBaseUrl){
       if(hasTools){
         response=await getAgentResponse(agent,msg,history,window._llmBaseUrl,window._llmApiKey);
       }else{
         response=await getAgentResponseStream(agent,msg,history,window._llmBaseUrl,window._llmApiKey,_onToken);
+      }
+    }else if(window._sbClient&&loadProxyConfig()){
+      if(hasTools){
+        response=await getProxyResponse(agent,msg,history);
+      }else{
+        response=await getProxyResponseStream(agent,msg,history,_onToken);
       }
     }else{
       response=getScriptedResponse(agent,msg);
@@ -5698,10 +5666,10 @@ async function scoreCritiqueWave(critiqueAgentIds){
     'RESPOND WITH ONLY A SINGLE INTEGER from 1 to 10. No explanation, no punctuation, nothing else.';
   try{
     let response;
-    if(window._sbClient&&loadProxyConfig()){
-      response=await getProxyResponse(lead,scorePrompt,[]);
-    }else if(window._workerUrl||window._llmBaseUrl){
+    if(window._workerUrl||window._llmBaseUrl){
       response=await getAgentResponse(lead,scorePrompt,[],window._llmBaseUrl,window._llmApiKey);
+    }else if(window._sbClient&&loadProxyConfig()){
+      response=await getProxyResponse(lead,scorePrompt,[]);
     }else{
       return 8; // no LLM — default pass
     }
@@ -5749,8 +5717,11 @@ function _swarmEnd(done){
     window._iterationNote=null; // clear for next run
     setTimeout(()=>{if(!window._boardOpen)openBoard();},800);
     setTimeout(()=>openSprintPreviewTab(),1500); // auto-open dossier preview in new tab
-    // Prototype starts at 5s (after sbSaveSprint resolves and _lastSprintId is set)
-    setTimeout(()=>generatePrototypeHTML(),5000);
+    saveSprintSnapshot().then(()=>{
+      setTimeout(()=>generatePrototypeHTML(),1500);
+    }).catch(()=>{
+      setTimeout(()=>generatePrototypeHTML(),1500);
+    });
     setTimeout(()=>updateUserProfile(),4000); // non-blocking: distil learnings after board opens
     // Refresh history tab if it's already open
     setTimeout(()=>{if(window._boardOpen&&window._boardTab==='history')renderSprintHistoryTab();},1200);
@@ -6605,7 +6576,7 @@ function isTyping(){
 // --- Editor Functions ---
 let currentEditAgent=null;
 let currentEditScene=null;
-const AVAILABLE_TOOLS=['webfetch','bash','read','write','edit','glob','grep'];
+const AVAILABLE_TOOLS=['webfetch','brave_search'];
 const AVAILABLE_MCP=['deepwiki','figma','refero'];
 const AVAILABLE_SKILLS=['research-competitive','research-best-practices','generate-ui','generate-ux','generate-figma-specs','generate-code','critique-ux','critique-ui','critique-persona','review-panel','synthesize-design','design-quality-gate','design-checklist'];
 const AVAILABLE_MODELS=['kimi-latest','litellm/glm-latest','litellm/glm-flash-experimental','litellm/claude-opus-4-5','litellm/claude-opus-4-6','litellm/claude-sonnet-4-5','litellm/claude-sonnet-4-6','litellm/open-large','litellm/open-fast'];

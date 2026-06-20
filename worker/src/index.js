@@ -356,6 +356,14 @@ async function handleLLM(req, env, cors) {
  * @param {string} urlStr - The URL to check
  * @returns {boolean} true if the URL is private/blocked
  */
+/**
+ * Check if a URL points to a private, internal, or metadata address.
+ * Note: This checks hostname/IP literals only. DNS rebinding attacks (where a domain
+ * resolves to a private IP) are not prevented by this check alone. Cloudflare Workers
+ * do not expose DNS resolution, so this is the best available mitigation.
+ * @param {string} urlStr - The URL to check
+ * @returns {boolean} true if the URL should be blocked
+ */
 function isPrivateUrl(urlStr) {
   let parsed;
   try {
