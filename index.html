@@ -16,11 +16,7 @@ window._autoConfigReady=(async()=>{
     return window.LOCAL_CONFIG;
   }
   // Try to get config from Worker
-  const workerUrl=window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl||'';
-  if(!workerUrl){
-    // Try relative origin (Worker might be same domain or CORS-enabled)
-    return null;
-  }
+  const workerUrl=window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl||'https://design-swarm-worker.sangeethramuk.workers.dev';
   try{
     const resp=await fetch(workerUrl+'/config',{signal:AbortSignal.timeout(5000)});
     if(!resp.ok)return null;
