@@ -1366,8 +1366,8 @@ function collectWaveOutputs(agentIds, recentIds=[]){
     const sess=window._agentSessions&&window._agentSessions[id]||[];
     const lastReply=sess.filter(m=>m.role==='assistant').pop();
     const content=art?art.content:lastReply?lastReply.content:null;
-    // Skip swarm-error sentinels — don't pollute downstream context with failure messages
-    if(!content||content.startsWith('⚠[swarm-error]'))return;
+    // Skip swarm-error sentinels and tool-loop failures — don't pollute downstream context with failure messages
+    if(!content||content.startsWith('⚠[swarm-error]')||content==='No response after tool calls.'||content==='No response.')return;
     // Tiered compression: recent wave agents get 1400 chars, older waves get 500 chars
     // This keeps token budget manageable for synthesis agents (up to 9 prior agents)
     const maxLen=recentIds.includes(id)?1400:500;
@@ -1462,11 +1462,17 @@ async function runDirectorPlanning(brief){
     else if(window._sbClient&&loadProxyConfig())resp=await getProxyResponse(lead,planningPrompt,[]);
     else{window._headlessMode=false;return null;}
     window._headlessMode=false;
-    // Strip code fences, then extract first JSON object
-    const clean=resp.replace(/```(?:json)?\s*/g,'').replace(/```/g,'');
+    // Strip thinking traces, then code fences, then extract first JSON object
+    const noThinking=resp.replace(/<thinking>[\s\S]*?<\/thinking>/gi,'').replace(/^[\s\S]*?(\{)/,'{');
+    const clean=noThinking.replace(/```(?:json)?\s*/g,'').replace(/```/g,'');
     const m=clean.match(/\{[\s\S]*\}/);
-    if(!m)return null;
-    const plan=JSON.parse(m[0]);
+    if(!m){console.warn('[Director] no JSON found in response:',resp.slice(0,300));return null;}
+    let plan;
+    try{plan=JSON.parse(m[0]);}catch(jsonErr){
+      // Try repairing trailing-comma / single-quote issues common in LLM JSON output
+      const repaired=m[0].replace(/,\s*([\]}])/g,'$1').replace(/'/g,'"');
+      try{plan=JSON.parse(repaired);}catch(_){console.warn('[Director] JSON parse failed:',jsonErr.message,m[0].slice(0,300));return null;}
+    }
     if(!Array.isArray(plan.waves)||!plan.waves.length)return null;
     // Validate: filter out unknown agent IDs and empty waves
     plan.waves=plan.waves
@@ -1477,7 +1483,7 @@ async function runDirectorPlanning(brief){
     return plan;
   }catch(e){
     window._headlessMode=false;
-    console.warn('Director planning failed:',e.message);
+    console.warn('[Director] planning failed:',e.message);
     return null;
   }
 }
@@ -1815,9 +1821,14 @@ async function getProxyResponse(agent,message,history){
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
   // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
-  for(let round=0;round<3;round++){
+  const maxRounds=tools?5:3;
+  for(let round=0;round<maxRounds;round++){
     const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
-    if(tools)body.tools=tools;
+    if(tools&&round<maxRounds-1)body.tools=tools;
+    else if(tools){
+      // Final round: no tools, force the LLM to produce a text response
+      allMessages.push({role:'user',content:'You have completed your research. Produce your final output now based on everything you have gathered. Do not make any more tool calls.'});
+    }
     const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
       method:'POST',
       headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
@@ -1843,6 +1854,15 @@ async function getProxyResponse(agent,message,history){
       allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
     }
   }
+  // Last resort: one final call without tools to force a text response
+  const finalBody={model,max_tokens:maxTokens,temperature,messages:[...allMessages,{role:'user',content:'Produce your final output now. No more tool calls.'}]};
+  const finalResp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
+    body:JSON.stringify(finalBody)
+  });
+  const finalData=await finalResp.json();
+  if(finalData.choices?.[0]?.message?.content)return finalData.choices[0].message.content;
   return'No response after tool calls.';
 }
 
@@ -1886,9 +1906,14 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   }
   // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
-  for(let round=0;round<3;round++){
+  const maxRounds=tools?5:3;
+  for(let round=0;round<maxRounds;round++){
     const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
-    if(tools)body.tools=tools;
+    if(tools&&round<maxRounds-1)body.tools=tools;
+    else if(tools){
+      // Final round: no tools, force the LLM to produce a text response
+      allMessages.push({role:'user',content:'You have completed your research. Produce your final output now based on everything you have gathered. Do not make any more tool calls.'});
+    }
     const resp=await fetch(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body)});
     const data=await resp.json();
     if(data.error)throw new Error(data.error.message||'API error');
@@ -1904,6 +1929,11 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
       allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
     }
   }
+  // Last resort: one final call without tools to force a text response
+  const finalBody={model,max_tokens:maxTokens,temperature,messages:[...allMessages,{role:'user',content:'Produce your final output now. No more tool calls.'}]};
+  const finalResp=await fetch(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(finalBody)});
+  const finalData=await finalResp.json();
+  if(finalData.choices?.[0]?.message?.content)return finalData.choices[0].message.content;
   return'No response after tool calls.';
 }
 
@@ -3665,8 +3695,12 @@ function _showPrototypeModal(html){
   const iframe=document.getElementById('proto-preview-iframe');
   const sprintLabel=document.getElementById('proto-preview-sprint');
   if(!modal||!iframe)return;
-  // srcdoc avoids blob URL entirely — works inline, no popup blocker, no blank page
-  iframe.srcdoc=html;
+  // Sandboxed null-origin iframes throw SecurityError on localStorage/sessionStorage access,
+  // which can crash prototype startup scripts and leave the iframe blank.
+  // Inject a safe in-memory polyfill that activates only when storage access fails.
+  const storagePolyfill='<script>(function(){function mk(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null;},setItem:function(k,v){d[String(k)]=String(v);},removeItem:function(k){delete d[k];},clear:function(){d={};},key:function(i){return Object.keys(d)[i]||null;},get length(){return Object.keys(d).length;}};};try{localStorage.getItem("__p");}catch(e){try{Object.defineProperty(window,"localStorage",{value:mk(),configurable:true});Object.defineProperty(window,"sessionStorage",{value:mk(),configurable:true});}catch(_){}}})();<\/script>';
+  const patched=html.includes('<head>')?html.replace('<head>','<head>'+storagePolyfill):storagePolyfill+html;
+  iframe.srcdoc=patched;
   if(sprintLabel)sprintLabel.textContent='Sprint '+(window._sprintNumber||1)+' · '+(window._projectBrief||'').slice(0,40);
   modal.style.display='flex';
 }
@@ -5673,6 +5707,9 @@ function detectOutputCorruption(text){
   // Thinking trace patterns that leaked without tags
   if(/^(I need to (think|work out|figure|consider)|Let me (think|work out|figure|first)|First, I (need|should|will)|I'll (first|start|begin)|I should|Hmm,|Okay, so)/im.test(text.slice(0,400)))
     issues.push('probable thinking trace — response begins with internal reasoning monologue');
+  // Catch "The user wants me to..." and similar meta-commentary patterns
+  if(/^(The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|So essentially|Wait,|Actually,|Let me (reconsider|check|look|parse))/im.test(text.slice(0,400)))
+    issues.push('probable thinking trace — response begins with meta-commentary about the task');
   return issues;
 }
 
@@ -5687,6 +5724,25 @@ function sanitizeSwarmResponse(text){
   text=text.replace(/<\|[\w_]+\|>/g,'').trim();
   // 4. Strip residual empty XML-style tags
   text=text.replace(/<[a-z_]+\s*\/>/gi,'').trim();
+  // 5. Strip untagged thinking traces — meta-commentary that leaked as plain text
+  //    Pattern: response starts with reasoning about the task, not the actual artifact
+  //    Look for the first markdown heading or structured output as the real start
+  const thinkingPatterns=[
+    /^(The user (wants|is asking|is telling) me to[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
+    /^(I need to (think|work out|figure|consider)[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
+    /^(Let me (think|work out|figure|first|reconsider|check|look|parse)[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
+    /^(Looking at (the |prior |my )[\s\S]*?)(?=\n#{1,4} |\n\*\*|\n##|\n\d+\. |$)/im,
+  ];
+  // Try to find where actual content starts (first markdown heading or structured output)
+  const contentStartMatch=text.match(/\n(#{1,4} |\*\*[^*]+\*\*|## )/m);
+  if(contentStartMatch&&contentStartMatch.index>100){
+    // Check if the text before the content start is thinking trace
+    const prefix=text.slice(0,contentStartMatch.index);
+    const isThinking=thinkingPatterns.some(p=>p.test(prefix));
+    if(isThinking){
+      text=text.slice(contentStartMatch.index+1).trim();
+    }
+  }
   return text||'[Agent produced no usable output after sanitization]';
 }
 
