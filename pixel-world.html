@@ -21,7 +21,7 @@ window._autoConfigReady=(async()=>{
   if(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url){
     return window.LOCAL_CONFIG;
   }
-  const workerUrl=window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl||'https://design-swarm-worker.sangeethramuk.workers.dev';
+  const workerUrl=window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl||'https://design-swarm-worker.e-sangeethkumar.workers.dev';
   try{
     const resp=await fetch(workerUrl+'/config',{signal:AbortSignal.timeout(5000)});
     if(!resp.ok)return null;
