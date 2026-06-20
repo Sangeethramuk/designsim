@@ -9,6 +9,30 @@
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.2/dist/umd/supabase.min.js" integrity="sha256-8G6j59erYsz6JyeNArQtCqvGynLbeCyJpm4WZRblxug=" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
+<script>
+// Auto-config: fetch from Worker if config.local.js not present
+window._autoConfigReady=(async()=>{
+  if(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url){
+    return window.LOCAL_CONFIG;
+  }
+  // Try to get config from Worker
+  const workerUrl=window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl||'';
+  if(!workerUrl){
+    // Try relative origin (Worker might be same domain or CORS-enabled)
+    return null;
+  }
+  try{
+    const resp=await fetch(workerUrl+'/config',{signal:AbortSignal.timeout(5000)});
+    if(!resp.ok)return null;
+    const cfg=await resp.json();
+    window.LOCAL_CONFIG={
+      supabase:{url:cfg.supabaseUrl,anonKey:cfg.supabaseAnonKey},
+      workerUrl:cfg.workerUrl||workerUrl
+    };
+    return window.LOCAL_CONFIG;
+  }catch(e){return null;}
+})();
+</script>
 <style>
 :root{--bg:#0a0a14;--bg2:#0d0d1e;--bg3:#10102a;--border:#1a2a4a;--blue:#4a9eea;--green:#4acea0;--text:#c0c8d8;--dim:#506080;--white:#e8edf5;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -274,16 +298,19 @@ footer{border-top:1px solid var(--border);padding:24px 48px;display:flex;align-i
 </footer>
 
 <script>
-const SB_URL=(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url)||'';
-const SB_KEY=(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.anonKey)||'';
+// Wait for auto-config, then init
+window._autoConfigReady.then(cfg=>{
+  const SB_URL=(cfg&&cfg.supabase&&cfg.supabase.url)||'';
+  const SB_KEY=(cfg&&cfg.supabase&&cfg.supabase.anonKey)||'';
 
-if(!SB_URL||!SB_KEY){
-  document.getElementById('loading-overlay').style.display='flex';
-  document.querySelector('.loading-text').textContent='CONFIG ERROR — copy config.local.example.js to config.local.js';
-  document.getElementById('hero-cta').disabled=true;
-  document.getElementById('cta-bottom').disabled=true;
-  document.getElementById('nav-cta').disabled=true;
-} else {
+  if(!SB_URL||!SB_KEY){
+    document.getElementById('loading-overlay').style.display='flex';
+    document.querySelector('.loading-text').textContent='Unable to reach the Design Floor server. Please try again.';
+    document.getElementById('hero-cta').disabled=true;
+    document.getElementById('cta-bottom').disabled=true;
+    document.getElementById('nav-cta').disabled=true;
+    return;
+  }
   const sb=window.supabase.createClient(SB_URL,SB_KEY);
 
   // Already signed in? Go straight to studio (but not if we just came from an auth error)
@@ -316,7 +343,7 @@ if(!SB_URL||!SB_KEY){
   document.getElementById('hero-cta').addEventListener('click',signIn);
   document.getElementById('cta-bottom').addEventListener('click',signIn);
   document.getElementById('nav-cta').addEventListener('click',signIn);
-}
+});
 
 // Agent preview data
 const AGENTS=[

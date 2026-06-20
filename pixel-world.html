@@ -16,6 +16,25 @@
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 <script>if(window.Prism&&Prism.plugins&&Prism.plugins.autoloader)Prism.plugins.autoloader.languages_path='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/';</script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
+<script>
+window._autoConfigReady=(async()=>{
+  if(window.LOCAL_CONFIG&&window.LOCAL_CONFIG.supabase&&window.LOCAL_CONFIG.supabase.url){
+    return window.LOCAL_CONFIG;
+  }
+  const workerUrl=window.LOCAL_CONFIG&&window.LOCAL_CONFIG.workerUrl||'';
+  if(!workerUrl)return null;
+  try{
+    const resp=await fetch(workerUrl+'/config',{signal:AbortSignal.timeout(5000)});
+    if(!resp.ok)return null;
+    const cfg=await resp.json();
+    window.LOCAL_CONFIG={
+      supabase:{url:cfg.supabaseUrl,anonKey:cfg.supabaseAnonKey},
+      workerUrl:cfg.workerUrl||workerUrl
+    };
+    return window.LOCAL_CONFIG;
+  }catch(e){return null;}
+})();
+</script>
 </head>
 <body>
 <div id="game-container"></div>

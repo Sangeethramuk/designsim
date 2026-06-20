@@ -1492,6 +1492,12 @@ const AGENT_MAX_TOKENS={
   lead:6000
 };
 
+const VISION_MODELS=['gpt-4o','gpt-4o-mini','gpt-4-vision','claude-3','gemini','moonshot-v1-vision','kimi-vision'];
+function modelSupportsVision(brain){
+  const m=(brain||'kimi-latest').replace('litellm/','').toLowerCase();
+  return VISION_MODELS.some(v=>m.includes(v));
+}
+
 // ── Real tool definitions (OpenAI function-calling format) ──────────────────
 const TOOL_DEFS={
   webfetch:{
@@ -1686,13 +1692,24 @@ function buildAgentMessages(agent,message,history){
   // Build real OpenAI-format tools array from agent.tools list
   const agentTools=(agent.tools||[]).filter(t=>TOOL_DEFS[t]).map(t=>TOOL_DEFS[t]);
   // Phase 3: vision content — if image pending, wrap last user message as array
+  // Only send image_url if the model supports vision
+  const supportsVision=modelSupportsVision(agent.brain);
   const pendingImg=window._pendingVisionImage;
-  const userContent=pendingImg
+  const userContent=pendingImg&&supportsVision
     ?[{type:'text',text:message||'What do you see in this image?'},
       {type:'image_url',image_url:{url:`data:${pendingImg.mimeType};base64,${pendingImg.base64}`}}]
-    :message;
+    :pendingImg
+      ?(message||'')+'\n\n[Image attached — current model does not support image input. Please switch to a vision-capable model.]'
+      :message;
+  // Strip image_url content from history if model doesn't support vision
+  const safeHistory=supportsVision?history:history.map(h=>{
+    if(Array.isArray(h.content)){
+      return{...h,content:h.content.filter(c=>c.type!=='image_url')};
+    }
+    return h;
+  });
   return{model:(agent.brain||'kimi-latest').replace('litellm/',''),maxTokens,temperature,
-    messages:[{role:'system',content:sys},...history,{role:'user',content:userContent}],
+    messages:[{role:'system',content:sys},...safeHistory,{role:'user',content:userContent}],
     tools:agentTools.length?agentTools:null};
 }
 
@@ -1979,10 +1996,13 @@ async function sendChatMessage(){
   // --- Post-response: session, persistence, feed, artifacts ---
   window._pendingVisionImage=null; // clear after response — consumed by buildAgentMessages
   window._chatHistory=window._chatHistory||[];
-  // Store user message: vision format if image was attached, plain string otherwise
-  const userContent=attachedImg
+  // Store user message: vision format if image was attached and model supports it, plain string otherwise
+  const supportsVision=modelSupportsVision(agent.brain);
+  const userContent=attachedImg&&supportsVision
     ?[{type:'text',text:msg||'What do you see in this image?'},{type:'image_url',image_url:{url:`data:${attachedImg.mimeType};base64,${attachedImg.base64}`}}]
-    :msg;
+    :attachedImg
+      ?(msg||'')+'\n\n[Image attached — current model does not support image input.]'
+      :msg;
   window._chatHistory.push({role:'user',content:userContent},{role:'assistant',content:response});
   if(window._chatHistory.length>30)window._chatHistory=window._chatHistory.slice(-30);
   window._agentSessions[agent.id]=window._chatHistory;
@@ -2375,27 +2395,24 @@ function workerHeadersSync(extra){
   return h;
 }
 
-// ── Auto-config: fetch public config from Worker ─────────────────────────────
+// ── Auto-config: await the promise started in HTML ────────────────────────────
 async function autoConfig(){
   if(window._autoConfigDone)return;
   window._autoConfigDone=true;
-  const workerUrl=window._workerUrl||DEFAULT_WORKER_URL;
-  if(!workerUrl)return;
-  try{
-    const resp=await fetch(workerUrl+'/config',{signal:AbortSignal.timeout(5000)});
-    if(!resp.ok)return;
-    const cfg=await resp.json();
-    if(cfg.supabaseUrl&&cfg.supabaseAnonKey){
-      window._autoSupabaseUrl=cfg.supabaseUrl;
-      window._autoSupabaseAnonKey=cfg.supabaseAnonKey;
+  // Wait for the HTML-level auto-config (fetches from Worker /config)
+  if(window._autoConfigReady){
+    const cfg=await window._autoConfigReady;
+    if(cfg){
+      if(cfg.supabase){
+        window._autoSupabaseUrl=cfg.supabase.url;
+        window._autoSupabaseAnonKey=cfg.supabase.anonKey;
+      }
+      if(cfg.workerUrl){
+        window._workerUrl=cfg.workerUrl;
+        window._workerAutoConfigured=true;
+      }
+      console.log('[AutoConfig] Worker config loaded');
     }
-    if(cfg.workerUrl){
-      window._workerUrl=cfg.workerUrl;
-      window._workerAutoConfigured=true;
-    }
-    console.log('[AutoConfig] Worker config loaded — auth mode:',cfg.authMode);
-  }catch(e){
-    console.warn('[AutoConfig] Failed, will use config.local.js:',e.message);
   }
 }
 
@@ -2513,7 +2530,9 @@ function saveSupabaseConfig(){
   updateAuthHUD();
 }
 
-function initSupabase(){
+async function initSupabase(){
+  // Wait for auto-config to resolve (fetches Supabase URL/key from Worker)
+  if(window._autoConfigReady)await window._autoConfigReady;
   const {url,key}=loadSupabaseConfig();
   if(!url||!key){window._sbClient=null;window._sbReady=Promise.resolve(null);return;}
   try{
