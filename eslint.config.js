@@ -2,7 +2,7 @@ import prettier from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '*.html', 'supabase/functions/**'],
+    ignores: ['dist/**', 'node_modules/**', '*.html', 'supabase/functions/**', 'playwright.config.js', 'tests/e2e/**'],
   },
   {
     files: ['**/*.js', '**/*.ts'],

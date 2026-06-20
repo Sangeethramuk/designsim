@@ -1202,22 +1202,18 @@ function stopMic(){
 
 // --- Chat Panel ---
 function renderMarkdown(text){
-  // 1. Escape HTML to prevent XSS
+  return window._renderMarkdown ? window._renderMarkdown(text) : _renderMarkdownFallback(text);
+}
+function _renderMarkdownFallback(text){
   let s=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  // 2. Headings
   s=s.replace(/^### (.+)$/gm,'<div class="md-h3">$1</div>');
   s=s.replace(/^## (.+)$/gm,'<div class="md-h2">$1</div>');
-  // 3. Bold / italic
   s=s.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');
   s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   s=s.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,'<em>$1</em>');
-  // 4. Inline code
   s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
-  // 5. Numbered list  1. item
   s=s.replace(/^(\d+)\. (.+)$/gm,'<div class="md-ol"><span class="md-num">$1.</span>$2</div>');
-  // 6. Bullet list  - item or * item
   s=s.replace(/^[-*•] (.+)$/gm,'<div class="md-li">$1</div>');
-  // 7. Line breaks
   s=s.replace(/\n/g,'<br>');
   return s;
 }
@@ -3091,7 +3087,7 @@ function initRelayModal(){
 
 // --- Phase 5: Project Board ---
 function escHtml(s){
-  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return window._escHtml ? window._escHtml(s) : String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function renderBoardGrid(){
