@@ -236,10 +236,10 @@ describe('Worker Integration Tests', () => {
         body: JSON.stringify({ url: 'http://169.254.169.254/latest/meta-data/' }),
       });
       const resp = await handler.fetch(req, mockEnv);
-      const data = await resp.json();
+      const _data = await resp.json();
 
       expect(resp.status).toBe(403);
-      expect(data.error.message).toContain('private');
+      expect(_data.error.message).toContain('private');
     });
 
     it('blocks localhost', async () => {
@@ -291,6 +291,365 @@ describe('Worker Integration Tests', () => {
 
       expect(resp.status).toBe(204);
       expect(resp.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    });
+  });
+
+  describe('POST /tool/brave-search', () => {
+    it('returns 503 when BRAVE_API_KEY not configured', async () => {
+      const req = new Request('https://worker.test/tool/brave-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ query: 'test' }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, BRAVE_API_KEY: undefined });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(503);
+      expect(data.error.message).toContain('Brave Search not configured');
+    });
+
+    it('rejects missing query', async () => {
+      const req = new Request('https://worker.test/tool/brave-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({}),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, BRAVE_API_KEY: 'brave-key' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(400);
+      expect(data.error.message).toContain('query must be a string');
+    });
+
+    it('rejects non-string query', async () => {
+      const req = new Request('https://worker.test/tool/brave-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ query: 123 }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, BRAVE_API_KEY: 'brave-key' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(400);
+      expect(data.error.message).toContain('query must be a string');
+    });
+
+    it('passes valid query to Brave API and returns formatted results', async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            web: {
+              results: [
+                { title: 'Result 1', url: 'https://example.com/1', description: 'Desc 1', age: '1d' },
+                { title: 'Result 2', url: 'https://example.com/2', description: 'Desc 2' },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      const req = new Request('https://worker.test/tool/brave-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ query: 'design systems', count: 2 }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, BRAVE_API_KEY: 'brave-key' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(200);
+      expect(data.ok).toBe(true);
+      expect(data.results).toHaveLength(2);
+      expect(data.content).toContain('design systems');
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('api.search.brave.com'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Subscription-Token': 'brave-key' }),
+        })
+      );
+    });
+
+    it('handles Brave API error gracefully', async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response('Unauthorized', { status: 401 })
+      );
+
+      const req = new Request('https://worker.test/tool/brave-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ query: 'test' }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, BRAVE_API_KEY: 'bad-key' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(200);
+      expect(data.results).toEqual([]);
+      expect(data.error).toContain('401');
+    });
+  });
+
+  describe('POST /tool/figma', () => {
+    it('returns 503 when FIGMA_TOKEN not configured', async () => {
+      const req = new Request('https://worker.test/tool/figma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ action: 'get_file', fileKey: 'ABC123' }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, FIGMA_TOKEN: undefined });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(503);
+      expect(data.error.message).toContain('Figma not configured');
+    });
+
+    it('rejects missing action', async () => {
+      const req = new Request('https://worker.test/tool/figma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({}),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, FIGMA_TOKEN: 'figma-token' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(400);
+      expect(data.error.message).toContain('action is required');
+    });
+
+    it('rejects invalid fileKey', async () => {
+      const req = new Request('https://worker.test/tool/figma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ action: 'get_file', fileKey: 'abc-123!' }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, FIGMA_TOKEN: 'figma-token' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(400);
+      expect(data.error.message).toContain('fileKey must be alphanumeric');
+    });
+
+    it('handles push_design_spec successfully', async () => {
+      global.fetch = vi.fn().mockImplementation((url) => {
+        if (url.includes('/comments')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'comment-123' }), { status: 200 })
+          );
+        }
+        if (url.includes('/variables')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({}), { status: 200 })
+          );
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      });
+
+      const req = new Request('https://worker.test/tool/figma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({
+          action: 'push_design_spec',
+          fileKey: 'ABC123',
+          comment: 'Design brief',
+          colors: [{ name: 'primary', hex: '#ff0000' }],
+        }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, FIGMA_TOKEN: 'figma-token' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(200);
+      expect(data.ok).toBe(true);
+      expect(data.commentId).toBe('comment-123');
+      expect(data.tokenCount).toBe(1);
+    });
+
+    it('handles get_variables action', async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ meta: { variables: [] } }), { status: 200 })
+      );
+
+      const req = new Request('https://worker.test/tool/figma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ action: 'get_variables', fileKey: 'ABC123' }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, FIGMA_TOKEN: 'figma-token' });
+
+      expect(resp.status).toBe(200);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.figma.com/v1/files/ABC123/variables/local',
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Figma-Token': 'figma-token' }),
+        })
+      );
+    });
+
+    it('rejects unknown action', async () => {
+      const req = new Request('https://worker.test/tool/figma', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({ action: 'invalid_action', fileKey: 'ABC123' }),
+      });
+      const resp = await handler.fetch(req, { ...mockEnv, FIGMA_TOKEN: 'figma-token' });
+      const data = await resp.json();
+
+      expect(resp.status).toBe(400);
+      expect(data.error.message).toContain('Unknown Figma action');
+    });
+  });
+
+  describe('Rate limiting', () => {
+    it('allows requests within rate limit window', async () => {
+      mockEnv.SHARES.get = vi.fn().mockResolvedValue(null);
+      mockEnv.SHARES.put = vi.fn().mockResolvedValue(undefined);
+
+      // Make 60 requests
+      for (let i = 0; i < 60; i++) {
+        const req = new Request('https://worker.test/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Worker-Secret': 'test-secret',
+            'CF-Connecting-IP': '1.2.3.4',
+          },
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+        });
+        global.fetch = vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })
+        );
+        const resp = await handler.fetch(req, mockEnv);
+        expect(resp.status).toBe(200);
+      }
+    });
+
+    it('blocks 61st request with 429', async () => {
+      // Simulate 60 requests already made in window
+      mockEnv.SHARES.get = vi.fn().mockResolvedValue(
+        JSON.stringify({ count: 60, windowStart: Date.now() })
+      );
+      mockEnv.SHARES.put = vi.fn().mockResolvedValue(undefined);
+
+      const req = new Request('https://worker.test/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+          'CF-Connecting-IP': '1.2.3.4',
+        },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+      });
+      const resp = await handler.fetch(req, mockEnv);
+      const data = await resp.json();
+
+      expect(resp.status).toBe(429);
+      expect(data.error.message).toContain('Rate limit exceeded');
+    });
+  });
+
+  describe('SSE streaming', () => {
+    it('parses data chunks and forwards content tokens', async () => {
+      const sseChunks = [
+        'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ];
+
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              sseChunks.forEach((chunk) => controller.enqueue(new TextEncoder().encode(chunk)));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        )
+      );
+
+      const req = new Request('https://worker.test/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({
+          model: 'test-model',
+          messages: [{ role: 'user', content: 'hello' }],
+          stream: true,
+        }),
+      });
+      const resp = await handler.fetch(req, mockEnv);
+
+      expect(resp.status).toBe(200);
+      expect(resp.headers.get('Content-Type')).toContain('text/event-stream');
+
+      // Read the streamed response
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let streamedText = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        streamedText += decoder.decode(value, { stream: true });
+      }
+
+      expect(streamedText).toContain('Hello');
+      expect(streamedText).toContain('world');
+    });
+
+    it('propagates upstream errors', async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response('Internal Server Error', { status: 500 })
+      );
+
+      const req = new Request('https://worker.test/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Secret': 'test-secret',
+        },
+        body: JSON.stringify({
+          model: 'test-model',
+          messages: [{ role: 'user', content: 'hello' }],
+          stream: true,
+        }),
+      });
+      const resp = await handler.fetch(req, mockEnv);
+
+      // Streaming mode passes through upstream status code directly
+      expect(resp.status).toBe(500);
     });
   });
 
