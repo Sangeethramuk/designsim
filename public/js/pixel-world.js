@@ -145,7 +145,7 @@ const AGENT_THOUGHTS={
   lens:     ["Nielsen #3 violated","User control lacking","Feedback loop broken","Heuristic scan done","Error recovery: weak","Visibility: unclear"],
   eye:      ["Spacing: 3px off","Contrast fails AA","Hierarchy unclear","Icon: too literal","Type scale broken","Color: 4.2:1 ratio"],
   mirror:   ["As a senior...","First-timer confused","Power user: bored","Stressed user: lost","Mobile thumb reach","Low-vision user: ?"],
-  council:  ["Ramesh: confused","Priya: loves it \u2713","Arjun: more contrast","Panel disagrees on X","Vote: 2-1 approve","Review notes ready"],
+  council:  ["Reviewer A: unclear","Reviewer B: strong \u2713","Reviewer C: contrast","Panel disagrees on X","Vote: 2-1 approve","Review notes ready"],
   weaver:   ["Merging feedback...","Pattern emerging...","Conflict: resolved","Final proposal draft","Synthesis: 80% done","Rationale written"],
   gate:     ["Quality check #3...","Did we test users?","Research done? \u2713","Critique pending \u2717","Validation needed","Gate: PASS \u2713"],
   check:    ["\u2713 A11y verified","\u2717 Error states left","\u2713 Mobile done","\u2713 Copy reviewed","\u2717 Dark mode pending","\u2713 Specs matched"],
@@ -1381,6 +1381,12 @@ function collectWaveOutputs(agentIds, recentIds=[]){
 // Inject a context block as a system message into target agents' sessions
 function injectContextToAgents(targetIds,contextBlock){
   if(!contextBlock)return;
+  if(window._sprintTrace){
+    targetIds.forEach(id=>{
+      if(!window._sprintTrace.agents[id])window._sprintTrace.agents[id]={};
+      window._sprintTrace.agents[id].injectedContext=contextBlock;
+    });
+  }
   targetIds.forEach(id=>{
     const existing=window._agentSessions[id]||[];
     // Build a new array (never mutate in-place — agents may be reading it concurrently)
@@ -1467,6 +1473,7 @@ async function runDirectorPlanning(brief){
       .map(w=>({...w,agents:(w.agents||[]).filter(id=>knownIds.includes(id))}))
       .filter(w=>w.agents&&w.agents.length>0);
     if(!plan.waves.length)return null;
+    if(window._sprintTrace){window._sprintTrace.wavePlan=plan;window._sprintTrace.planSource='director';}
     return plan;
   }catch(e){
     window._headlessMode=false;
@@ -1578,6 +1585,18 @@ async function executeWebfetch(url,reason){
 
 // Dispatch a single tool call and return the result string
 async function executeTool(name,args,agentForLog){
+  // ── Trace: log tool calls (race-safe — uses agentForLog.id, not a global) ──
+  if(window._sprintTrace&&agentForLog){
+    const tc=window._sprintTrace.agents[agentForLog.id];
+    if(tc){
+      tc.toolCalls.push({
+        tool:name,
+        args:JSON.parse(JSON.stringify(args||{})),
+        round:tc.toolCalls.length,
+        timestamp:Date.now()
+      });
+    }
+  }
   if(name==='webfetch'){
     const url=args.url||'';
     if(window._swarmRunning&&agentForLog&&window._sprintVizOpen){
@@ -3267,6 +3286,35 @@ function exportDossier(){
   });
 }
 
+// ── Markdown → HTML renderer (extracted for reuse by trace view and dossier) ──
+function simpleMarkdown(text){
+  if(!text)return'';
+  let h='',inUl=false,inOl=false,inPre=false,pLang='',pBuf=[];
+  const inl=s=>escHtml(s)
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/`([^`]+)`/g,'<code class="ic">$1</code>');
+  const endL=()=>{if(inUl){h+='</ul>';inUl=false;}if(inOl){h+='</ol>';inOl=false;}};
+  text.split('\n').forEach(l=>{
+    if(l.startsWith('```')){
+      if(!inPre){inPre=true;pLang=l.slice(3).trim()||'text';pBuf=[];}
+      else{inPre=false;endL();h+='<pre><code class="lang-'+escHtml(pLang)+'">'+escHtml(pBuf.join('\n'))+'</code></pre>';}
+      return;
+    }
+    if(inPre){pBuf.push(l);return;}
+    const hm=l.match(/^(#{1,4}) (.+)/);
+    if(hm){endL();const t='h'+Math.min(hm[1].length+1,4);h+='<'+t+'>'+inl(hm[2])+'</'+t+'>';return;}
+    if(/^[-*+] /.test(l)){if(inOl){h+='</ol>';inOl=false;}if(!inUl){h+='<ul>';inUl=true;}h+='<li>'+inl(l.slice(2))+'</li>';return;}
+    if(/^\d+\.\s/.test(l)){if(inUl){h+='</ul>';inUl=false;}if(!inOl){h+='<ol>';inOl=true;}h+='<li>'+inl(l.replace(/^\d+\.\s/,''))+'</li>';return;}
+    endL();
+    if(l.trim()==='---'){h+='<hr>';return;}
+    if(!l.trim())return;
+    h+='<p>'+inl(l)+'</p>';
+  });
+  endL();
+  return h;
+}
+
 function generateDossierHTML(){
   const now=new Date();
   const dateStr=now.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
@@ -3275,34 +3323,8 @@ function generateDossierHTML(){
   const sess=window._agentSessions||{};
   const log=window._relayLog||[];
 
-  // ── Inline markdown → HTML renderer ─────────────────────────────────────────
-  function md(text){
-    if(!text)return'';
-    let h='',inUl=false,inOl=false,inPre=false,pLang='',pBuf=[];
-    const inl=s=>escHtml(s)
-      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g,'<em>$1</em>')
-      .replace(/`([^`]+)`/g,'<code class="ic">$1</code>');
-    const endL=()=>{if(inUl){h+='</ul>';inUl=false;}if(inOl){h+='</ol>';inOl=false;}};
-    text.split('\n').forEach(l=>{
-      if(l.startsWith('```')){
-        if(!inPre){inPre=true;pLang=l.slice(3).trim()||'text';pBuf=[];}
-        else{inPre=false;endL();h+='<pre><code class="lang-'+escHtml(pLang)+'">'+escHtml(pBuf.join('\n'))+'</code></pre>';}
-        return;
-      }
-      if(inPre){pBuf.push(l);return;}
-      const hm=l.match(/^(#{1,4}) (.+)/);
-      if(hm){endL();const t='h'+Math.min(hm[1].length+1,4);h+='<'+t+'>'+inl(hm[2])+'</'+t+'>';return;}
-      if(/^[-*+] /.test(l)){if(inOl){h+='</ol>';inOl=false;}if(!inUl){h+='<ul>';inUl=true;}h+='<li>'+inl(l.slice(2))+'</li>';return;}
-      if(/^\d+\.\s/.test(l)){if(inUl){h+='</ul>';inUl=false;}if(!inOl){h+='<ol>';inOl=true;}h+='<li>'+inl(l.replace(/^\d+\.\s/,''))+'</li>';return;}
-      endL();
-      if(l.trim()==='---'){h+='<hr>';return;}
-      if(!l.trim())return;
-      h+='<p>'+inl(l)+'</p>';
-    });
-    endL();
-    return h;
-  }
+  // ── Inline markdown → HTML renderer (delegates to top-level simpleMarkdown) ──
+  const md=simpleMarkdown;
 
   // ── Zone colour map ──────────────────────────────────────────────────────────
   const ZC={'Research Library':'#4a9eea','Design Studio':'#4acea0','Critique Room':'#e879f9','Synthesis Hub':'#f6ad55','Corridor':'#ffd700'};
@@ -4207,22 +4229,199 @@ function switchBoardTab(tab){
   const agentsBtn=document.getElementById('tab-agents');
   const actBtn=document.getElementById('tab-activity');
   const histBtn=document.getElementById('tab-history');
+  const traceBtn=document.getElementById('tab-trace');
   const grid=document.getElementById('board-grid');
   const actList=document.getElementById('board-activity-list');
   const histList=document.getElementById('board-history-list');
+  const traceList=document.getElementById('board-trace-list');
   const badge=document.getElementById('board-tab-badge');
   if(agentsBtn)agentsBtn.classList.toggle('active',tab==='agents');
   if(actBtn)actBtn.classList.toggle('active',tab==='activity');
   if(histBtn)histBtn.classList.toggle('active',tab==='history');
+  if(traceBtn)traceBtn.classList.toggle('active',tab==='trace');
   if(grid)grid.classList.toggle('board-hidden',tab!=='agents');
   if(actList)actList.classList.toggle('active',tab==='activity');
   if(histList)histList.classList.toggle('active',tab==='history');
+  if(traceList)traceList.classList.toggle('active',tab==='trace');
   if(tab==='activity'){
     syncFeedToBoard();
     window._unreadFeed=0;
     if(badge){badge.textContent='';badge.classList.remove('show');}
   }
   if(tab==='history')renderSprintHistoryTab();
+  if(tab==='trace')renderSprintTraceTab();
+}
+
+// ── Sprint Trace Tab — execution observability & debugging ──────────────────
+function renderSprintTraceTab(){
+  const list=document.getElementById('board-trace-list');
+  if(!list)return;
+  const trace=window._sprintTrace;
+  const sprintN=window._sprintNumber||1;
+  if(!trace||!trace.startedAt){
+    list.innerHTML='<div style="font-size:11px;color:#2a2a4a;padding:18px;text-align:center;font-family:monospace;">No trace available. Run a sprint first, or load a sprint from History to view its trace.</div>';
+    return;
+  }
+  const dur=trace.finishedAt?Math.round((trace.finishedAt-trace.startedAt)/1000):'…';
+  let html='';
+  // ── Header ──
+  html+='<div class="trace-header">'+
+    '<div class="trace-title">Sprint '+sprintN+' — Execution Trace</div>'+
+    '<div class="trace-meta">'+
+      '<span>Plan: '+(trace.planSource==='director'?'Director LLM':trace.planSource==='hardcoded'?'Hardcoded fallback':'—')+'</span>'+
+      '<span>Duration: '+dur+'s</span>'+
+      '<span>Revision loops: '+trace.revisionLoops.length+'</span>'+
+    '</div>'+
+  '</div>';
+  // ── Director's Plan ──
+  if(trace.wavePlan){
+    html+='<div class="trace-section">'+
+      '<div class="trace-section-label">Directors Plan</div>'+
+      '<div class="trace-plan-rationale">'+escHtml(trace.wavePlan.rationale||'')+'</div>'+
+      '<div class="trace-waves">'+
+        (trace.wavePlan.waves||[]).map((w,i)=>'<div class="trace-wave-chip">'+
+          '<span class="trace-wave-idx">W'+(i+1)+'</span>'+
+          '<span class="trace-wave-name">'+escHtml(w.name||'')+'</span>'+
+          '<span class="trace-wave-agents">'+(w.agents||[]).map(id=>{
+            const a=AGENTS.find(x=>x.id===id);return a?a.name:id;
+          }).join(' · ')+'</span>'+
+        '</div>').join('')+
+      '</div>'+
+    '</div>';
+  }
+  // ── Per-agent trace cards grouped by wave ──
+  const agentTraceEntries=AGENTS
+    .filter(a=>trace.agents[a.id])
+    .map(a=>({agent:a,t:trace.agents[a.id]}));
+  const byWave={};
+  agentTraceEntries.forEach(({agent,t})=>{
+    const wi=t.waveIndex??0;
+    if(!byWave[wi])byWave[wi]={name:t.waveName||('Wave '+(wi+1)),prompt:t.wavePrompt||'',agents:[]};
+    byWave[wi].agents.push({agent,t});
+  });
+  Object.keys(byWave).sort((a,b)=>a-b).forEach(wi=>{
+    const wave=byWave[wi];
+    html+='<div class="trace-wave-block">'+
+      '<div class="trace-wave-header">'+
+        '<span class="trace-wave-num">WAVE '+(parseInt(wi)+1)+'</span>'+
+        '<span class="trace-wave-title">'+escHtml(wave.name)+'</span>'+
+      '</div>';
+    if(wave.agents[0]&&wave.agents[0].t.injectedContext){
+      const ctxLen=wave.agents[0].t.injectedContext.length;
+      html+='<div class="trace-ctx-summary">Injected context: '+ctxLen+' chars from prior waves</div>';
+    }
+    wave.agents.forEach(({agent,t})=>{
+      const durSec=t.durationMs?Math.round(t.durationMs/100)/10+'s':'—';
+      const statusIcon=t.status==='error'?'\u2717':t.status==='done'?'\u2713':'?';
+      const statusClass=t.status==='error'?'err':'ok';
+      html+='<div class="trace-agent-card" data-agent-id="'+agent.id+'">';
+      html+='<div class="trace-agent-hdr" onclick="(function(el){var b=el.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\';})(this)">';
+      html+='<span class="trace-agent-dot" style="background:#'+(agent.zc||0x4a9eea).toString(16).padStart(6,'0')+'"></span>';
+      html+='<span class="trace-agent-name">'+escHtml(agent.name)+'</span>';
+      html+='<span class="trace-agent-status '+statusClass+'">'+statusIcon+' '+durSec+'</span>';
+      if(t.sanitizationIssues&&t.sanitizationIssues.length)html+='<span class="trace-badge warn">'+t.sanitizationIssues.length+' issues</span>';
+      if(t.truncated)html+='<span class="trace-badge trunc">truncated</span>';
+      if(t.toolCalls&&t.toolCalls.length)html+='<span class="trace-badge tool">'+t.toolCalls.length+' tools</span>';
+      html+='</div>';
+      // Expandable detail
+      html+='<div class="trace-agent-detail" style="display:none;">';
+      if(t.toolCalls&&t.toolCalls.length){
+        html+='<div class="trace-sub"><span class="trace-sub-label">Tool Calls</span>';
+        t.toolCalls.forEach(tc=>{
+          const argsStr=tc.tool==='brave_search'?('query: "'+escHtml(tc.args.query||'')+'"'):
+            tc.tool==='webfetch'?('url: '+escHtml((tc.args.url||'').slice(0,80))):JSON.stringify(tc.args);
+          html+='<div class="trace-tool-call"><span class="trace-tool-name">'+escHtml(tc.tool)+'</span> '+argsStr+'</div>';
+        });
+        html+='</div>';
+      }
+      if(t.sanitizationIssues&&t.sanitizationIssues.length){
+        html+='<div class="trace-sub"><span class="trace-sub-label">Quality Issues</span>'+
+          t.sanitizationIssues.map(i=>'<div class="trace-issue">'+escHtml(i)+'</div>').join('')+
+        '</div>';
+      }
+      if(t.injectedContext){
+        html+='<div class="trace-sub"><span class="trace-sub-label">Input Context ('+t.injectedContext.length+' chars)</span>'+
+          '<pre class="trace-code">'+escHtml(t.injectedContext.slice(0,2000))+(t.injectedContext.length>2000?'\n':'')+'</pre></div>';
+      }
+      if(t.rawResponse){
+        const rawLen=t.rawResponse.length;
+        const sanLen=t.sanitizedResponse?t.sanitizedResponse.length:0;
+        const diff=rawLen-sanLen;
+        html+='<div class="trace-sub"><span class="trace-sub-label">Raw Response ('+rawLen+' chars, '+sanLen+' after sanitize, '+diff+' stripped)</span>'+
+          '<pre class="trace-code">'+escHtml(t.rawResponse.slice(0,3000))+(t.rawResponse.length>3000?'\n':'')+'</pre></div>';
+      }
+      if(t.sanitizedResponse){
+        html+='<div class="trace-sub"><span class="trace-sub-label">Stored Output</span>'+
+          '<pre class="trace-code">'+escHtml(t.sanitizedResponse.slice(0,3000))+(t.sanitizedResponse.length>3000?'\n':'')+'</pre></div>';
+      }
+      if(t.error){
+        html+='<div class="trace-sub trace-error"><span class="trace-sub-label">Error</span>'+escHtml(t.error)+'</div>';
+      }
+      html+='</div></div>';
+    });
+    html+='</div>';
+  });
+  // ── Revision loops ──
+  if(trace.revisionLoops&&trace.revisionLoops.length){
+    html+='<div class="trace-section">'+
+      '<div class="trace-section-label">Revision Loops</div>'+
+      trace.revisionLoops.map((rl,i)=>'<div class="trace-rev-loop">'+
+        'Loop '+(i+1)+': critique score '+rl.critiqueScore+'/10, spliced ['+rl.agentsSpliced.join(', ')+']'+
+      '</div>').join('')+
+    '</div>';
+  }
+  // ── Diagnose button ──
+  html+='<div class="trace-diagnose-section">'+
+    '<button class="trace-diagnose-btn" onclick="diagnoseSprint()">Diagnose — What went wrong?</button>'+
+    '<div id="trace-diagnosis-result"></div>'+
+  '</div>';
+  list.innerHTML=html;
+}
+
+async function diagnoseSprint(){
+  const resultEl=document.getElementById('trace-diagnosis-result');
+  if(!resultEl)return;
+  resultEl.innerHTML='<div style="font-size:11px;color:#4a9eea;padding:12px;">Analyzing sprint trace...</div>';
+  const trace=window._sprintTrace;
+  if(!trace){resultEl.innerHTML='<div style="color:#a04040;">No trace available.</div>';return;}
+  const agents=AGENTS.filter(a=>trace.agents[a.id]).map(a=>{
+    const t=trace.agents[a.id];
+    return '### '+a.name+' ('+a.role+') — Wave '+(t.waveIndex??'?')+': '+t.waveName+
+      '\nDuration: '+(t.durationMs?Math.round(t.durationMs/1000)+'s':'?')+
+      '\nStatus: '+(t.status||'?')+
+      (t.truncated?'\nTRUNCATED':'')+
+      (t.sanitizationIssues&&t.sanitizationIssues.length?'\nIssues: '+t.sanitizationIssues.join('; '):'')+
+      (t.toolCalls&&t.toolCalls.length?'\nTools: '+t.toolCalls.map(tc=>tc.tool+'('+JSON.stringify(tc.args)+')').join(', '):'')+
+      (t.injectedContext?'\nInput context: '+t.injectedContext.length+' chars':'')+
+      '\nOutput ('+(t.sanitizedResponse||'').length+' chars):\n'+((t.sanitizedResponse||'').slice(0,800))+'\n';
+  }).join('\n---\n\n');
+  const diagnosisPrompt=
+    'You are debugging an AI design sprint. The user says the output was not good. '+
+    'Analyze this execution trace and diagnose what went wrong.\n\n'+
+    'SPRINT BRIEF:\n'+(window._projectBrief||'N/A')+'\n\n'+
+    'PLAN SOURCE: '+(trace.planSource||'unknown')+'\n'+
+    'REVISION LOOPS: '+trace.revisionLoops.length+'\n\n'+
+    'AGENT TRACES:\n'+agents+'\n\n'+
+    'Provide a diagnosis with these sections:\n'+
+    '1. **What went wrong** — the top 3 issues, citing specific agent names and evidence from the trace\n'+
+    '2. **Root causes** — why each issue happened (truncation, bad context, weak prompt, model limitation)\n'+
+    '3. **What to change** — specific, actionable fixes for the next sprint (brief edits, agent selection, token limits, prompt changes)\n'+
+    '4. **Quick wins** — the single highest-impact change to make first';
+  try{
+    const lead=AGENTS.find(a=>a.id==='lead');
+    let response;
+    if(window._workerUrl||window._llmBaseUrl){
+      response=await getAgentResponse(lead,diagnosisPrompt,[],window._llmBaseUrl,window._llmApiKey);
+    }else if(window._sbClient&&loadProxyConfig()){
+      response=await getProxyResponse(lead,diagnosisPrompt,[]);
+    }else{
+      resultEl.innerHTML='<div style="color:#a04040;">No LLM configured — cannot diagnose.</div>';
+      return;
+    }
+    resultEl.innerHTML='<div class="trace-diagnosis">'+simpleMarkdown(response)+'</div>';
+  }catch(e){
+    resultEl.innerHTML='<div style="color:#a04040;">Diagnosis failed: '+escHtml(e.message)+'</div>';
+  }
 }
 
 // --- Phase 4: Sprint Versioning & Iteration Mode ---
@@ -4258,7 +4457,8 @@ function saveSprintSnapshot(){
     model:AGENTS.find(a=>a.brain)?.brain||null,
     agentCount:Object.keys(arts).length,
     critiqueScore:window._critiqueScore||null,
-    durationMs:window._swarmStartTime?Date.now()-window._swarmStartTime:null
+    durationMs:window._swarmStartTime?Date.now()-window._swarmStartTime:null,
+    sprintTrace:window._sprintTrace||null
   };
   window._sprintHistory=(window._sprintHistory||[]).filter(s=>s.n!==snap.n);
   window._sprintHistory.push(snap);
@@ -4371,6 +4571,11 @@ function _renderHistoryFromSupabase(list,sprints){
     const iterTag=s.iteration_note
       ?'<span style="background:#1a1a3a;color:#f6ad55;padding:2px 6px;border-radius:4px;font-size:9px;">↩ iteration</span>'
       :'<span style="background:#0a2a0a;color:#4acea0;padding:2px 6px;border-radius:4px;font-size:9px;">✦ initial</span>';
+    const planTag=s.plan_source==='director'
+      ?'<span style="background:#0a2a0a;color:#4acea0;padding:2px 6px;border-radius:4px;font-size:9px;">Director</span>'
+      :s.plan_source==='hardcoded'
+        ?'<span style="background:#2a1a0a;color:#f0a040;padding:2px 6px;border-radius:4px;font-size:9px;">Fallback</span>'
+        :'';
     // Agent output dots row
     const agentDots=(s.agent_ids||[]).map(id=>{
       const c=agentColors[id]||'#555';
@@ -4380,6 +4585,7 @@ function _renderHistoryFromSupabase(list,sprints){
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
       +'<span style="font-size:12px;font-weight:700;color:#ccc;">Sprint '+s.sprint_number+'</span>'
       +iterTag
+      +planTag
       +(score?'<span style="margin-left:auto;font-size:10px;color:#ffd700;">'+escHtml(score)+'</span>':'')
       +'</div>'
       +'<div style="font-size:11px;color:#8888aa;margin-bottom:6px;line-height:1.4;">'+escHtml((s.brief||'No brief').slice(0,120))+(s.brief&&s.brief.length>120?'…':'')+'</div>'
@@ -4410,13 +4616,21 @@ async function _expandSprintCard(card,sprintId){
   expandEl.innerHTML=outputs.map(o=>{
     const c=agentColors[o.agent_id]||'#888';
     const qs=o.quality_score?'<span style="color:#ffd700;font-size:9px;float:right;">★ '+o.quality_score+'</span>':'';
+    const dur=o.duration_ms?'<span style="color:#4a6a8a;font-size:9px;margin-left:6px;">'+Math.round(o.duration_ms/100)/10+'s</span>':'';
+    const waveInfo=o.wave_name?'<span style="color:#4a6a8a;font-size:9px;margin-left:6px;">W'+(o.wave_index??'?')+': '+escHtml(o.wave_name)+'</span>':'';
+    const truncBadge=o.truncated?'<span style="color:#f0d860;font-size:9px;margin-left:6px;">trunc</span>':'';
+    const issueBadge=(o.sanitization_issues&&o.sanitization_issues.length)?'<span style="color:#f0a040;font-size:9px;margin-left:6px;">'+o.sanitization_issues.length+' issues</span>':'';
+    const toolBadge=(o.tool_calls&&o.tool_calls.length)?'<span style="color:#4a9eea;font-size:9px;margin-left:6px;">'+o.tool_calls.length+' tools</span>':'';
+    const rawInfo=o.raw_response?'<div style="font-size:9px;color:#3a3a5a;font-family:monospace;margin-top:2px;">Raw: '+o.raw_response.length+' chars, stored: '+(o.content||'').length+' chars ('+Math.max(0,o.raw_response.length-(o.content||'').length)+' stripped)</div>':'';
+    const ctxInfo=o.input_context?'<div style="font-size:9px;color:#3a3a5a;font-family:monospace;">Input context: '+o.input_context.length+' chars</div>':'';
     const preview=escHtml((o.content||'').slice(0,300));
     const full=escHtml((o.content||''));
     const eid='out-'+sprintId+'-'+o.agent_id;
     return'<div style="margin-bottom:10px;">'
-      +'<div style="font-size:10px;font-weight:700;color:'+c+';margin-bottom:4px;">'+escHtml(o.agent_name||o.agent_id)+qs+'</div>'
+      +'<div style="font-size:10px;font-weight:700;color:'+c+';margin-bottom:4px;">'+escHtml(o.agent_name||o.agent_id)+qs+dur+waveInfo+truncBadge+issueBadge+toolBadge+'</div>'
+      +ctxInfo+rawInfo
       +'<div id="'+eid+'" style="font-size:10px;color:#7a7a9a;line-height:1.5;white-space:pre-wrap;font-family:monospace;background:#0a0a14;padding:8px;border-radius:6px;max-height:120px;overflow:hidden;cursor:pointer;" '
-      +'onclick="(function(el){el.style.maxHeight=el.style.maxHeight===\'none\'?\'120px\':\'none\';})(document.getElementById(\''+eid+'\'))">'+preview+(full.length>300?'\n…':'')+'</div>'
+      +'onclick="(function(el){el.style.maxHeight=el.style.maxHeight===\'none\'?\'120px\':\'none\';})(document.getElementById(\''+eid+'\'))">'+preview+(full.length>300?'\n':'')+'</div>'
       +'</div>';
   }).join('');
   // Show "View Prototype" button if prototype_html was saved for this sprint
@@ -4651,7 +4865,7 @@ function sbSaveArtifact(agentId,artifact){
 }
 function sbAppendRelayEntry(entry){
   if(!window._sbClient||!window._sbUser)return;
-  window._sbClient.from('relay_log').insert({user_id:window._sbUser.id,from_id:entry.from||null,from_name:entry.fromName||null,to_id:entry.to||null,preview:entry.preview||null,timestamp:entry.timestamp||Date.now()}).then(null,e=>console.warn('[SB] relay save:',e?.message));
+  window._sbClient.from('relay_log').insert({user_id:window._sbUser.id,sprint_id:window._lastSprintId||null,from_id:entry.from||null,from_name:entry.fromName||null,to_id:entry.to||null,preview:entry.preview||null,timestamp:entry.timestamp||Date.now()}).then(null,e=>console.warn('[SB] relay save:',e?.message));
 }
 function sbSaveBrief(text){
   if(!window._sbClient||!window._sbUser)return;
@@ -4679,6 +4893,9 @@ async function sbSaveSprint(snap){
       critique_score:snap.critiqueScore||null,
       duration_ms:snap.durationMs||null,
       prototype_html:window._prototypeHTML||null,
+      wave_plan:snap.sprintTrace?.wavePlan||null,
+      plan_source:snap.sprintTrace?.planSource||null,
+      revision_loops:snap.sprintTrace?.revisionLoops||null,
       created_at:new Date(snap.timestamp||Date.now()).toISOString()
     };
     const {data:sprintData,error:sprintErr}=await window._sbClient
@@ -4692,12 +4909,22 @@ async function sbSaveSprint(snap){
       if(!art)return;
       const content=typeof art==='string'?art:art.content||'';
       if(!content)return;
+      const tr=(snap.sprintTrace?.agents)?.[a.id]||{};
       outputRows.push({
         sprint_id:sprintId,user_id:uid,
         agent_id:a.id,agent_name:a.name,agent_role:a.role,
         artifact_type:(typeof art==='object'?art.type:null)||'text',
         content,
-        quality_score:computeQualityScore(content)||null
+        quality_score:computeQualityScore(content)||null,
+        input_context:tr.injectedContext||null,
+        raw_response:tr.rawResponse||null,
+        duration_ms:tr.durationMs||null,
+        tool_calls:tr.toolCalls||null,
+        sanitization_issues:tr.sanitizationIssues||null,
+        truncated:tr.truncated||false,
+        wave_index:tr.waveIndex??null,
+        wave_name:tr.waveName||null,
+        wave_prompt:tr.wavePrompt||null
       });
     });
     if(outputRows.length){
@@ -4718,7 +4945,7 @@ async function sbLoadSprints(){
   try{
     const{data,error}=await window._sbClient
       .from('sprint_summary')
-      .select('id,sprint_number,brief,iteration_note,model,agent_count,critique_score,duration_ms,created_at,agent_ids')
+      .select('id,sprint_number,brief,iteration_note,model,agent_count,critique_score,duration_ms,created_at,agent_ids,wave_plan,plan_source,revision_loops')
       .eq('user_id',window._sbUser.id)
       .order('created_at',{ascending:false})
       .limit(50);
@@ -4735,7 +4962,7 @@ async function sbLoadSprintOutputs(sprintId){
   try{
     const{data,error}=await window._sbClient
       .from('sprint_outputs')
-      .select('agent_id,agent_name,agent_role,artifact_type,content,quality_score')
+      .select('agent_id,agent_name,agent_role,artifact_type,content,quality_score,input_context,raw_response,duration_ms,tool_calls,sanitization_issues,truncated,wave_index,wave_name,wave_prompt')
       .eq('sprint_id',sprintId)
       .order('agent_id');
     if(error){console.warn('[SB] sbLoadSprintOutputs:',error.message);return[];}
@@ -5368,6 +5595,25 @@ async function runSwarmAgent(agent, customPrompt){
   let response;
   let _swarmErrored=false;
 
+  // ── Trace: capture timing + input ─────────────────────────────────────────
+  const _traceAgentStart=Date.now();
+  const _traceAgentId=agent.id;
+  if(window._sprintTrace){
+    if(!window._sprintTrace.agents[_traceAgentId])window._sprintTrace.agents[_traceAgentId]={};
+    const t=window._sprintTrace.agents[_traceAgentId];
+    t.startedAt=_traceAgentStart;
+    t.fullPrompt=msg;
+    t.model=agent.brain||'kimi-latest';
+    t.temperature=AGENT_TEMPERATURE[agent.id]??0.5;
+    t.maxTokens=AGENT_MAX_TOKENS[agent.id]||800;
+    t.toolCalls=[];
+    if(window._currentWaveInfo){
+      t.waveIndex=window._currentWaveInfo.index;
+      t.waveName=window._currentWaveInfo.name;
+      t.wavePrompt=window._currentWaveInfo.prompt;
+    }
+  }
+
   // ── Live token preview in sprint panel ──────────────────────────────────────
   // Strip leading whitespace/newlines, keep only the trailing 72 chars so the
   // narrow card column doesn't overflow. Only runs when sprint viz is open.
@@ -5414,6 +5660,10 @@ async function runSwarmAgent(agent, customPrompt){
   // Clear preview once done (card transitions to sprint-done hides it via CSS)
   const _p=_sprintPreviewEl();
   if(_p)_p.textContent='';
+  // ── Trace: capture raw response before sanitization ───────────────────────
+  if(window._sprintTrace&&!_swarmErrored){
+    window._sprintTrace.agents[_traceAgentId].rawResponse=response;
+  }
   // ── Post-processing: sanitise raw LLM output before storing ─────────────────
   // Strips thinking traces, tool-call XML leakage, and model-internal delimiters
   if(!_swarmErrored&&response){
@@ -5426,6 +5676,21 @@ async function runSwarmAgent(agent, customPrompt){
       console.warn('[swarm sanitize] '+agent.name+' response appears truncated');
       window._swarmTruncated=window._swarmTruncated||{};
       window._swarmTruncated[agent.id]=true;
+    }
+  }
+  // ── Trace: capture sanitized output + quality flags + timing ─────────────
+  if(window._sprintTrace){
+    const t=window._sprintTrace.agents[_traceAgentId];
+    if(t){
+      t.finishedAt=Date.now();
+      t.durationMs=t.finishedAt-_traceAgentStart;
+      t.sanitizedResponse=response;
+      t.sanitizationIssues=detectOutputCorruption(response);
+      t.truncated=detectResponseTruncation(response);
+      t.status=_swarmErrored?'error':'done';
+      if(_swarmErrored){
+        t.error=window._swarmErrors?.[_traceAgentId]?.error||'Unknown error';
+      }
     }
   }
   let newHistory=[...history,{role:'user',content:msg},{role:'assistant',content:response}];
@@ -5498,25 +5763,25 @@ function getWaveSuperPhase(agentIds){
 }
 
 // ─── Demo Sprint — instant test fixture, no LLM needed ────────────────────────
-const _DEMO_BRIEF='SplitBite — A mobile bill-splitting app for groups at Chennai street food stalls. Photograph the bill, tap who was there, send UPI payment requests instantly via WhatsApp.';
+const _DEMO_BRIEF='SplitBite — A mobile bill-splitting app for friend groups dining out. Photograph the bill, tap who ordered what, and send instant payment requests to friends.';
 const _DEMO_OUTPUTS={
-  scout:{type:'text',content:'## Competitive Research\n**Splitwise**: Balance card home, debt-simplification algo, red/green amounts. **Google Pay Split**: UPI-native contact picker. **PayMe India**: Group expense categories, offline-first.\n\n**Steal list:**\n1. Balance card at top — answers "do I owe?" immediately\n2. Per-person split adjustment (not just equal)\n3. WhatsApp deep-link for reminders — no extra install\n4. Real-time settlement status in activity feed'},
-  scholar:{type:'text',content:'## Best Practices\n**Progressive disclosure**: Equal split default; manual adjust on tap. **Confirmatory math**: Show per-person rupee before confirm — prevents disputes. **Error prevention**: Disable Confirm until ≥ 2 people selected. **Offline tolerance**: Queue split, sync on reconnect. **Accessibility**: All targets ≥ 44pt; color + prefix (+ / −) for amounts, never color alone.'},
+  scout:{type:'text',content:'## Competitive Research\n**Splitwise**: Balance card home, debt-simplification algo, red/green amounts. **Venmo**: Social activity feed, emoji reactions on payments. **Tab**: Instant photo-to-split OCR, minimal UI, no signup required.\n\n**Steal list:**\n1. Balance card at top — answers "do I owe?" immediately\n2. Per-person split adjustment (not just equal)\n3. Push notification for reminders — no extra install\n4. Real-time settlement status in activity feed'},
+  scholar:{type:'text',content:'## Best Practices\n**Progressive disclosure**: Equal split default; manual adjust on tap. **Confirmatory math**: Show per-person amount before confirm — prevents disputes. **Error prevention**: Disable Confirm until ≥ 2 people selected. **Offline tolerance**: Queue split, sync on reconnect. **Accessibility**: All targets ≥ 44pt; color + prefix (+ / −) for amounts, never color alone.'},
   palette:{type:'text',content:'## Visual Design System\n**Brand**: #4acea0 mint — trustworthy, financial, not a bank.\n**Palette**:\n- surface #f5f6fa · card #ffffff · brand #4acea0 · danger #ff4757\n- text-primary #1a1a1a · text-secondary #888 · dark-bg #0d2218\n\n**Type**: -apple-system / SF Pro. 900wt for amounts, 700 labels, 400 body.\n**Radius**: 44px phone · 20px balance card · 16px list cards · 10px inputs.'},
   flow:{type:'text',content:'## UX Flows\n**Core**: Home → [+New Split] → Enter Amount → Select People → Review Per-Person → Confirm → Send Reminders\n\n**States**: EMPTY (no groups, CTA) · HAS_GROUPS (balance card + list) · READY_TO_SPLIT (amount + ≥2 people, confirm enabled) · CONFIRMED (success + notifications)\n\n**Edge cases**: Unequal rounding → last person absorbs remainder. No UPI → WhatsApp link fallback. Offline → queue with sync banner.'},
   blueprint:{type:'text',content:'## Figma Specs\n**Home (375×812)**: Header 52pt; balance card 16pt margin, 20pt radius, gradient #0d2218→#051410; group cards 14pt radius, 7pt gap.\n**Split screen**: Amount input 28pt/900; person avatars 42×42pt, 2pt selected border #4acea0; each-pays box #eafaf3.\n**CTA**: 15pt padding, 16pt radius, #4acea0 fill, 13pt/800 #0a1f14 label.\n**Bottom nav**: 52pt height, 5 columns, active #4acea0.'},
   forge:{type:'code',content:'## Component Structure\n**SplitCalculator**: Accepts total + participants[]. Filters selected, divides equally, last person absorbs rounding remainder. Updates live on toggle.\n**BalanceCard**: Total owed/owing, green/red, two CTAs. Animated number on change.\n**PersonPicker**: Avatar grid. Tap toggles selection (border 2px #4acea0). Emits onChange to update each-amount.\n**NotificationService**: WhatsApp deep-link with pre-filled "Please pay ₹X for [group]". Falls back to SMS. Queues offline.'},
   lens:{type:'text',content:'## UX Critique\n**✓ Strengths**: Clear primary action (balance card), real-time math reduces cognitive load, WhatsApp integration meets users where they are.\n**⚠ Issues (P1)**: No way to edit a split after creation — users WILL mis-select someone. Add edit flow.\n**⚠ Issues (P2)**: Amount entry has no keyboard dismiss — user stuck. Add "Done" toolbar. No empty state for first-time users — add onboarding nudge.\n**P3**: Activity feed missing — no way to see who has paid vs. pending.'},
-  eye:{type:'text',content:'## UI Aesthetics\n**✓ Strong**: Mint brand on dark gradient balance card creates clear visual hierarchy. Rupee amounts at 34pt/900 dominate correctly.\n**⚠ Fix**: Group card list has no visual rhythm — add subtle dividers or consistent card shadow scale. CTA button on split screen is too wide — reduce to 90% width with 5% side margin for breathing room. Avatar row needs more gap (12pt not 8pt) for comfortable touch.'},
-  mirror:{type:'text',content:'## Persona Simulation\n**Ravi, 28, daily street food visitor**: "I always end up Googling a calculator, splitting manually, then sending individual WhatsApp messages. This does all three steps in one — I would actually use this."\n**Lakshmi, 52, not tech-savvy**: "The green/red confused me at first — does red mean I\'m in danger? The label \'You are owed\' is clear though. The avatar letters are too small on my phone."\n**Raj, 23, power user**: "Why can\'t I just long-press a group to archive it? And I want to see a running total of how much I\'ve split this month."'},
-  council:{type:'text',content:'## Review Panel\n**Ramesh (user)**: Instant value on home screen is excellent. Needs offline mode — food stalls often have bad signal.\n**Priya (senior designer)**: WhatsApp integration is the right call but needs fallback copy. Split screen CTA placement is correct but the "each pays" box needs more separation from the form above.\n**Arjun (peer)**: The persona simulation flagged avatar size — this is a real WCAG issue. Minimum 44×44pt touch target for the toggle avatars.'},
-  weaver:{type:'text',content:'## Synthesis\nSplitBite solves a real pain point: manual group bill calculation at street food stalls. Core flow is clean and fast (3 taps to confirm). Highest-priority fixes before ship: (1) edit-split flow, (2) avatar touch targets to 44pt, (3) first-run empty state. WhatsApp as primary notification channel is the correct bet for Chennai market — UPI fallback covers the payment step. Brand palette (#4acea0 mint + dark card) is cohesive and distinctive.'},
-  gate:{type:'text',content:'## Quality Gate\n**Pass**: Core split flow complete, real-time math, UPI + WhatsApp channels.\n**Fail (must fix)**:\n- [ ] Edit split after creation\n- [ ] Keyboard dismiss on amount field\n- [ ] Avatar touch targets < 44pt\n**Conditional pass**:\n- [ ] Empty state / onboarding\n- [ ] Offline queue with sync indicator\n**Score: 87 / 100** — ship-ready after P1 fixes.'},
-  check:{type:'text',content:'## Design Checklist\n**Content**: Real street food names (Saravana Bhavan, Marina beach, Murugan Idli) — authentic for target market ✓\n**Math**: ₹680 ÷ 3 = ₹226.67 with correct rounding ✓\n**Colors**: WCAG AA contrast on all text/background combos ✓\n**Touch**: CTAs ≥ 44pt ✓ (avatars flagged — needs fix)\n**Edge cases**: 2-person split ✓ · equal/unequal ✓ · settled state ✓\n**Missing**: 1-person group (error), max group size, currency other than INR'},
+  eye:{type:'text',content:'## UI Aesthetics\n**✓ Strong**: Mint brand on dark gradient balance card creates clear visual hierarchy. Dollar amounts at 34pt/900 dominate correctly.\n**⚠ Fix**: Group card list has no visual rhythm — add subtle dividers or consistent card shadow scale. CTA button on split screen is too wide — reduce to 90% width with 5% side margin for breathing room. Avatar row needs more gap (12pt not 8pt) for comfortable touch.'},
+  mirror:{type:'text',content:'## Persona Simulation\n**Alex, 28, frequent diner**: "I always end up Googling a calculator, splitting manually, then texting everyone individually. This does all three steps in one — I would actually use this."\n**Pat, 52, not tech-savvy**: "The green/red confused me at first — does red mean I\'m in danger? The label \'You are owed\' is clear though. The avatar letters are too small on my phone."\n**Jordan, 23, power user**: "Why can\'t I just long-press a group to archive it? And I want to see a running total of how much I\'ve split this month."'},
+  council:{type:'text',content:'## Review Panel\n**Reviewer A (end user)**: Instant value on home screen is excellent. Needs offline mode — restaurants often have bad signal.\n**Reviewer B (senior designer)**: Notification integration is the right call but needs fallback copy. Split screen CTA placement is correct but the "each pays" box needs more separation from the form above.\n**Reviewer C (accessibility lead)**: The persona simulation flagged avatar size — this is a real WCAG issue. Minimum 44×44pt touch target for the toggle avatars.'},
+  weaver:{type:'text',content:'## Synthesis\nSplitBite solves a real pain point: manual group bill calculation when dining out. Core flow is clean and fast (3 taps to confirm). Highest-priority fixes before ship: (1) edit-split flow, (2) avatar touch targets to 44pt, (3) first-run empty state. Push notification as primary channel is the correct bet — payment link fallback covers the settlement step. Brand palette (#4acea0 mint + dark card) is cohesive and distinctive.'},
+  gate:{type:'text',content:'## Quality Gate\n**Pass**: Core split flow complete, real-time math, notification + payment link channels.\n**Fail (must fix)**:\n- [ ] Edit split after creation\n- [ ] Keyboard dismiss on amount field\n- [ ] Avatar touch targets < 44pt\n**Conditional pass**:\n- [ ] Empty state / onboarding\n- [ ] Offline queue with sync indicator\n**Score: 87 / 100** — ship-ready after P1 fixes.'},
+  check:{type:'text',content:'## Design Checklist\n**Content**: Realistic group names and contexts — authentic for target market ✓\n**Math**: $68.00 ÷ 3 = $22.67 with correct rounding ✓\n**Colors**: WCAG AA contrast on all text/background combos ✓\n**Touch**: CTAs ≥ 44pt ✓ (avatars flagged — needs fix)\n**Edge cases**: 2-person split ✓ · equal/unequal ✓ · settled state ✓\n**Missing**: 1-person group (error), max group size, multi-currency support'},
   lead:{type:'text',content:'## Sprint 1 Summary — SplitBite\nAll 13 agents completed. Core interaction model validated by competitive research and persona simulation. Visual design is distinctive and market-appropriate. Three P1 issues identified (edit-split, keyboard dismiss, avatar touch targets). Recommend: implement P1 fixes → run Sprint 2 iteration focused on the activity/history tab and offline UX. Prototype ready for stakeholder demo.'}
 };
 function _buildDemoProtoHTML(){
-  return`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>SplitBite – Design Floor</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0d0d14;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:28px 20px 60px;display:flex;flex-direction:column;align-items:center}.chip{background:#0d2218;border:1px solid #1e5c3a;color:#4acea0;font-size:11px;font-family:monospace;padding:4px 14px;border-radius:20px;margin-bottom:20px}h1{color:#f0f0ff;font-size:22px;font-weight:800;letter-spacing:-1px;margin-bottom:4px}.sub{color:#555;font-size:12px;margin-bottom:36px}.flow{display:flex;gap:20px;align-items:flex-start;justify-content:center;flex-wrap:wrap}.col{display:flex;flex-direction:column;align-items:center;gap:10px}.phone{width:300px;background:#fff;border-radius:40px;box-shadow:0 24px 80px rgba(0,0,0,.65);overflow:hidden;position:relative}.notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:90px;height:24px;background:#0d0d14;border-radius:14px;z-index:9}.screen{padding-top:52px}.lbl{color:#666;font-size:10px;font-family:monospace;text-align:center;letter-spacing:.5px}.arr{color:#2a4a3a;font-size:28px;padding-top:260px;align-self:flex-start}.sbar{padding:5px 16px 0;display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:#111}.home{background:#f5f6fa}.h-hdr{padding:10px 14px 12px;background:#fff;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}.h-logo{font-size:18px;font-weight:900;color:#0d1a14;letter-spacing:-1.5px}.h-badge{width:20px;height:20px;background:#ff4757;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}.owe{margin:10px;padding:18px;background:linear-gradient(145deg,#0d2218,#051410);border-radius:18px;color:#fff}.owe-lbl{font-size:10px;color:#4acea0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}.owe-amt{font-size:32px;font-weight:900;letter-spacing:-2px;margin-bottom:2px}.owe-sub{font-size:10px;color:rgba(255,255,255,.4)}.owe-btns{display:flex;gap:8px;margin-top:12px}.bp{flex:1;padding:8px;background:#4acea0;color:#0a1f14;border:none;border-radius:9px;font-size:10px;font-weight:700;cursor:pointer}.bs{flex:1;padding:8px;background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:9px;font-size:10px;font-weight:700;cursor:pointer}.hsec{padding:10px 12px 0}.hsec-t{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}.trip{background:#fff;border-radius:12px;padding:11px;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)}.tr{display:flex;justify-content:space-between;align-items:center}.tn{font-size:11px;font-weight:700;color:#1a1a1a}.tw{font-size:11px;font-weight:700;color:#ff4757}.to{font-size:11px;font-weight:700;color:#4acea0}.tm{font-size:9px;color:#bbb;margin-top:2px}.bnav{display:flex;justify-content:space-around;padding:9px 0 7px;background:#fff;border-top:1px solid #eee;margin-top:8px}.bni{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:8px;color:#bbb}.bni.act{color:#4acea0}.bic{font-size:17px}.spbg{background:#f5f6fa}.sphdr{padding:11px 14px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;gap:9px}.spback{font-size:21px;color:#4acea0;line-height:1}.sptit{font-size:14px;font-weight:700;color:#1a1a1a}.spbody{padding:11px}.spc{background:#fff;border-radius:14px;padding:13px;margin-bottom:9px;box-shadow:0 1px 4px rgba(0,0,0,.05)}.spl{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}.amtr{display:flex;align-items:center;background:#f0f1f5;border-radius:9px;padding:7px 11px}.cur{font-size:19px;color:#ccc;margin-right:5px}.amtv{font-size:26px;font-weight:900;color:#1a1a1a}.ppr{display:flex;gap:9px;flex-wrap:wrap}.pp{display:flex;flex-direction:column;align-items:center;gap:3px}.av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid transparent}.av.on{border-color:#4acea0}.pn{font-size:9px;color:#aaa}.eb{background:#eafaf3;border-radius:9px;padding:9px;text-align:center}.el{font-size:11px;color:#1a7a4a;font-weight:600;margin-bottom:3px}.ea{font-size:22px;font-weight:900;color:#0d5a3a}.spcta{margin:3px 0;padding:13px;background:#4acea0;border-radius:14px;text-align:center;font-size:12px;font-weight:800;color:#0a1f14}.confbg{background:#fff}.cfb{padding:22px 18px;display:flex;flex-direction:column;align-items:center}.cfck{width:68px;height:68px;background:#eafaf3;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:14px}.cft{font-size:20px;font-weight:900;color:#1a1a1a;margin-bottom:5px}.cfs{font-size:11px;color:#888;text-align:center;line-height:1.6;margin-bottom:18px}.rc{background:#f5f6fa;border-radius:14px;width:100%;padding:13px;margin-bottom:14px}.rr{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #ebebf0}.rr:last-child{border:none;padding-top:9px}.rk{font-size:10px;color:#888}.rv{font-size:10px;color:#1a1a1a;font-weight:600}.rv.pos{color:#4acea0}.cfbtns{display:flex;gap:7px;width:100%}.cfb1{flex:1;padding:11px;border-radius:11px;border:none;font-size:10px;font-weight:700;cursor:pointer;background:#4acea0;color:#0a1f14}.cfb2{flex:1;padding:11px;border-radius:11px;border:none;font-size:10px;font-weight:700;cursor:pointer;background:#f0f1f5;color:#666}footer{margin-top:44px;font-size:10px;font-family:monospace;color:#333;text-align:center}</style></head><body><div class="chip">Design Floor Studio &middot; Sprint 1</div><h1>SplitBite</h1><p class="sub">Bill-splitting for street food groups &middot; UPI-first &middot; Chennai</p><div class="flow"><div class="col"><div class="phone"><div class="notch"></div><div class="screen home"><div class="sbar"><span>9:41</span><span>&#9652;&#9652;&#9652; &#9889;</span></div><div class="h-hdr"><span class="h-logo">splitbite</span><span class="h-badge">2</span></div><div class="owe"><div class="owe-lbl">You are owed</div><div class="owe-amt">&#8377;840</div><div class="owe-sub">across 3 active groups</div><div class="owe-btns"><button class="bp">Remind All</button><button class="bs">+ New Split</button></div></div><div class="hsec"><div class="hsec-t">Recent Groups</div><div class="trip"><div class="tr"><span class="tn">&#127837; Saravana Bhavan lunch</span><span class="tw">owe &#8377;220</span></div><div class="tm">Anbu, Priya, +2 &middot; Yesterday</div></div><div class="trip"><div class="tr"><span class="tn">&#127790; Marina beach snacks</span><span class="to">owed &#8377;380</span></div><div class="tm">Karthik, Meena &middot; 2 days ago</div></div><div class="trip"><div class="tr"><span class="tn">&#127846; Murugan Idli stall</span><span class="to">owed &#8377;460</span></div><div class="tm">5 people &middot; Settled</div></div></div><div class="bnav"><div class="bni act"><span class="bic">&#8862;</span>Home</div><div class="bni"><span class="bic">+</span>Split</div><div class="bni"><span class="bic">&#8597;</span>History</div><div class="bni"><span class="bic">&#9711;</span>Profile</div></div></div></div><div class="lbl">1 &mdash; Home</div></div><div class="arr">&#8250;</div><div class="col"><div class="phone"><div class="notch"></div><div class="screen spbg"><div class="sbar"><span>9:41</span><span>&#9652;&#9652;&#9652; &#9889;</span></div><div class="sphdr"><span class="spback">&#8249;</span><span class="sptit">New Split</span></div><div class="spbody"><div class="spc"><div class="spl">Total Bill Amount</div><div class="amtr"><span class="cur">&#8377;</span><span class="amtv">680</span></div></div><div class="spc"><div class="spl">Split With</div><div class="ppr"><div class="pp"><div class="av on" style="background:#e8faf4;color:#0d7a4a">A</div><span class="pn">Anbu</span></div><div class="pp"><div class="av on" style="background:#fff3e0;color:#c07a00">P</div><span class="pn">Priya</span></div><div class="pp"><div class="av on" style="background:#fde8e8;color:#c03030">K</div><span class="pn">Karthik</span></div><div class="pp"><div class="av" style="background:#f0f1f5;color:#bbb">M</div><span class="pn">Meena</span></div></div></div><div class="spc"><div class="spl">Each Pays</div><div class="eb"><div class="el">Split equally among 3</div><div class="ea">&#8377;226.67</div></div></div><div class="spcta">Confirm &amp; Notify &#8594;</div></div></div></div><div class="lbl">2 &mdash; New Split</div></div><div class="arr">&#8250;</div><div class="col"><div class="phone"><div class="notch"></div><div class="screen confbg"><div class="sbar"><span>9:41</span><span>&#9652;&#9652;&#9652; &#9889;</span></div><div class="cfb"><div class="cfck">&#10003;</div><div class="cft">Split Created!</div><div class="cfs">Anbu, Priya &amp; Karthik notified via WhatsApp</div><div class="rc"><div class="rr"><span class="rk">Marina beach snacks</span><span class="rv">&#8377;680</span></div><div class="rr"><span class="rk">Anbu owes you</span><span class="rv">&#8377;226.67</span></div><div class="rr"><span class="rk">Priya owes you</span><span class="rv">&#8377;226.67</span></div><div class="rr"><span class="rk">Karthik owes you</span><span class="rv">&#8377;226.66</span></div><div class="rr"><span class="rk">Total owed</span><span class="rv pos">&#8377;680</span></div></div><div class="cfbtns"><button class="cfb1">Send UPI Request</button><button class="cfb2">Share Link</button></div></div></div></div><div class="lbl">3 &mdash; Confirmed</div></div></div><footer>SplitBite &middot; Generated by Design Floor Studio</footer></body></html>`;
+  return`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>SplitBite – Design Floor</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0d0d14;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:28px 20px 60px;display:flex;flex-direction:column;align-items:center}.chip{background:#0d2218;border:1px solid #1e5c3a;color:#4acea0;font-size:11px;font-family:monospace;padding:4px 14px;border-radius:20px;margin-bottom:20px}h1{color:#f0f0ff;font-size:22px;font-weight:800;letter-spacing:-1px;margin-bottom:4px}.sub{color:#555;font-size:12px;margin-bottom:36px}.flow{display:flex;gap:20px;align-items:flex-start;justify-content:center;flex-wrap:wrap}.col{display:flex;flex-direction:column;align-items:center;gap:10px}.phone{width:300px;background:#fff;border-radius:40px;box-shadow:0 24px 80px rgba(0,0,0,.65);overflow:hidden;position:relative}.notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:90px;height:24px;background:#0d0d14;border-radius:14px;z-index:9}.screen{padding-top:52px}.lbl{color:#666;font-size:10px;font-family:monospace;text-align:center;letter-spacing:.5px}.arr{color:#2a4a3a;font-size:28px;padding-top:260px;align-self:flex-start}.sbar{padding:5px 16px 0;display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:#111}.home{background:#f5f6fa}.h-hdr{padding:10px 14px 12px;background:#fff;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}.h-logo{font-size:18px;font-weight:900;color:#0d1a14;letter-spacing:-1.5px}.h-badge{width:20px;height:20px;background:#ff4757;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}.owe{margin:10px;padding:18px;background:linear-gradient(145deg,#0d2218,#051410);border-radius:18px;color:#fff}.owe-lbl{font-size:10px;color:#4acea0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}.owe-amt{font-size:32px;font-weight:900;letter-spacing:-2px;margin-bottom:2px}.owe-sub{font-size:10px;color:rgba(255,255,255,.4)}.owe-btns{display:flex;gap:8px;margin-top:12px}.bp{flex:1;padding:8px;background:#4acea0;color:#0a1f14;border:none;border-radius:9px;font-size:10px;font-weight:700;cursor:pointer}.bs{flex:1;padding:8px;background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:9px;font-size:10px;font-weight:700;cursor:pointer}.hsec{padding:10px 12px 0}.hsec-t{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}.trip{background:#fff;border-radius:12px;padding:11px;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)}.tr{display:flex;justify-content:space-between;align-items:center}.tn{font-size:11px;font-weight:700;color:#1a1a1a}.tw{font-size:11px;font-weight:700;color:#ff4757}.to{font-size:11px;font-weight:700;color:#4acea0}.tm{font-size:9px;color:#bbb;margin-top:2px}.bnav{display:flex;justify-content:space-around;padding:9px 0 7px;background:#fff;border-top:1px solid #eee;margin-top:8px}.bni{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:8px;color:#bbb}.bni.act{color:#4acea0}.bic{font-size:17px}.spbg{background:#f5f6fa}.sphdr{padding:11px 14px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;gap:9px}.spback{font-size:21px;color:#4acea0;line-height:1}.sptit{font-size:14px;font-weight:700;color:#1a1a1a}.spbody{padding:11px}.spc{background:#fff;border-radius:14px;padding:13px;margin-bottom:9px;box-shadow:0 1px 4px rgba(0,0,0,.05)}.spl{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}.amtr{display:flex;align-items:center;background:#f0f1f5;border-radius:9px;padding:7px 11px}.cur{font-size:19px;color:#ccc;margin-right:5px}.amtv{font-size:26px;font-weight:900;color:#1a1a1a}.ppr{display:flex;gap:9px;flex-wrap:wrap}.pp{display:flex;flex-direction:column;align-items:center;gap:3px}.av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;border:2px solid transparent}.av.on{border-color:#4acea0}.pn{font-size:9px;color:#aaa}.eb{background:#eafaf3;border-radius:9px;padding:9px;text-align:center}.el{font-size:11px;color:#1a7a4a;font-weight:600;margin-bottom:3px}.ea{font-size:22px;font-weight:900;color:#0d5a3a}.spcta{margin:3px 0;padding:13px;background:#4acea0;border-radius:14px;text-align:center;font-size:12px;font-weight:800;color:#0a1f14}.confbg{background:#fff}.cfb{padding:22px 18px;display:flex;flex-direction:column;align-items:center}.cfck{width:68px;height:68px;background:#eafaf3;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:14px}.cft{font-size:20px;font-weight:900;color:#1a1a1a;margin-bottom:5px}.cfs{font-size:11px;color:#888;text-align:center;line-height:1.6;margin-bottom:18px}.rc{background:#f5f6fa;border-radius:14px;width:100%;padding:13px;margin-bottom:14px}.rr{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #ebebf0}.rr:last-child{border:none;padding-top:9px}.rk{font-size:10px;color:#888}.rv{font-size:10px;color:#1a1a1a;font-weight:600}.rv.pos{color:#4acea0}.cfbtns{display:flex;gap:7px;width:100%}.cfb1{flex:1;padding:11px;border-radius:11px;border:none;font-size:10px;font-weight:700;cursor:pointer;background:#4acea0;color:#0a1f14}.cfb2{flex:1;padding:11px;border-radius:11px;border:none;font-size:10px;font-weight:700;cursor:pointer;background:#f0f1f5;color:#666}footer{margin-top:44px;font-size:10px;font-family:monospace;color:#333;text-align:center}</style></head><body><div class="chip">Design Floor Studio &middot; Sprint 1</div><h1>SplitBite</h1><p class="sub">Bill-splitting for friend groups &middot; Payment-link first &middot; Any currency</p><div class="flow"><div class="col"><div class="phone"><div class="notch"></div><div class="screen home"><div class="sbar"><span>9:41</span><span>&#9652;&#9652;&#9652; &#9889;</span></div><div class="h-hdr"><span class="h-logo">splitbite</span><span class="h-badge">2</span></div><div class="owe"><div class="owe-lbl">You are owed</div><div class="owe-amt">$84.00</div><div class="owe-sub">across 3 active groups</div><div class="owe-btns"><button class="bp">Remind All</button><button class="bs">+ New Split</button></div></div><div class="hsec"><div class="hsec-t">Recent Groups</div><div class="trip"><div class="tr"><span class="tn">&#127837; Friday team lunch</span><span class="tw">owe $22.00</span></div><div class="tm">Alex, Sam, +2 &middot; Yesterday</div></div><div class="trip"><div class="tr"><span class="tn">&#127790; Rooftop dinner</span><span class="to">owed $38.00</span></div><div class="tm">Jordan, Morgan &middot; 2 days ago</div></div><div class="trip"><div class="tr"><span class="tn">&#127846; Coffee run</span><span class="to">owed $24.00</span></div><div class="tm">5 people &middot; Settled</div></div></div><div class="bnav"><div class="bni act"><span class="bic">&#8862;</span>Home</div><div class="bni"><span class="bic">+</span>Split</div><div class="bni"><span class="bic">&#8597;</span>History</div><div class="bni"><span class="bic">&#9711;</span>Profile</div></div></div></div><div class="lbl">1 &mdash; Home</div></div><div class="arr">&#8250;</div><div class="col"><div class="phone"><div class="notch"></div><div class="screen spbg"><div class="sbar"><span>9:41</span><span>&#9652;&#9652;&#9652; &#9889;</span></div><div class="sphdr"><span class="spback">&#8249;</span><span class="sptit">New Split</span></div><div class="spbody"><div class="spc"><div class="spl">Total Bill Amount</div><div class="amtr"><span class="cur">$</span><span class="amtv">68.00</span></div></div><div class="spc"><div class="spl">Split With</div><div class="ppr"><div class="pp"><div class="av on" style="background:#e8faf4;color:#0d7a4a">A</div><span class="pn">Alex</span></div><div class="pp"><div class="av on" style="background:#fff3e0;color:#c07a00">S</div><span class="pn">Sam</span></div><div class="pp"><div class="av on" style="background:#fde8e8;color:#c03030">J</div><span class="pn">Jordan</span></div><div class="pp"><div class="av" style="background:#f0f1f5;color:#bbb">M</div><span class="pn">Morgan</span></div></div></div><div class="spc"><div class="spl">Each Pays</div><div class="eb"><div class="el">Split equally among 3</div><div class="ea">$22.67</div></div></div><div class="spcta">Confirm &amp; Notify &#8594;</div></div></div></div><div class="lbl">2 &mdash; New Split</div></div><div class="arr">&#8250;</div><div class="col"><div class="phone"><div class="notch"></div><div class="screen confbg"><div class="sbar"><span>9:41</span><span>&#9652;&#9652;&#9652; &#9889;</span></div><div class="cfb"><div class="cfck">&#10003;</div><div class="cft">Split Created!</div><div class="cfs">Alex, Sam &amp; Jordan notified via payment link</div><div class="rc"><div class="rr"><span class="rk">Rooftop dinner</span><span class="rv">$68.00</span></div><div class="rr"><span class="rk">Alex owes you</span><span class="rv">$22.67</span></div><div class="rr"><span class="rk">Sam owes you</span><span class="rv">$22.67</span></div><div class="rr"><span class="rk">Jordan owes you</span><span class="rv">$22.66</span></div><div class="rr"><span class="rk">Total owed</span><span class="rv pos">$68.00</span></div></div><div class="cfbtns"><button class="cfb1">Send Payment Request</button><button class="cfb2">Share Link</button></div></div></div></div><div class="lbl">3 &mdash; Confirmed</div></div></div><footer>SplitBite &middot; Generated by Design Floor Studio</footer></body></html>`;
 }
 async function loadDemoSprint(){
   window._projectBrief=_DEMO_BRIEF;
@@ -5656,6 +5921,7 @@ async function runSwarm(){
   window._swarmStartTime=Date.now(); // track duration
   window._revisionCount=0;window._critiqueScore=null;window._lastToastedPhase=-1;
   window._swarmErrors={};window._swarmTruncated={}; // reset per-sprint error/truncation tracking
+  window._sprintTrace={startedAt:Date.now(),finishedAt:null,planSource:null,wavePlan:null,revisionLoops:[],agents:{}};
   // Reset per-agent status bubbles and show immediately
   window._agentStatus={};
   AGENTS.forEach(a=>{
@@ -5688,6 +5954,7 @@ async function runSwarm(){
     window._sprintPlan=dirPlan;
   }else{
     window._sprintPlan=null; // use fallback
+    if(window._sprintTrace){window._sprintTrace.wavePlan=null;window._sprintTrace.planSource='hardcoded';}
   }
   const activeWaves=window._sprintPlan?window._sprintPlan.waves:HARDCODED_WAVES;
 
@@ -5726,6 +5993,8 @@ async function runSwarm(){
     const wave=waveQueue[waveIdx];
     if(window._swarmAbort)break;
     if(progBar&&waveQueue.length)progBar.style.width=Math.max(2,Math.round(done/(waveQueue.reduce((s,w)=>s+w.agents.length,0)+1)*90))+'%';
+    // Set wave info for trace capture (before injectContextToAgents and Promise.all)
+    window._currentWaveInfo={index:waveIdx,name:wave.name||('Wave '+(waveIdx+1)),prompt:wave.prompt||''};
     // Inject outputs from all previous waves — recent wave full (1400 chars), older waves compressed (500 chars)
     if(completedIds.length){
       const prevWaveAgents=waveIdx>0?waveQueue[waveIdx-1].agents:[];
@@ -5780,6 +6049,13 @@ async function runSwarm(){
       window._critiqueScore=score;
       if(score<6){
         window._revisionCount++;
+        if(window._sprintTrace){
+          window._sprintTrace.revisionLoops.push({
+            triggeredAt:Date.now(),
+            critiqueScore:score,
+            agentsSpliced:['palette','flow','blueprint']
+          });
+        }
         showToast('Critique score '+score+'/10 — triggering revision loop…',3500);
         const revPrompt='REVISION REQUIRED — critique agents scored this sprint '+score+'/10.\n'+
           'Re-read your previous output AND all critique feedback injected above.\n'+
@@ -5884,6 +6160,7 @@ async function scoreCritiqueWave(critiqueAgentIds){
 
 function _swarmEnd(done){
   window._swarmRunning=false;
+  if(window._sprintTrace)window._sprintTrace.finishedAt=Date.now();
   // Hide force-shown swarm bubbles — let proximity logic take over again
   if(window._game){
     const scene=window._game.scene.scenes[0];
@@ -5924,6 +6201,8 @@ function _swarmEnd(done){
     setTimeout(()=>updateUserProfile(),4000); // non-blocking: distil learnings after board opens
     // Refresh history tab if it's already open
     setTimeout(()=>{if(window._boardOpen&&window._boardTab==='history')renderSprintHistoryTab();},1200);
+    // Refresh trace tab if it's already open
+    setTimeout(()=>{if(window._boardOpen&&window._boardTab==='trace')renderSprintTraceTab();},1200);
   }
   // Sprint viz stays open so user can review — auto-close only on abort
   if(window._swarmAbort)closeSprintViz();
