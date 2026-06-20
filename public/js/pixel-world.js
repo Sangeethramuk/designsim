@@ -2196,21 +2196,10 @@ function initLLMSettings(){
     document.getElementById('llm-settings-modal').classList.remove('active');
     showToast('Session data cleared');
   });
-  // Supabase config wiring
+  // Supabase config wiring — auto-configured, update status on open
   document.getElementById('llm-settings-btn').addEventListener('click',()=>{
-    document.getElementById('sb-url').value=localStorage.getItem('sb_url')||'';
-    document.getElementById('sb-anon-key').value=localStorage.getItem('sb_anon_key')||'';
-    document.getElementById('use-proxy-toggle').checked=loadProxyConfig();
-    document.getElementById('proxy-status').textContent='';
-    document.getElementById('proxy-status').className='';
     updateSbStatus();
   },true);
-  document.getElementById('sb-save-btn').addEventListener('click',saveSupabaseConfig);
-  document.getElementById('use-proxy-toggle').addEventListener('change',e=>{
-    saveProxyConfig(e.target.checked);
-    showToast(e.target.checked?'LLM Proxy enabled':'LLM Proxy disabled');
-  });
-  document.getElementById('proxy-test-btn').addEventListener('click',testProxy);
   // Figma integration wiring
   document.getElementById('llm-settings-btn').addEventListener('click',()=>{
     const cfg=loadFigmaConfig();
