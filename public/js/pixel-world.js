@@ -4370,12 +4370,115 @@ function renderSprintTraceTab(){
       '</div>').join('')+
     '</div>';
   }
-  // ── Diagnose button ──
+  // ── Export + Diagnose buttons ──
+  var sprintIdStr=window._lastSprintId||'(not saved yet)';
   html+='<div class="trace-diagnose-section">'+
-    '<button class="trace-diagnose-btn" onclick="diagnoseSprint()">Diagnose — What went wrong?</button>'+
+    '<div style="font-size:10px;color:#4a6a8a;font-family:monospace;margin-bottom:8px;">Sprint ID: <code style="color:#4a9eea;user-select:all;cursor:text;">'+escHtml(sprintIdStr)+'</code></div>'+
+    '<div style="display:flex;gap:8px;">'+
+      '<button class="trace-diagnose-btn" onclick="copyTraceForDebugging()" style="flex:1;">Copy Trace for Debugging</button>'+
+      '<button class="trace-diagnose-btn" onclick="diagnoseSprint()" style="flex:1;">Diagnose</button>'+
+    '</div>'+
+    '<div id="trace-copy-result" style="font-size:10px;color:#4acea0;padding:6px 0;display:none;"></div>'+
     '<div id="trace-diagnosis-result"></div>'+
   '</div>';
   list.innerHTML=html;
+}
+
+function copyTraceForDebugging(){
+  const trace=window._sprintTrace;
+  const resultEl=document.getElementById('trace-copy-result');
+  if(!trace){if(resultEl){resultEl.textContent='No trace available';resultEl.style.display='block';}return;}
+  const sprintId=window._lastSprintId||'unknown';
+  const sprintN=window._sprintNumber||1;
+  var lines=[];
+  lines.push('=== SPRINT TRACE ===');
+  lines.push('Sprint ID: '+sprintId);
+  lines.push('Sprint #: '+sprintN);
+  lines.push('Brief: '+(window._projectBrief||'N/A'));
+  lines.push('Plan Source: '+(trace.planSource||'unknown'));
+  lines.push('Started: '+new Date(trace.startedAt).toISOString());
+  lines.push('Finished: '+(trace.finishedAt?new Date(trace.finishedAt).toISOString():'still running'));
+  lines.push('Revision Loops: '+trace.revisionLoops.length);
+  if(trace.revisionLoops.length){
+    trace.revisionLoops.forEach((rl,i)=>{
+      lines.push('  Loop '+(i+1)+': score '+rl.critiqueScore+'/10, spliced ['+rl.agentsSpliced.join(', ')+']');
+    });
+  }
+  lines.push('');
+  // Director plan
+  if(trace.wavePlan){
+    lines.push('--- DIRECTOR PLAN ---');
+    lines.push('Rationale: '+(trace.wavePlan.rationale||''));
+    (trace.wavePlan.waves||[]).forEach((w,i)=>{
+      lines.push('  Wave '+(i+1)+': '+w.name+' — ['+(w.agents||[]).join(', ')+']');
+    });
+  }else{
+    lines.push('--- DIRECTOR PLAN --- (hardcoded fallback)');
+  }
+  lines.push('');
+  // Per-agent trace
+  lines.push('--- AGENT TRACES ---');
+  AGENTS.forEach(a=>{
+    const t=trace.agents[a.id];
+    if(!t)return;
+    lines.push('');
+    lines.push('## '+a.name+' ('+a.role+')');
+    lines.push('  Agent ID: '+a.id);
+    lines.push('  Wave: '+(t.waveIndex??'?')+' — '+(t.waveName||''));
+    lines.push('  Status: '+(t.status||'?')+(t.error?' — Error: '+t.error:''));
+    lines.push('  Duration: '+(t.durationMs?Math.round(t.durationMs/100)/10+'s':'?'));
+    lines.push('  Model: '+(t.model||'?')+' · temp: '+(t.temperature??'?')+' · max_tokens: '+(t.maxTokens??'?'));
+    if(t.truncated)lines.push('  TRUNCATED: true');
+    if(t.sanitizationIssues&&t.sanitizationIssues.length){
+      lines.push('  Quality Issues: '+t.sanitizationIssues.join('; '));
+    }
+    if(t.injectedContext){
+      lines.push('  Input Context ('+t.injectedContext.length+' chars):');
+      lines.push('    '+t.injectedContext.slice(0,1500).replace(/\n/g,'\n    '));
+      if(t.injectedContext.length>1500)lines.push('    ... ('+(t.injectedContext.length-1500)+' more chars)');
+    }
+    if(t.toolCalls&&t.toolCalls.length){
+      lines.push('  Tool Calls:');
+      t.toolCalls.forEach((tc,i)=>{
+        var argsStr=tc.tool==='brave_search'?'"'+(tc.args.query||'')+'"':
+          tc.tool==='webfetch'?(tc.args.url||''):JSON.stringify(tc.args);
+        lines.push('    ['+(i+1)+'] '+tc.tool+'('+argsStr+')');
+      });
+    }
+    if(t.rawResponse){
+      lines.push('  Raw Response ('+t.rawResponse.length+' chars):');
+      lines.push('    '+t.rawResponse.slice(0,2000).replace(/\n/g,'\n    '));
+      if(t.rawResponse.length>2000)lines.push('    ... ('+(t.rawResponse.length-2000)+' more chars)');
+    }
+    if(t.sanitizedResponse){
+      lines.push('  Stored Output ('+t.sanitizedResponse.length+' chars):');
+      lines.push('    '+t.sanitizedResponse.slice(0,2000).replace(/\n/g,'\n    '));
+      if(t.sanitizedResponse.length>2000)lines.push('    ... ('+(t.sanitizedResponse.length-2000)+' more chars)');
+    }
+  });
+  lines.push('');
+  lines.push('=== END TRACE ===');
+  var text=lines.join('\n');
+  // Copy to clipboard
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>{
+      if(resultEl){resultEl.textContent='Copied '+text.length+' chars to clipboard — paste in chat';resultEl.style.color='#4acea0';resultEl.style.display='block';}
+    }).catch(()=>{
+      _downloadTrace(text,sprintN,resultEl);
+    });
+  }else{
+    _downloadTrace(text,sprintN,resultEl);
+  }
+}
+
+function _downloadTrace(text,sprintN,resultEl){
+  var blob=new Blob([text],{type:'text/plain'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='sprint-'+sprintN+'-trace.txt';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  if(resultEl){resultEl.textContent='Downloaded as file ('+text.length+' chars)';resultEl.style.color='#4a9eea';resultEl.style.display='block';}
 }
 
 async function diagnoseSprint(){
