@@ -5539,6 +5539,107 @@ async function loadDemoSprint(){
   setTimeout(()=>switchBoardTab('history'),120);
 }
 
+// ─── Guided Sprint UX: Plan Approval + Wave Checkpoints ─────────────────────
+
+function showPlanApproval(plan,brief){
+  return new Promise(resolve=>{
+    const modal=document.getElementById('plan-approval-modal');
+    const rationaleEl=document.getElementById('plan-rationale');
+    const wavesContainer=document.getElementById('plan-waves-container');
+    const approveBtn=document.getElementById('plan-approve-btn');
+    const modifyBtn=document.getElementById('plan-modify-btn');
+    const cancelBtn=document.getElementById('plan-cancel-btn');
+
+    rationaleEl.textContent=plan.rationale||'Auto-generated plan based on your brief.';
+
+    // Render wave summary
+    const waves=plan.waves||[];
+    const totalAgents=waves.reduce((s,w)=>s+w.agents.length,0);
+    const estMinutes=Math.max(2,Math.ceil(totalAgents*0.8));
+    let html='<div style="background:#06061a;border:1px solid #1a2a3a;border-radius:8px;padding:14px;margin-bottom:10px;">';
+    html+='<div style="display:flex;gap:16px;font-size:11px;color:#4a7a9a;font-family:monospace;margin-bottom:12px;">';
+    html+='<span>📋 '+waves.length+' waves</span>';
+    html+='<span>🤖 '+totalAgents+' agents</span>';
+    html+='<span>⏱ ~'+estMinutes+' min</span>';
+    html+='</div>';
+    waves.forEach((w,i)=>{
+      const agentNames=(w.agents||[]).map(id=>{
+        const a=AGENTS.find(x=>x.id===id);
+        return a?a.name:id;
+      });
+      const phaseIdx=getWaveSuperPhase(w.agents||[]);
+      const phaseColor=phaseIdx>=0?['#4a9eea','#a78bfa','#4acea0'][phaseIdx]:'#555';
+      html+='<div style="margin-bottom:10px;padding:10px;background:#0a0a1e;border-radius:6px;border-left:3px solid '+phaseColor+'">';
+      html+='<div style="font-size:11px;color:#8a9aaa;font-family:monospace;margin-bottom:4px;">WAVE '+(i+1)+'</div>';
+      html+='<div style="font-size:13px;color:#d0d8e8;font-weight:600;margin-bottom:4px;">'+escHtml(w.name||'Unnamed')+'</div>';
+      html+='<div style="font-size:11px;color:#6a7a8a;">'+agentNames.map(escHtml).join(' · ')+'</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+    wavesContainer.innerHTML=html;
+
+    modal.style.display='flex';
+
+    const cleanup=()=>{
+      modal.style.display='none';
+      approveBtn.onclick=null;modifyBtn.onclick=null;cancelBtn.onclick=null;
+    };
+    approveBtn.onclick=()=>{cleanup();resolve('approve');};
+    modifyBtn.onclick=()=>{cleanup();resolve('modify');};
+    cancelBtn.onclick=()=>{cleanup();resolve('cancel');};
+  });
+}
+
+function showWaveCheckpoint(waveIdx,wave,completedIds,totalWaves){
+  return new Promise(resolve=>{
+    const modal=document.getElementById('wave-checkpoint-modal');
+    const titleEl=document.getElementById('checkpoint-title');
+    const subtitleEl=document.getElementById('checkpoint-subtitle');
+    const agentsContainer=document.getElementById('checkpoint-agents-container');
+    const continueBtn=document.getElementById('checkpoint-continue-btn');
+    const stopBtn=document.getElementById('checkpoint-stop-btn');
+
+    var isLastWave=waveIdx>=totalWaves-1;
+    titleEl.textContent=isLastWave?'Final Wave Complete':'Wave '+(waveIdx+1)+' of '+totalWaves+' Complete';
+    subtitleEl.textContent=isLastWave?'All agents have finished. Ready for final synthesis.':'Review what this wave produced, then continue.';
+
+    // Show agent output summaries
+    var html='';
+    (wave.agents||[]).forEach(id=>{
+      var a=AGENTS.find(x=>x.id===id);
+      if(!a)return;
+      var art=window._agentArtifacts&&window._agentArtifacts[id];
+      var summary='';
+      if(art&&art.content){
+        // Extract first 200 chars of content as summary
+        summary=art.content.replace(/[#*`]/g,'').replace(/\n+/g,' ').trim().slice(0,200);
+        if(art.content.length>200)summary+='…';
+      }
+      var phaseIdx=getAgentSuperPhase(id);
+      var phaseColor=phaseIdx>=0?['#4a9eea','#a78bfa','#4acea0'][phaseIdx]:'#555';
+      html+='<div style="margin-bottom:8px;padding:10px;background:#0a0a1e;border-radius:6px;border-left:3px solid '+phaseColor+'">';
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">';
+      html+='<span style="font-size:13px;color:#d0d8e8;font-weight:600;">'+escHtml(a.name)+'</span>';
+      html+='<span style="font-size:10px;color:#3a8a5a;font-family:monospace;">✓ done</span>';
+      html+='</div>';
+      if(summary)html+='<div style="font-size:11px;color:#7a8a9a;line-height:1.4;">'+escHtml(summary)+'</div>';
+      else html+='<div style="font-size:11px;color:#555;">(no output)</div>';
+      html+='</div>';
+    });
+    agentsContainer.innerHTML=html;
+
+    continueBtn.textContent=isLastWave?'▶ Finish Sprint':'▶ Continue to Next Wave';
+    modal.style.display='flex';
+
+    const cleanup=()=>{
+      modal.style.display='none';
+      continueBtn.onclick=null;stopBtn.onclick=null;
+    };
+    continueBtn.onclick=()=>{cleanup();resolve('continue');};
+    stopBtn.onclick=()=>{cleanup();resolve('stop');};
+  });
+}
+
 async function runSwarm(){
   if(!window._projectBrief){showToast('Set a project brief first');return;}
   if(window._swarmRunning){window._swarmAbort=true;return;}
@@ -5577,11 +5678,33 @@ async function runSwarm(){
   if(window._swarmAbort){return _swarmEnd(done);}
   if(dirPlan&&dirPlan.waves&&dirPlan.waves.length){
     window._sprintPlan=dirPlan;
-    showToast('Plan: '+dirPlan.rationale.slice(0,55)+'…');
   }else{
     window._sprintPlan=null; // use fallback
   }
   const activeWaves=window._sprintPlan?window._sprintPlan.waves:HARDCODED_WAVES;
+
+  // ── Plan Approval: show modal, wait for user decision ───────────────────
+  const planForApproval={
+    rationale:window._sprintPlan?window._sprintPlan.rationale:'Default sprint plan — all 13 agents across 6 waves (Research → Design → Specs → Code → Critique → Synthesis).',
+    waves:activeWaves
+  };
+  const approval=await showPlanApproval(planForApproval,window._projectBrief);
+  if(approval==='cancel'){
+    showToast('Sprint cancelled');
+    return _swarmEnd(done);
+  }
+  if(approval==='modify'){
+    // Close swarm state, let user edit brief
+    window._swarmRunning=false;
+    updateSwarmBtn();
+    const briefInput=document.getElementById('brief-input');
+    if(briefInput){briefInput.focus();briefInput.scrollIntoView({behavior:'smooth'});}
+    showToast('Edit your brief and run again');
+    return;
+  }
+  // approval === 'approve' → proceed
+  showToast('Plan approved — starting sprint…');
+
   const totalAgents=activeWaves.reduce((s,w)=>s+w.agents.length,0)+1; // +1 for Director
 
   // Open sprint visualizer panel
@@ -5668,6 +5791,16 @@ async function runSwarm(){
           waveQueue.reduce((s,w)=>s+w.agents.length,0)+1);
       }else{
         showToast('Critique score '+score+'/10 ✓ — proceeding to synthesis',2500);
+      }
+    }
+
+    // ── Wave Checkpoint: pause and show summary, wait for user to continue ──
+    if(!window._swarmAbort&&waveIdx<waveQueue.length-1){
+      var checkpointResult=await showWaveCheckpoint(waveIdx,wave,completedIds.slice(),waveQueue.length);
+      if(checkpointResult==='stop'){
+        window._swarmAbort=true;
+        showToast('Sprint stopped at wave '+(waveIdx+1));
+        break;
       }
     }
 
