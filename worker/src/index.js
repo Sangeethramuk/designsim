@@ -184,59 +184,82 @@ async function checkRateLimit(req, env, _cors) {
 
 /**
  * Verify a Supabase JWT token.
- * Uses Web Crypto API (available in Cloudflare Workers) for HMAC verification.
+ * Supports both ES256 (current Supabase ECC P-256 keys, verified via JWKS) and
+ * HS256 (legacy shared-secret, verified via SUPABASE_JWT_SECRET env var).
  * @param {string} token - The JWT token from Authorization header
- * @param {string} secret - The Supabase JWT secret
- * @returns {{ok: boolean, userId?: string, reason?: string}}
+ * @param {Object} env - Worker environment bindings
+ * @returns {Promise<{ok: boolean, userId?: string, reason?: string}>}
  */
-async function verifyJwt(token, secret) {
+async function verifyJwt(token, env) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return { ok: false, reason: 'Invalid token format' };
     const [headerB64, payloadB64, signatureB64] = parts;
 
-    // Decode header and payload
     const decode = (b64) => JSON.parse(atob(b64.replace(/-/g, '+').replace(/_/g, '/')));
     const header = decode(headerB64);
     const payload = decode(payloadB64);
 
-    if (header.alg !== 'HS256') return { ok: false, reason: 'Unsupported algorithm' };
     if (payload.exp && Date.now() >= payload.exp * 1000) return { ok: false, reason: 'Token expired' };
-    if (payload.iss && payload.iss !== payload.aud) {
-      // Supabase tokens have iss matching the project URL; we just check format
+
+    const data = new TextEncoder().encode(headerB64 + '.' + payloadB64);
+    const sigBytes = Uint8Array.from(
+      atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)
+    );
+
+    // ES256 — current Supabase ECC P-256 signing key, verified via JWKS endpoint
+    if (header.alg === 'ES256') {
+      const supabaseUrl = (env.SUPABASE_URL || '').replace(/\/$/, '');
+      if (!supabaseUrl) return { ok: false, reason: 'SUPABASE_URL not configured for ES256 verification' };
+      let jwks;
+      try {
+        const resp = await fetch(`${supabaseUrl}/auth/v1/.well-known/jwks.json`);
+        jwks = await resp.json();
+      } catch (e) {
+        return { ok: false, reason: 'Failed to fetch JWKS' };
+      }
+      const jwk = (jwks.keys || []).find(k => !header.kid || k.kid === header.kid) || (jwks.keys || [])[0];
+      if (!jwk) return { ok: false, reason: 'No matching JWK found' };
+      const key = await crypto.subtle.importKey(
+        'jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']
+      );
+      const valid = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, sigBytes, data);
+      if (!valid) return { ok: false, reason: 'Invalid ES256 signature' };
+      return { ok: true, userId: payload.sub || null };
     }
 
-    // Verify signature
-    const keyData = new TextEncoder().encode(secret);
-    const key = await crypto.subtle.importKey(
-      'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
-    );
-    const data = new TextEncoder().encode(headerB64 + '.' + payloadB64);
-    const signature = Uint8Array.from(atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify('HMAC', key, signature, data);
-    if (!valid) return { ok: false, reason: 'Invalid signature' };
+    // HS256 — legacy Supabase shared-secret (still valid for older tokens)
+    if (header.alg === 'HS256' && env.SUPABASE_JWT_SECRET) {
+      const keyData = new TextEncoder().encode(env.SUPABASE_JWT_SECRET);
+      const key = await crypto.subtle.importKey(
+        'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+      );
+      const valid = await crypto.subtle.verify('HMAC', key, sigBytes, data);
+      if (!valid) return { ok: false, reason: 'Invalid HS256 signature' };
+      return { ok: true, userId: payload.sub || null };
+    }
 
-    return { ok: true, userId: payload.sub || null };
+    return { ok: false, reason: 'Unsupported algorithm: ' + header.alg };
   } catch (e) {
-    return { ok: false, reason: 'Token verification failed' };
+    return { ok: false, reason: 'Token verification failed: ' + e.message };
   }
 }
 
 // ─── Auth guard ──────────────────────────────────────────────────────────────
 /**
  * Check if the request is authorized.
- * Primary: Supabase JWT via Authorization: Bearer <token>
+ * Primary: Supabase JWT via Authorization: Bearer <token> (ES256 or HS256)
  * Fallback: WORKER_SECRET via X-Worker-Secret header (dev/legacy)
  * @param {Request} req - The incoming request
  * @param {Object} env - Worker environment
  * @returns {Promise<{ok: boolean, reason?: string, userId?: string}>}
  */
 async function isAuthorized(req, env) {
-  // Try JWT auth first
+  // Try JWT auth first — works for both ES256 (new) and HS256 (legacy)
   const authHeader = req.headers.get('Authorization') || '';
-  if (authHeader.startsWith('Bearer ') && env.SUPABASE_JWT_SECRET) {
+  if (authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
-    const result = await verifyJwt(token, env.SUPABASE_JWT_SECRET);
+    const result = await verifyJwt(token, env);
     if (result.ok) return { ok: true, userId: result.userId };
     // Fall through to WORKER_SECRET if JWT fails
   }
