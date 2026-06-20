@@ -1297,15 +1297,35 @@ function createStreamMessage(agent){
   msgs.scrollTop=msgs.scrollHeight;
   return div;
 }
+var _streamRAF=new Map();
+var _streamText=new Map();
 function updateStreamMessage(el,fullText){
   if(!el)return;
-  const body=el.querySelector('.msg-body');
-  if(body)body.innerHTML=renderMarkdown(fullText);
-  const msgs=document.getElementById('chat-messages');
-  if(msgs)msgs.scrollTop=msgs.scrollHeight;
+  _streamText.set(el,fullText);
+  if(_streamRAF.has(el))return;
+  _streamRAF.set(el,requestAnimationFrame(function(){
+    _streamRAF.delete(el);
+    var text=_streamText.get(el);
+    if(text===undefined)return;
+    var body=el.querySelector('.msg-body');
+    if(body)body.innerHTML=renderMarkdown(text);
+    var msgs=document.getElementById('chat-messages');
+    if(msgs)msgs.scrollTop=msgs.scrollHeight;
+  }));
 }
 function finalizeStreamMessage(el){
-  if(el)el.classList.remove('msg-streaming');
+  if(!el)return;
+  if(_streamRAF.has(el)){
+    cancelAnimationFrame(_streamRAF.get(el));
+    _streamRAF.delete(el);
+  }
+  var text=_streamText.get(el);
+  if(text!==undefined){
+    var body=el.querySelector('.msg-body');
+    if(body)body.innerHTML=renderMarkdown(text);
+    _streamText.delete(el);
+  }
+  el.classList.remove('msg-streaming');
 }
 
 // --- Word-by-word simulated streaming for scripted responses ---
