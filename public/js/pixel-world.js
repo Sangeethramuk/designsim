@@ -1491,16 +1491,22 @@ async function runDirectorPlanning(brief){
     if(!plan.waves.length)return null;
     // Enforce wave ordering constraints
     const critiqueAgents=new Set(['lens','eye']);
+    const synthesisAgents=new Set(['weaver','council','gate','check']);
     const designAgents=new Set(['palette','flow','blueprint','forge']);
     let designSeen=false,critiqueSeen=false;
     for(const w of plan.waves){
       const hasCritique=w.agents.some(id=>critiqueAgents.has(id));
       const hasDesign=w.agents.some(id=>designAgents.has(id));
+      const hasSynthesis=w.agents.some(id=>synthesisAgents.has(id));
       // Critique agents must not run in the same wave as design agents
       if(hasCritique&&hasDesign){
-        // Split: remove critique agents from this wave, they'll be dropped
         w.agents=w.agents.filter(id=>!critiqueAgents.has(id));
         console.warn('[Director] removed critique agents from wave with design agents:',w.name);
+      }
+      // Synthesis agents must not run in the same wave as critique agents
+      if(hasSynthesis&&hasCritique){
+        w.agents=w.agents.filter(id=>!critiqueAgents.has(id));
+        console.warn('[Director] removed critique agents from wave with synthesis agents:',w.name);
       }
       // mirror must not run before any design agent has produced output
       if(w.agents.includes('mirror')&&!designSeen){
@@ -1513,6 +1519,11 @@ async function runDirectorPlanning(brief){
       if(hasCritique&&!designSeen){
         w.agents=w.agents.filter(id=>!critiqueAgents.has(id));
         console.warn('[Director] removed critique agents from wave before any design output:',w.name);
+      }
+      // Synthesis agents must come after at least one critique wave
+      if(hasSynthesis&&!critiqueSeen){
+        w.agents=w.agents.filter(id=>!synthesisAgents.has(id));
+        console.warn('[Director] removed synthesis agents from wave before any critique:',w.name);
       }
       if(w.agents.length===0)return null; // wave became empty after filtering
     }
@@ -5385,12 +5396,17 @@ function getAgentMemoryContext(agentId){
   window._memories.slice(0,3).forEach((mem,i)=>{
     lines.push('### Project '+(i+1)+' ('+new Date(mem.created_at).toLocaleDateString()+')');
     if(mem.brief)lines.push('Brief: '+mem.brief.slice(0,200));
+    const _isThinkingTrace=t=>/^(The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|I need to (think|work out|figure|consider)|Let me (think|work out|figure|first)|First, I (need|should|will)|I'll (first|start|begin)|I should|Hmm,|Okay, so|Wait,|Actually,)/im.test((t||'').slice(0,400));
     const agentArt=(mem.artifacts||{})[agentId];
     if(agentArt){
-      lines.push('Your previous output ('+(agentArt.lang||agentArt.type)+'): '+agentArt.preview);
+      if(!_isThinkingTrace(agentArt.preview)){
+        lines.push('Your previous output ('+(agentArt.lang||agentArt.type)+'): '+agentArt.preview);
+      }
     }else{
       Object.values(mem.artifacts||{}).slice(0,3).forEach(a=>{
-        lines.push(a.agentName+' produced ('+(a.lang||a.type)+'): '+a.preview);
+        if(!_isThinkingTrace(a.preview)){
+          lines.push(a.agentName+' produced ('+(a.lang||a.type)+'): '+a.preview);
+        }
       });
     }
   });
@@ -5784,25 +5800,14 @@ function sanitizeSwarmResponse(text){
   ];
   const isThinkingTrace=thinkingStartPatterns.some(p=>p.test(text.slice(0,400)));
   if(isThinkingTrace){
-    // Find where actual content starts — first markdown heading, bold text, numbered list, table, or YAML
-    const contentMarkers=[
-      /\n#{1,4} [A-Z]/m,           // Markdown heading: ## Title
-      /\n\*\*[A-Z]/m,               // Bold text: **Title**
-      /\n\d+\. [A-Z]/m,             // Numbered list: 1. Title
-      /\n\| .+\|/m,                 // Table: | col1 | col2 |
-      /\n```/m,                      // Code block
-      /\n## [A-Z]/m,                // Section heading
-      /\n-[A-Z]/m,                  // Bullet list: - Title
-    ];
-    let earliestStart=-1;
-    for(const marker of contentMarkers){
-      const m=text.match(marker);
-      if(m&&m.index>0){
-        if(earliestStart===-1||m.index<earliestStart)earliestStart=m.index;
-      }
-    }
-    if(earliestStart>0&&earliestStart<text.length){
-      text=text.slice(earliestStart+1).trim();
+    // Find where actual content starts — ONLY accept markdown headings as content start
+    // Numbered lists, bold text, tables inside thinking traces are NOT real content starts
+    const headingMatch=text.match(/\n#{1,4} [A-Z]/m);
+    if(headingMatch&&headingMatch.index>0){
+      text=text.slice(headingMatch.index+1).trim();
+    }else{
+      // No markdown heading found — entire output is thinking trace
+      return'[Agent produced no usable output after sanitization]';
     }
   }
   return text||'[Agent produced no usable output after sanitization]';
@@ -6266,7 +6271,13 @@ async function runSwarm(){
     // Only trigger for actual critique agents (lens, eye) — NOT mirror (persona simulator)
     // AND only if design agents have actually produced output (not "No response after tool calls.")
     const isCritiqueWave=wave.agents.some(id=>['lens','eye'].includes(id));
-    const hasDesignOutput=(window._agentArtifacts?.palette?.content||window._agentArtifacts?.flow?.content)?.length>50;
+    const _hasRealArtifact=(id)=>{
+      const c=window._agentArtifacts?.[id]?.content;
+      if(!c||c.length<50)return false;
+      // Must start with a markdown heading or contain one in first 500 chars
+      return/^#{1,4} /m.test(c.trimStart())||/\n#{1,4} [A-Z]/m.test(c.slice(0,500));
+    };
+    const hasDesignOutput=_hasRealArtifact('palette')||_hasRealArtifact('flow');
     if(isCritiqueWave&&!window._swarmAbort&&window._revisionCount<1&&hasDesignOutput){
       showToast('Scoring critique quality…',2000);
       const score=await scoreCritiqueWave(wave.agents);
