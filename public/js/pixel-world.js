@@ -1674,7 +1674,7 @@ function buildAgentMessages(agent,message,history){
   let sys=agent.systemPrompt+'\n\n'+selfCtx+'\n\nYour colleagues:\n'+agentsCtx;
   const memCtx=getAgentMemoryContext(agent.id);
   if(memCtx)sys+='\n\n'+memCtx;
-  if(window._userProfile)sys+='\n\n## What You Know About This User\n'+window._userProfile;
+  if(window._userProfile)sys+='\n\n## What You Know About This User (design preferences only — do NOT infer domain, language, or demographics from this)\n'+window._userProfile;
   if(window._projectBrief)sys+='\n\n## Active Project Brief\n'+window._projectBrief+'\nAll outputs must serve this brief specifically — no generic UX advice.';
   // Director gets a live team status snapshot so it can give contextual guidance
   if(agent.id==='lead'&&!window._headlessMode)sys+='\n\n'+getTeamStatusContext();
@@ -5270,9 +5270,12 @@ async function extractSprintLearnings(){
   if(!parts.length)return null;
   const extractPrompt=
     'Based on this completed design sprint, extract what you have learned about this user\'s preferences and working style.\n\n'+
+    'CRITICAL: Only extract DESIGN and TECHNICAL preferences — things like color systems, component libraries, accessibility standards, output format preferences. '+
+    'Do NOT infer domain context (language, location, demographics, culture) unless the user EXPLICITLY stated it in the brief. '+
+    'Do not fabricate user traits from agent outputs.\n\n'+
     parts.join('\n')+
     '\n\nFormat your response under exactly these headings (2-3 concise bullets each, no preamble, no explanation):\n'+
-    '## Design Preferences\n## Technical Preferences\n## Domain Context\n## What Works\n## What To Avoid';
+    '## Design Preferences\n## Technical Preferences\n## What Works\n## What To Avoid';
   try{
     window._headlessMode=true;
     let resp;
