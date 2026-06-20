@@ -157,3 +157,54 @@ SELECT
 FROM sprints s
 LEFT JOIN sprint_outputs o ON o.sprint_id = s.id
 GROUP BY s.id;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Sprint Tracing & Observability — Migration
+-- Adds trace columns to existing tables for full debugging capability.
+-- All columns are nullable for backward compatibility with existing sprints.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- 1A. Extend sprint_outputs with trace data (8 new columns)
+ALTER TABLE sprint_outputs
+  ADD COLUMN IF NOT EXISTS input_context       text,      -- prior-wave context injected into this agent
+  ADD COLUMN IF NOT EXISTS raw_response         text,      -- pre-sanitization LLM output
+  ADD COLUMN IF NOT EXISTS duration_ms          int,       -- per-agent execution time in milliseconds
+  ADD COLUMN IF NOT EXISTS tool_calls          jsonb,     -- [{tool, args, round, timestamp}]
+  ADD COLUMN IF NOT EXISTS sanitization_issues  jsonb,     -- ["thinking trace leakage", ...]
+  ADD COLUMN IF NOT EXISTS truncated           boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS wave_index          int,       -- 0-based wave number
+  ADD COLUMN IF NOT EXISTS wave_name           text,      -- "Research", "Visual Design", etc.
+  ADD COLUMN IF NOT EXISTS wave_prompt         text;      -- the prompt given to this entire wave
+
+-- 1B. Extend sprints with plan metadata (3 new columns)
+ALTER TABLE sprints
+  ADD COLUMN IF NOT EXISTS wave_plan       jsonb,  -- Director's full plan: {rationale, waves:[...]}
+  ADD COLUMN IF NOT EXISTS plan_source     text,   -- 'director' | 'hardcoded'
+  ADD COLUMN IF NOT EXISTS revision_loops  jsonb;  -- [{triggeredAt, critiqueScore, agentsSpliced}]
+
+-- 1C. Extend relay_log with sprint_id (1 new column)
+ALTER TABLE relay_log
+  ADD COLUMN IF NOT EXISTS sprint_id  uuid REFERENCES sprints(id) ON DELETE SET NULL;
+
+-- 1D. Update sprint_summary view to include plan metadata
+CREATE OR REPLACE VIEW sprint_summary WITH (security_invoker = true) AS
+SELECT
+  s.id,
+  s.user_id,
+  s.sprint_number,
+  s.brief,
+  s.iteration_note,
+  s.model,
+  s.agent_count,
+  s.critique_score,
+  s.duration_ms,
+  s.wave_plan,
+  s.plan_source,
+  s.revision_loops,
+  s.created_at,
+  COUNT(o.id)                          AS output_count,
+  AVG(o.quality_score)                 AS avg_quality,
+  ARRAY_AGG(o.agent_id ORDER BY o.created_at) AS agent_ids
+FROM sprints s
+LEFT JOIN sprint_outputs o ON o.sprint_id = s.id
+GROUP BY s.id, s.wave_plan, s.plan_source, s.revision_loops;

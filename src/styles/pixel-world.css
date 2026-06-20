@@ -292,6 +292,55 @@
   .sprint-hist-brief{font-size:10px;color:#4a6a8a;line-height:1.5;margin-bottom:3px;}
   .sprint-hist-note{font-size:9px;color:#5a4a8a;font-style:italic;margin-bottom:3px;}
   .sprint-hist-meta{font-size:9px;color:#2a2a4a;}
+  /* Sprint trace tab */
+  #board-trace-list{display:none;flex-direction:column;gap:8px;max-height:62vh;overflow-y:auto;padding:4px 0;}
+  #board-trace-list.active{display:flex;}
+  .trace-header{padding:12px 0;border-bottom:1px solid #1a2a4a;margin-bottom:12px;}
+  .trace-title{font-size:14px;font-weight:700;color:#e8edf5;letter-spacing:0.5px;}
+  .trace-meta{display:flex;gap:16px;margin-top:6px;font-size:10px;color:#4a6a8a;font-family:monospace;flex-wrap:wrap;}
+  .trace-section{margin-bottom:14px;padding:10px;background:#06061a;border:1px solid #131326;border-radius:6px;}
+  .trace-section-label{font-size:10px;font-family:monospace;color:#4a9eea;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
+  .trace-plan-rationale{font-size:11px;color:#8a9aaa;line-height:1.5;margin-bottom:8px;}
+  .trace-waves{display:flex;flex-direction:column;gap:4px;}
+  .trace-wave-chip{display:flex;align-items:center;gap:8px;font-size:10px;font-family:monospace;}
+  .trace-wave-idx{color:#4a9eea;font-weight:bold;}
+  .trace-wave-name{color:#c0c8d8;}
+  .trace-wave-agents{color:#555;}
+  .trace-wave-block{margin-bottom:14px;}
+  .trace-wave-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;background:#0a0a1e;border-radius:4px;border-left:3px solid #4a9eea;}
+  .trace-wave-num{font-size:9px;font-family:monospace;color:#4a9eea;letter-spacing:1px;}
+  .trace-wave-title{font-size:12px;color:#c0c8d8;font-weight:600;}
+  .trace-ctx-summary{font-size:10px;color:#4a6a8a;font-family:monospace;padding:2px 8px 6px;}
+  .trace-agent-card{margin-bottom:6px;border:1px solid #131326;border-radius:4px;overflow:hidden;}
+  .trace-agent-hdr{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;background:#0a0a1e;}
+  .trace-agent-hdr:hover{background:#0e0e24;}
+  .trace-agent-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+  .trace-agent-name{font-size:11px;color:#c0c8d8;font-weight:600;flex:1;}
+  .trace-agent-status{font-size:10px;font-family:monospace;}
+  .trace-agent-status.ok{color:#4acea0;}
+  .trace-agent-status.err{color:#e84855;}
+  .trace-badge{font-size:9px;padding:1px 5px;border-radius:3px;font-family:monospace;}
+  .trace-badge.warn{background:#2a1a0a;color:#f0a040;}
+  .trace-badge.trunc{background:#2a2a0a;color:#f0d860;}
+  .trace-badge.tool{background:#0a1a2a;color:#4a9eea;}
+  .trace-agent-detail{padding:10px;border-top:1px solid #131326;}
+  .trace-sub{margin-bottom:10px;}
+  .trace-sub-label{display:block;font-size:9px;font-family:monospace;color:#4a6a8a;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
+  .trace-code{font-size:10px;color:#7a7a9a;font-family:monospace;background:#040408;padding:8px;border-radius:4px;white-space:pre-wrap;max-height:200px;overflow-y:auto;line-height:1.5;}
+  .trace-tool-call{font-size:10px;color:#6a8aaa;font-family:monospace;padding:2px 0;}
+  .trace-tool-name{color:#4a9eea;font-weight:bold;}
+  .trace-issue{font-size:10px;color:#f0a040;padding:2px 0;}
+  .trace-error{color:#e84855;}
+  .trace-rev-loop{font-size:10px;color:#f6ad55;font-family:monospace;padding:4px 0;}
+  .trace-diagnose-section{padding:14px 0;border-top:1px solid #1a2a4a;margin-top:10px;}
+  .trace-diagnose-btn{width:100%;padding:10px;font-size:12px;font-family:monospace;background:#0a1a2e;border:1px solid #2a4a6a;color:#4a9eea;border-radius:6px;cursor:pointer;letter-spacing:0.5px;transition:background .15s;}
+  .trace-diagnose-btn:hover{background:#0e2a3e;}
+  .trace-diagnosis{font-size:12px;color:#c0c8d8;line-height:1.7;padding:14px;background:#06061a;border:1px solid #131326;border-radius:6px;}
+  .trace-diagnosis strong{color:#e8edf5;}
+  .trace-diagnosis code{background:#0a0a1e;padding:1px 4px;border-radius:3px;font-size:11px;}
+  .trace-diagnosis ul,.trace-diagnosis ol{margin:6px 0 6px 20px;}
+  .trace-diagnosis li{margin-bottom:3px;}
+  .trace-diagnosis h3,.trace-diagnosis h4{color:#a78bfa;margin:10px 0 4px;}
   /* Phase 5 — Sprint Comparison */
   #compare-modal{position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:8700;display:none;align-items:flex-start;justify-content:center;padding:32px 20px;overflow-y:auto;}
   #compare-modal.active{display:flex;}
