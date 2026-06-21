@@ -5770,12 +5770,9 @@ function detectOutputCorruption(text){
     issues.push('model-internal delimiter leakage — <|token|> syntax in output');
   if(/<thinking>|<\/thinking>/i.test(text))
     issues.push('thinking trace leakage — <thinking> block in output');
-  // Thinking trace patterns that leaked without tags
-  if(/^(I need to (think|work out|figure|consider)|Let me (think|work out|figure|first)|First, I (need|should|will)|I'll (first|start|begin)|I should|Hmm,|Okay, so)/im.test(text.slice(0,400)))
+  // Broad thinking trace detection — any reasoning about the task instead of producing the artifact
+  if(/^(Let me |The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|I need to |First, I (need|should|will)|I'll (first|start|begin)|I should |Hmm,|Okay, so|Wait,|Actually,|So essentially|Now (I|let me)|Based on (what|the|this)|Alright,|Right,|I can see|I see that|Looking carefully)/im.test(text.slice(0,400)))
     issues.push('probable thinking trace — response begins with internal reasoning monologue');
-  // Catch "The user wants me to..." and similar meta-commentary patterns
-  if(/^(The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|So essentially|Wait,|Actually,|Let me (reconsider|check|look|parse))/im.test(text.slice(0,400)))
-    issues.push('probable thinking trace — response begins with meta-commentary about the task');
   return issues;
 }
 
@@ -5790,28 +5787,30 @@ function sanitizeSwarmResponse(text){
   text=text.replace(/<\|[\w_]+\|>/g,'').trim();
   // 4. Strip residual empty XML-style tags
   text=text.replace(/<[a-z_]+\s*\/>/gi,'').trim();
-  // 5. Strip untagged thinking traces — meta-commentary that leaked as plain text
-  //    Pattern: response starts with reasoning about the task, not the actual artifact
-  //    Look for the first markdown heading or structured output as the real start
-  const thinkingStartPatterns=[
-    /^(The user (wants|is asking|is telling) me to)/im,
-    /^(I need to (think|work out|figure|consider))/im,
-    /^(Let me (think|work out|figure|first|reconsider|check|look|parse))/im,
-    /^(Looking at (the |prior |my ))/im,
-    /^(First, I (need|should|will))/im,
-    /^(I'll (first|start|begin))/im,
-    /^(I should|Hmm,|Okay, so|Wait,|Actually,|So essentially)/im,
-  ];
-  const isThinkingTrace=thinkingStartPatterns.some(p=>p.test(text.slice(0,400)));
-  if(isThinkingTrace){
-    // Find where actual content starts — ONLY accept markdown headings as content start
-    // Numbered lists, bold text, tables inside thinking traces are NOT real content starts
+  // 5. Strip thinking traces — GLM/kimi models produce reasoning before the actual artifact
+  //    Strategy: always find the first markdown heading (##) and strip everything before it.
+  //    If no heading exists and the output starts with reasoning patterns, it's pure thinking trace.
+  //    This is safe because all agent format instructions require ## headings.
+  const firstHeading=text.match(/^#{1,4} [A-Z]/m);
+  if(firstHeading){
+    // Response starts with a heading — clean, no stripping needed
+  }else{
+    // Doesn't start with heading — look for first heading after reasoning
     const headingMatch=text.match(/\n#{1,4} [A-Z]/m);
     if(headingMatch&&headingMatch.index>0){
-      text=text.slice(headingMatch.index+1).trim();
+      // Check if the text before the heading is thinking trace (not just whitespace)
+      const prefix=text.slice(0,headingMatch.index).trim();
+      if(prefix.length>20){
+        // There's substantial text before the first heading — it's thinking trace, strip it
+        text=text.slice(headingMatch.index+1).trim();
+      }
     }else{
-      // No markdown heading found — entire output is thinking trace
-      return'[Agent produced no usable output after sanitization]';
+      // No markdown heading found at all — check if it's pure thinking trace
+      const thinkingPatterns=/^(Let me |The user (wants|is asking|is telling) me to|Looking at (the |prior |my )|I need to |First, I (need|should|will)|I'll (first|start|begin)|I should |Hmm,|Okay, so|Wait,|Actually,|So essentially|Now (I|let me)|Based on (what|the|this)|Alright,|Right,|I can see|I see that|Looking carefully)/im;
+      if(thinkingPatterns.test(text.slice(0,400))){
+        // Pure thinking trace with no artifact
+        return'[Agent produced no usable output after sanitization]';
+      }
     }
   }
   return text||'[Agent produced no usable output after sanitization]';
