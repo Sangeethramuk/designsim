@@ -521,6 +521,13 @@ const observer=new IntersectionObserver(entries=>{
   entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible');});
 },{threshold:0.12,rootMargin:'0px 0px -40px 0px'});
 document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));
+// Immediately reveal elements already in the initial viewport (no scroll needed)
+setTimeout(()=>{
+  const vh=window.innerHeight;
+  document.querySelectorAll('.reveal').forEach(el=>{
+    if(el.getBoundingClientRect().top<vh-40)el.classList.add('visible');
+  });
+},50);
 
 /* ── Pixel studio floor ── */
 (function buildStudio(){
@@ -565,6 +572,9 @@ document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));
     // Initial random position within zone
     const px=zone.x+2+Math.random()*(zone.w-6);
     const py=zone.y+4+Math.random()*(zone.h-12);
+    // Initial target is a different random point so sprites move immediately
+    const tx0=zone.x+2+Math.random()*(zone.w-6);
+    const ty0=zone.y+4+Math.random()*(zone.h-12);
 
     // Wrapper
     const wrap=document.createElement('div');
@@ -605,7 +615,7 @@ document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));
     wrap.appendChild(label);
     canvas.appendChild(wrap);
 
-    return{el:wrap,legL,legR,zone,px,py,tx:px,ty:py,stepTimer:0,walkFrame:0,frameTimer:0,flipped:false};
+    return{el:wrap,legL,legR,zone,px,py,tx:tx0,ty:ty0,stepTimer:2000+Math.random()*2000,walkFrame:0,frameTimer:0,flipped:false};
   });
 
   // Animation loop
