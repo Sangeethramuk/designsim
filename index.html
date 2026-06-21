@@ -12,9 +12,9 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Design Floor — AI Design Studio">
 <meta name="twitter:description" content="14 AI agents. One sprint. Walk in with a brief, walk out with a shipped design.">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230071e3'/><rect x='8' y='8' width='6' height='6' fill='white'/><rect x='18' y='8' width='6' height='6' fill='white'/><rect x='8' y='18' width='16' height='6' fill='white'/></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%236930c3'/><rect x='8' y='8' width='6' height='6' fill='white'/><rect x='18' y='8' width='6' height='6' fill='white'/><rect x='8' y='18' width='16' height='6' fill='white'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Epilogue:wght@300;400;500;600;700;800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.2/dist/umd/supabase.min.js" integrity="sha256-8G6j59erYsz6JyeNArQtCqvGynLbeCyJpm4WZRblxug=" crossorigin="anonymous"></script>
 <script src="config.local.js" onerror="window.LOCAL_CONFIG=null"></script>
 <script>
@@ -40,9 +40,9 @@ window._autoConfigReady=(async()=>{
   --text-3:#86868b;
   --border:rgba(0,0,0,0.08);
   --border-2:rgba(0,0,0,0.12);
-  --blue:#0071e3;
-  --blue-h:#0077ed;
-  --blue-light:#e8f1fb;
+  --blue:#6930c3;
+  --blue-h:#7a3fd8;
+  --blue-light:#f0e8ff;
   --radius-sm:8px;
   --radius:12px;
   --radius-lg:18px;
@@ -54,7 +54,7 @@ window._autoConfigReady=(async()=>{
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased;}
-body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;}
+body{background:var(--bg);color:var(--text);font-family:'Epilogue',sans-serif;overflow-x:hidden;}
 
 /* ── Loading ── */
 #loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:9500;gap:16px;}
@@ -64,7 +64,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overf
 .ld-error{text-align:center;}
 .ld-error p{font-size:14px;color:var(--text);margin-bottom:8px;}
 .ld-error small{font-size:12px;color:var(--text-2);}
-.ld-retry{margin-top:16px;padding:8px 20px;background:var(--blue);color:#fff;border:none;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;}
+.ld-retry{margin-top:16px;padding:8px 20px;background:var(--blue);color:#fff;border:none;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Epilogue',sans-serif;}
 .ld-retry:hover{background:var(--blue-h);}
 
 /* ── Nav ── */
@@ -73,9 +73,9 @@ nav.scrolled{background:rgba(255,255,255,0.95);box-shadow:0 1px 0 var(--border);
 .nav-logo{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--text);letter-spacing:0.5px;text-decoration:none;}
 .nav-logo span{color:var(--blue);}
 .nav-actions{display:flex;align-items:center;gap:8px;}
-.btn-ghost-sm{background:none;border:none;color:var(--text-2);font-size:13px;font-weight:500;padding:7px 14px;border-radius:20px;cursor:pointer;font-family:'Inter',sans-serif;transition:var(--transition);text-decoration:none;display:inline-flex;align-items:center;}
+.btn-ghost-sm{background:none;border:none;color:var(--text-2);font-size:13px;font-weight:500;padding:7px 14px;border-radius:20px;cursor:pointer;font-family:'Epilogue',sans-serif;transition:var(--transition);text-decoration:none;display:inline-flex;align-items:center;}
 .btn-ghost-sm:hover{background:var(--bg-alt);color:var(--text);}
-.btn-blue-sm{background:var(--blue);color:#fff;border:none;font-size:13px;font-weight:500;padding:7px 18px;border-radius:20px;cursor:pointer;font-family:'Inter',sans-serif;transition:var(--transition);}
+.btn-blue-sm{background:var(--blue);color:#fff;border:none;font-size:13px;font-weight:500;padding:7px 18px;border-radius:20px;cursor:pointer;font-family:'Epilogue',sans-serif;transition:var(--transition);}
 .btn-blue-sm:hover{background:var(--blue-h);}
 .btn-blue-sm:active{transform:scale(0.97);}
 
@@ -85,13 +85,13 @@ nav.scrolled{background:rgba(255,255,255,0.95);box-shadow:0 1px 0 var(--border);
 .hero-eyebrow::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--blue);flex-shrink:0;animation:pulse-dot 2s ease-in-out infinite;}
 @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.5;transform:scale(0.8);}}
 h1{font-size:clamp(40px,4.5vw,62px);font-weight:700;color:var(--text);line-height:1.08;letter-spacing:-0.03em;margin-bottom:20px;}
-h1 .grad{background:linear-gradient(135deg,#0071e3 0%,#34aadc 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+h1 .accent-line{color:var(--blue);font-weight:800;}
 .hero-sub{font-size:17px;color:var(--text-2);line-height:1.65;max-width:480px;margin-bottom:32px;}
 .hero-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
-.btn-primary-lg{display:inline-flex;align-items:center;gap:10px;background:var(--blue);color:#fff;border:none;padding:14px 26px;font-size:15px;font-weight:600;border-radius:980px;cursor:pointer;font-family:'Inter',sans-serif;transition:var(--transition);box-shadow:0 2px 8px rgba(0,113,227,0.3);}
-.btn-primary-lg:hover{background:var(--blue-h);box-shadow:0 4px 16px rgba(0,113,227,0.4);transform:translateY(-1px);}
+.btn-primary-lg{display:inline-flex;align-items:center;gap:10px;background:var(--blue);color:#fff;border:none;padding:14px 26px;font-size:15px;font-weight:600;border-radius:980px;cursor:pointer;font-family:'Epilogue',sans-serif;transition:var(--transition);box-shadow:0 2px 8px rgba(105,48,195,0.3);}
+.btn-primary-lg:hover{background:var(--blue-h);box-shadow:0 4px 16px rgba(105,48,195,0.4);transform:translateY(-1px);}
 .btn-primary-lg:active{transform:scale(0.98);box-shadow:none;}
-.btn-outline-lg{display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--text);border:1px solid var(--border-2);padding:14px 22px;font-size:15px;font-weight:500;border-radius:980px;cursor:pointer;font-family:'Inter',sans-serif;transition:var(--transition);text-decoration:none;}
+.btn-outline-lg{display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--text);border:1px solid var(--border-2);padding:14px 22px;font-size:15px;font-weight:500;border-radius:980px;cursor:pointer;font-family:'Epilogue',sans-serif;transition:var(--transition);text-decoration:none;}
 .btn-outline-lg:hover{background:var(--bg-alt);border-color:rgba(0,0,0,0.2);}
 .btn-outline-lg:active{transform:scale(0.98);}
 .hero-note{font-size:12px;color:var(--text-3);margin-top:2px;}
@@ -155,27 +155,29 @@ h1 .grad{background:linear-gradient(135deg,#0071e3 0%,#34aadc 100%);-webkit-back
 .steps-grid::before{content:'';position:absolute;top:20px;left:calc(12.5% + 4px);right:calc(12.5% + 4px);height:1px;background:linear-gradient(90deg,var(--border),var(--border-2),var(--border));z-index:0;}
 .step{position:relative;z-index:1;}
 .step-num{width:40px;height:40px;border-radius:50%;background:var(--bg);border:1.5px solid var(--border-2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--blue);margin-bottom:20px;transition:var(--transition);}
-.step:hover .step-num{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 0 0 6px rgba(0,113,227,0.1);}
+.step:hover .step-num{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 0 0 6px rgba(105,48,195,0.1);}
 .step-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px;line-height:1.3;}
 .step-body{font-size:13px;color:var(--text-2);line-height:1.7;}
 
 /* ── FAQ ── */
 .faq-list{margin-top:52px;max-width:680px;}
 .faq-item{border-bottom:1px solid var(--border);}
-.faq-q{width:100%;background:none;border:none;padding:20px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;font-family:'Inter',sans-serif;text-align:left;}
+.faq-q{width:100%;background:none;border:none;padding:20px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;font-family:'Epilogue',sans-serif;text-align:left;}
 .faq-q-text{font-size:15px;font-weight:500;color:var(--text);}
 .faq-icon{width:20px;height:20px;border-radius:50%;background:var(--bg-alt);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:var(--transition);}
 .faq-icon svg{width:12px;height:12px;color:var(--text-2);transition:var(--transition);}
 .faq-item.open .faq-icon{background:var(--blue);transform:rotate(45deg);}
 .faq-item.open .faq-icon svg{color:#fff;}
-.faq-a{max-height:0;overflow:hidden;transition:max-height 0.3s ease;}
-.faq-a-inner{font-size:14px;color:var(--text-2);line-height:1.75;padding-bottom:20px;}
+.faq-a{display:grid;grid-template-rows:0fr;transition:grid-template-rows 0.3s cubic-bezier(0.4,0,0.2,1);}
+.faq-item.open .faq-a{grid-template-rows:1fr;}
+.faq-a-inner{overflow:hidden;font-size:14px;color:var(--text-2);line-height:1.75;padding-bottom:20px;}
+@media(prefers-reduced-motion:reduce){.faq-a{transition:none;}.reveal{transition:none;}}
 
 /* ── CTA section ── */
 .cta-band{background:var(--text);border-radius:var(--radius-xl);padding:64px;text-align:center;margin:0 72px 100px;}
 .cta-band h2{font-size:clamp(28px,3vw,40px);font-weight:700;color:#fff;letter-spacing:-0.025em;margin-bottom:12px;}
 .cta-band p{font-size:16px;color:rgba(255,255,255,0.55);margin-bottom:32px;}
-.btn-white{display:inline-flex;align-items:center;gap:10px;background:#fff;color:var(--text);border:none;padding:14px 28px;font-size:15px;font-weight:600;border-radius:980px;cursor:pointer;font-family:'Inter',sans-serif;transition:var(--transition);box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.btn-white{display:inline-flex;align-items:center;gap:10px;background:#fff;color:var(--text);border:none;padding:14px 28px;font-size:15px;font-weight:600;border-radius:980px;cursor:pointer;font-family:'Epilogue',sans-serif;transition:var(--transition);box-shadow:0 2px 8px rgba(0,0,0,0.15);}
 .btn-white:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,0,0,0.2);}
 .btn-white:active{transform:scale(0.98);}
 
@@ -241,8 +243,8 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
   <!-- Left: copy -->
   <div class="hero-left">
     <div class="hero-eyebrow">14 AI agents · One design sprint</div>
-    <h1>Your design team.<br><span class="grad">Fully assembled.</span></h1>
-    <p class="hero-sub">Walk in with a brief. Walk out with research, UI designs, UX flows, production code, and a quality-gated handoff — all from 14 specialized AI agents working in parallel.</p>
+    <h1>Your design team.<br><span class="accent-line">Fully assembled.</span></h1>
+    <p class="hero-sub">Walk in with a brief. Walk out with research, UI designs, UX flows, production code, and a quality-gated handoff. All from 14 specialized AI agents working in parallel.</p>
     <div class="hero-actions">
       <button class="btn-primary-lg" id="hero-cta">
         <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true"><path fill="#fff" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="rgba(255,255,255,0.7)" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="rgba(255,255,255,0.85)" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="rgba(255,255,255,0.9)" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
@@ -275,15 +277,14 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
 
 <!-- WHAT YOU GET -->
 <section class="section" id="outputs">
-  <div class="eyebrow reveal">What you get</div>
   <h2 class="section-title reveal">Every artifact.<br>One sprint.</h2>
-  <p class="section-sub reveal">From a single brief, 14 agents produce research, designs, specifications, and production code — in parallel, each reinforcing the others.</p>
+  <p class="section-sub reveal">From a single brief, 14 agents produce research, designs, specifications, and production code. Each reinforcing the others, in parallel.</p>
 
   <div class="output-grid">
-    <div class="output-card reveal reveal-delay-1" style="--card-accent:#0071e3;--icon-bg:#e8f1fb;">
+    <div class="output-card reveal reveal-delay-1" style="--card-accent:#6930c3;--icon-bg:#f0e8ff;">
       <div class="output-icon">🔍</div>
       <div class="output-title">Research & Benchmarks</div>
-      <div class="output-body">Competitive analysis, verbatim UX standards (WCAG, M3, HIG), domain best practices — all sourced live, not from memory.</div>
+      <div class="output-body">Competitive analysis, verbatim UX standards (WCAG, M3, HIG), and domain best practices. All sourced live, not from memory.</div>
       <div class="output-tags"><span class="tag">Competitive audit</span><span class="tag">Standards citations</span><span class="tag">Steal list</span></div>
     </div>
     <div class="output-card reveal reveal-delay-2" style="--card-accent:#9b59b6;--icon-bg:#f3ebfb;">
@@ -304,7 +305,6 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
 <!-- ZONES -->
 <div class="full-section" id="agents">
 <div class="full-section-inner">
-  <div class="eyebrow reveal">The studio</div>
   <h2 class="section-title reveal">Five zones.<br>14 specialists.</h2>
   <p class="section-sub reveal">Each zone handles a distinct phase. Walk your character up to any agent to chat, or run a full swarm sprint to activate all 14 at once.</p>
 
@@ -312,13 +312,13 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
     <div class="zone-card reveal reveal-delay-1">
       <div class="zone-accent" style="--zc:#4acea0;"></div>
       <div class="zone-name">Research Library</div>
-      <div class="zone-desc">Live competitor analysis and verbatim standards sourced from the web — not training memory.</div>
+      <div class="zone-desc">Live competitor analysis and verbatim standards sourced from the web, not training memory.</div>
       <div class="zone-agents"><span class="agent-tag">Researcher</span><span class="agent-tag">Strategist</span></div>
     </div>
     <div class="zone-card reveal reveal-delay-2">
       <div class="zone-accent" style="--zc:#4a9eea;"></div>
       <div class="zone-name">Design Studio</div>
-      <div class="zone-desc">UI variations, UX flows, Figma specs, and production-ready code — all from the same brief.</div>
+      <div class="zone-desc">UI variations, UX flows, Figma specs, and production-ready code. All from the same brief.</div>
       <div class="zone-agents"><span class="agent-tag">Visual Designer</span><span class="agent-tag">UX Designer</span><span class="agent-tag">Spec Writer</span><span class="agent-tag">Developer</span></div>
     </div>
     <div class="zone-card reveal reveal-delay-3">
@@ -345,7 +345,6 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
 
 <!-- HOW IT WORKS -->
 <section class="section" id="how-it-works">
-  <div class="eyebrow reveal">How it works</div>
   <h2 class="section-title reveal">From brief to<br>shipped design.</h2>
   <p class="section-sub reveal">One studio. Four phases. Every agent reads your brief and tailors their output to your specific problem.</p>
 
@@ -358,7 +357,7 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
     <div class="step reveal reveal-delay-2">
       <div class="step-num">2</div>
       <div class="step-title">Walk up and chat</div>
-      <div class="step-body">Move your character around the pixel studio. Approach any agent to collaborate — or run a full swarm sprint.</div>
+      <div class="step-body">Move your character around the pixel studio. Approach any agent to collaborate, or run a full swarm sprint.</div>
     </div>
     <div class="step reveal reveal-delay-3">
       <div class="step-num">3</div>
@@ -368,7 +367,7 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
     <div class="step reveal reveal-delay-4">
       <div class="step-num">4</div>
       <div class="step-title">Export the dossier</div>
-      <div class="step-body">Export your complete design dossier — brief, research, specs, prototype, and critique — as one polished document.</div>
+      <div class="step-body">Export your complete design dossier as one polished document: brief, research, specs, prototype, and critique.</div>
     </div>
   </div>
 </section>
@@ -376,7 +375,6 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
 <!-- FAQ -->
 <div class="full-section" id="faq">
 <div class="full-section-inner">
-  <div class="eyebrow reveal">FAQ</div>
   <h2 class="section-title reveal">Common questions.</h2>
   <div class="faq-list">
     <div class="faq-item reveal">
@@ -391,21 +389,21 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
         <span class="faq-q-text">Is my brief and design data private?</span>
         <span class="faq-icon"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg></span>
       </button>
-      <div class="faq-a"><div class="faq-a-inner">Your data is stored in your own Supabase account with row-level security — other users can't access it. LLM calls go through a Cloudflare Worker, meaning your brief and outputs are never cached or shared.</div></div>
+      <div class="faq-a"><div class="faq-a-inner">Your data is stored in your own Supabase account with row-level security; other users can't access it. LLM calls go through a Cloudflare Worker, meaning your brief and outputs are never cached or shared.</div></div>
     </div>
     <div class="faq-item reveal reveal-delay-2">
       <button class="faq-q" onclick="toggleFaq(this)">
         <span class="faq-q-text">What can it not do?</span>
         <span class="faq-icon"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg></span>
       </button>
-      <div class="faq-a"><div class="faq-a-inner">Design Floor produces text-based artifacts — research, specs, code, and structured documents. It doesn't generate images, render Figma files directly, or replace user testing with real humans. Think of it as a senior design team writing the specification, not an image generator.</div></div>
+      <div class="faq-a"><div class="faq-a-inner">Design Floor produces text-based artifacts: research, specs, code, and structured documents. It doesn't generate images, render Figma files directly, or replace user testing with real humans. Think of it as a senior design team writing the specification, not an image generator.</div></div>
     </div>
     <div class="faq-item reveal reveal-delay-3">
       <button class="faq-q" onclick="toggleFaq(this)">
         <span class="faq-q-text">How much does it cost?</span>
         <span class="faq-icon"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="1" x2="6" y2="11"/><line x1="1" y1="6" x2="11" y2="6"/></svg></span>
       </button>
-      <div class="faq-a"><div class="faq-a-inner">Free while in early access. Sign in with your Google account and start sprinting immediately — no credit card, no waitlist. Pricing will be announced before the general release.</div></div>
+      <div class="faq-a"><div class="faq-a-inner">Free while in early access. Sign in with your Google account and start sprinting immediately. No credit card, no waitlist. Pricing will be announced before the general release.</div></div>
     </div>
   </div>
 </div>
@@ -490,7 +488,7 @@ window._autoConfigReady.then(cfg=>{
 /* ── Toast ── */
 function showToast(msg){
   const t=document.createElement('div');
-  t.style.cssText='position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#1d1d1f;color:#fff;font-size:13px;padding:12px 22px;border-radius:20px;z-index:9999;font-family:Inter,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.18);';
+  t.style.cssText='position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#1d1d1f;color:#fff;font-size:13px;padding:12px 22px;border-radius:20px;z-index:9999;font-family:'Epilogue',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.18);';
   t.textContent=msg;
   document.body.appendChild(t);
   setTimeout(()=>t.remove(),4000);
@@ -504,16 +502,9 @@ window.addEventListener('scroll',()=>{
 /* ── FAQ accordion ── */
 function toggleFaq(btn){
   const item=btn.closest('.faq-item');
-  const ans=item.querySelector('.faq-a');
   const isOpen=item.classList.contains('open');
-  document.querySelectorAll('.faq-item.open').forEach(i=>{
-    i.classList.remove('open');
-    i.querySelector('.faq-a').style.maxHeight='0';
-  });
-  if(!isOpen){
-    item.classList.add('open');
-    ans.style.maxHeight=ans.scrollHeight+'px';
-  }
+  document.querySelectorAll('.faq-item.open').forEach(i=>i.classList.remove('open'));
+  if(!isOpen) item.classList.add('open');
 }
 
 /* ── Scroll reveal ── */
