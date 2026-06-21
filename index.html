@@ -437,40 +437,64 @@ footer{border-top:1px solid var(--border);padding:28px 72px;display:flex;align-i
 window._autoConfigReady.then(cfg=>{
   const SB_URL=(cfg&&cfg.supabase&&cfg.supabase.url)||'';
   const SB_KEY=(cfg&&cfg.supabase&&cfg.supabase.anonKey)||'';
-  const ol=document.getElementById('loading-overlay');
-  const ldIn=document.getElementById('ld-inner');
 
+  // Config unavailable — page stays visible; buttons show error on click
   if(!SB_URL||!SB_KEY){
-    ol.style.display='flex';
-    ldIn.innerHTML='<div class="ld-error"><p>Unable to reach Design Floor.</p><small>Please check your connection and try again.</small><button class="ld-retry" onclick="location.reload()">Retry</button></div>';
+    ['hero-cta','cta-bottom','nav-cta'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el)return;
+      el.addEventListener('click',()=>{
+        showToast('Service temporarily unavailable. Please try again shortly.');
+      });
+    });
     return;
   }
+
   const sb=window.supabase.createClient(SB_URL,SB_KEY);
+
+  // Show auth-error banner from redirect param
+  const params=new URLSearchParams(window.location.search);
+  if(params.get('auth_error')){
+    const banner=document.createElement('div');
+    banner.style.cssText='position:fixed;top:52px;left:0;right:0;z-index:999;background:#fff1f1;color:#c0392b;font-size:13px;padding:12px 48px;text-align:center;border-bottom:1px solid rgba(192,57,43,0.2);';
+    banner.textContent='Authentication failed. Please try signing in again.';
+    document.body.prepend(banner);
+  }
+
+  // Auto-redirect if already signed in
   (async()=>{
-    const params=new URLSearchParams(window.location.search);
-    if(params.get('auth_error')){
-      const banner=document.createElement('div');
-      banner.style.cssText='position:fixed;top:52px;left:0;right:0;z-index:999;background:#fff1f1;color:#c0392b;font-size:13px;padding:12px 48px;text-align:center;border-bottom:1px solid rgba(192,57,43,0.2);';
-      banner.textContent='⚠ Authentication failed. Please try signing in again.';
-      document.body.prepend(banner);
-      return;
-    }
-    const{data:{session}}=await sb.auth.getSession();
-    if(session?.user)window.location.replace('/pixel-world.html');
+    try{
+      const{data:{session}}=await sb.auth.getSession();
+      if(session?.user)window.location.replace('/pixel-world.html');
+    }catch(_){}
   })();
+
   async function signIn(){
-    document.getElementById('loading-overlay').style.display='flex';
+    const ol=document.getElementById('loading-overlay');
+    const ldIn=document.getElementById('ld-inner');
+    ol.style.display='flex';
+    ldIn.innerHTML='<div class="ld-spinner"></div><div class="ld-text">Signing in…</div>';
     const{error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+'/pixel-world.html'}});
     if(error){
-      document.getElementById('loading-overlay').style.display='none';
-      alert('Sign-in error: '+error.message);
+      ol.style.display='none';
+      showToast('Sign-in error: '+error.message);
     }
   }
+
   ['hero-cta','cta-bottom','nav-cta'].forEach(id=>{
     const el=document.getElementById(id);
     if(el)el.addEventListener('click',signIn);
   });
 });
+
+/* ── Toast ── */
+function showToast(msg){
+  const t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#1d1d1f;color:#fff;font-size:13px;padding:12px 22px;border-radius:20px;z-index:9999;font-family:Inter,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.18);';
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),4000);
+}
 
 /* ── Nav scroll ── */
 window.addEventListener('scroll',()=>{
