@@ -1697,7 +1697,7 @@ async function runToolLoop(fetchFn,tools){
     if(!choice)throw new Error('Empty response from LLM');
     // No tool calls — done
     const toolCalls=choice.message?.tool_calls;
-    if(!toolCalls||!toolCalls.length)return choice.message?.content||'No response.';
+    if(!toolCalls||!toolCalls.length)return choice.message?.content||choice.message?.reasoning_content||'No response.';
     // Execute each tool call and append results
     allMessages.push(choice.message);
     for(const tc of toolCalls){
@@ -1805,7 +1805,11 @@ async function _readSSEStream(resp,onToken){
       const d=line.slice(6).trim();
       if(d==='[DONE]')continue;
       try{
-        const token=JSON.parse(d).choices?.[0]?.delta?.content;
+        const parsed=JSON.parse(d);
+        const delta=parsed.choices?.[0]?.delta;
+        if(!delta)continue;
+        // Some models (GLM, DeepSeek-R1) put output in reasoning_content
+        const token=delta.content||delta.reasoning_content||'';
         if(token){full+=token;onToken(token,full);}
       }catch(e){}
     }
@@ -1893,7 +1897,7 @@ async function getProxyResponse(agent,message,history){
     if(!choice)throw new Error('Empty response from proxy (status '+resp.status+')');
     const toolCalls=choice.message?.tool_calls;
     if(!toolCalls||!toolCalls.length){
-      const content=choice.message?.content;
+      const content=choice.message?.content||choice.message?.reasoning_content;
       if(!content&&content!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
       return content;
     }
@@ -1971,7 +1975,7 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
     const choice=data.choices?.[0];
     if(!choice)throw new Error('No response');
     const toolCalls=choice.message?.tool_calls;
-    if(!toolCalls||!toolCalls.length)return choice.message?.content||'No response.';
+    if(!toolCalls||!toolCalls.length)return choice.message?.content||choice.message?.reasoning_content||'No response.';
     // Execute tool calls and loop
     allMessages.push(choice.message);
     for(const tc of toolCalls){
@@ -6357,6 +6361,8 @@ async function runSwarm(){
         '4. **Must not be compromised** — non-negotiables derived from critique and synthesis\n'+
         '5. **Deferred to v2** — what was explicitly scoped out and why\n'+
         '6. **Next actions** — concrete steps for the user or engineering team\n\n'+
+        'CRITICAL: Only report agents as having produced output if their output is actually in your context above. '+
+        'If an agent\'s output is missing or empty, mark it as "no output" — do NOT fabricate or imagine what they might have produced. '+
         'Use the live team status and all injected wave outputs as your source. Cite agent names. Be decisive and specific.');
       updateSprintCards(['lead'],'done');
     }
