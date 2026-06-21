@@ -167,15 +167,67 @@ async function getAuthToken() {
   return {};
 }
 
+// ── Fetch with retry ────────────────────────────────────────────────────
+async function fetchWithRetry(url, options, maxRetries = 3) {
+  const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 524, 529]);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const resp = await fetch(url, { ...options, signal: AbortSignal.timeout(options._timeout || 120000) });
+      if (RETRYABLE_STATUS.has(resp.status) && attempt < maxRetries - 1) {
+        const delay = 5000 * (attempt + 1);
+        if (VERBOSE) console.log(`    [Retry] HTTP ${resp.status}, retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return resp;
+    } catch (e) {
+      if (attempt < maxRetries - 1) {
+        const delay = 5000 * (attempt + 1);
+        if (VERBOSE) console.log(`    [Retry] Attempt ${attempt + 1} failed: ${e.message}, retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
+// ── Extract artifact from reasoning_content ──────────────────────────────
+function extractFromReasoning(reasoning) {
+  if (!reasoning) return null;
+
+  // Case 1: reasoning starts directly with ## heading
+  if (/^#{1,4} [A-Z]/.test(reasoning.trimStart())) return reasoning.trimStart();
+
+  // Case 2: ## heading found after thinking prefix
+  const headingMatch = reasoning.match(/\n#{1,4} [A-Z]/);
+  if (headingMatch) {
+    const extracted = reasoning.slice(headingMatch.index + 1).trim();
+    if (extracted.length > 100) return extracted;
+  }
+
+  // Case 3: For very long reasoning (>3000 chars), try stripping more aggressively
+  if (reasoning.length > 3000) {
+    const after1000 = reasoning.slice(1000);
+    const h = after1000.match(/\n#{1,4} [A-Z]/);
+    if (h) return after1000.slice(h.index + 1).trim();
+  }
+
+  // No ## heading found — return null so retry logic kicks in
+  return null;
+}
+
 // ── LLM call via Worker ──────────────────────────────────────────────────
 async function callLLM(agent, userMessage, history = []) {
   const { model, messages, maxTokens, temperature } = buildMessages(agent, userMessage, history);
   const allMessages = [...messages];
   const tools = (agent.tools || []).length > 0 ? agent.tools.map(t => TOOL_DEFS[t]).filter(Boolean) : null;
-  const maxRounds = tools ? 5 : 2; // non-tool agents get 2 rounds for reasoning retry
+  const maxRounds = tools ? 5 : 3; // non-tool agents get 3 rounds for reasoning retry
 
   for (let round = 0; round < maxRounds; round++) {
-    const body = { model, max_tokens: maxTokens, temperature, messages: allMessages };
+    // Lower temperature on retry rounds to reduce reasoning
+    const effectiveTemp = round === 0 ? temperature : Math.max(0.1, temperature - 0.3 * round);
+    const body = { model, max_tokens: maxTokens, temperature: effectiveTemp, messages: allMessages };
     if (tools && round < maxRounds - 1) body.tools = tools;
     else if (tools) {
       allMessages.push({ role: 'user', content: 'You have completed your research. Produce your final output now based on everything you have gathered. Do not make any more tool calls.' });
@@ -183,10 +235,10 @@ async function callLLM(agent, userMessage, history = []) {
 
     const headers = { 'Content-Type': 'application/json', ...AUTH_TOKEN };
 
-    const resp = await fetch(`${WORKER_URL}/v1/chat/completions`, {
+    const resp = await fetchWithRetry(`${WORKER_URL}/v1/chat/completions`, {
       method: 'POST', headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000)
+      _timeout: 120000,
     });
 
     if (!resp.ok) {
@@ -205,15 +257,43 @@ async function callLLM(agent, userMessage, history = []) {
       const content = choice.message?.content || '';
       const reasoning = choice.message?.reasoning_content || '';
       if (VERBOSE) {
-        console.log(`    [LLM] content: ${content.length} chars, reasoning: ${reasoning.length} chars`);
+        console.log(`    [LLM] Round ${round + 1}, temp=${effectiveTemp.toFixed(2)} — content: ${content.length} chars, reasoning: ${reasoning.length} chars`);
         if (!content && reasoning) console.log(`    [LLM] content empty, reasoning starts with: ${reasoning.slice(0, 100)}`);
       }
-      // If content is empty but reasoning has data, retry with a direct "output now" prompt
-      if (!content && reasoning && round < maxRounds - 1) {
-        allMessages.push({ role: 'assistant', content: reasoning });
-        allMessages.push({ role: 'user', content: 'Your previous response was all reasoning with no actual output. Output your final artifact NOW. Start with ## immediately. No more thinking.' });
-        continue;
+
+      // Case 1: content has data — use it
+      if (content && content.trim().length > 10) {
+        return content;
       }
+
+      // Case 2: content empty but reasoning has data
+      if (reasoning && reasoning.length > 50) {
+        // Try to extract artifact from reasoning (look for ## heading or structured content)
+        const extracted = extractFromReasoning(reasoning);
+        if (extracted && extracted.length > 100) {
+          if (VERBOSE) console.log(`    [LLM] Extracted ${extracted.length} chars from reasoning (heading found)`);
+          return extracted;
+        }
+
+        // Retry with stronger prompt + simplified system message on round >= 1
+        if (round < maxRounds - 1) {
+          // Replace complex system prompt with minimal one to stop GLM from entering reasoning mode
+          if (round >= 1 && allMessages[0]?.role === 'system') {
+            allMessages[0] = {
+              role: 'system',
+              content: `You are the ${agent.name}, a specialist in ${agent.role}.\nWrite your complete final artifact. Start your response with ## on the very first line. No thinking, no planning, no preamble. Output only the deliverable.`
+            };
+          }
+          allMessages.push({ role: 'assistant', content: reasoning.slice(0, 300) });
+          allMessages.push({ role: 'user', content: 'STOP REASONING. Your response went to the thinking channel — I cannot read it. Write your final artifact NOW. Start with ## on the very first line of your response. Nothing before ##.' });
+          continue;
+        }
+
+        // Last resort: return reasoning as-is (sanitizer will handle it)
+        if (VERBOSE) console.log(`    [LLM] Using raw reasoning as fallback (${reasoning.length} chars)`);
+        return reasoning;
+      }
+
       return content || reasoning || 'No response.';
     }
 
@@ -227,12 +307,19 @@ async function callLLM(agent, userMessage, history = []) {
     }
   }
 
-  // Final call without tools
-  const finalBody = { model, max_tokens: maxTokens, temperature, messages: [...allMessages, { role: 'user', content: 'Produce your final output now. No more tool calls.' }] };
+  // Final call without tools — lower temperature to reduce reasoning
+  const finalBody = { model, max_tokens: maxTokens, temperature: 0.1, messages: [...allMessages, { role: 'user', content: 'Produce your final output now. No more tool calls. Start with ## immediately.' }] };
   const headers = { 'Content-Type': 'application/json', ...AUTH_TOKEN };
-  if (WORKER_SECRET) headers['X-Worker-Secret'] = WORKER_SECRET;
-  const finalResp = await fetch(`${WORKER_URL}/v1/chat/completions`, { method: 'POST', headers, body: JSON.stringify(finalBody) });
+  const finalResp = await fetchWithRetry(`${WORKER_URL}/v1/chat/completions`, { method: 'POST', headers, body: JSON.stringify(finalBody), _timeout: 120000 });
   const finalData = await finalResp.json();
+  const finalContent = finalData.choices?.[0]?.message?.content || '';
+  const finalReasoning = finalData.choices?.[0]?.message?.reasoning_content || '';
+  if (finalContent && finalContent.trim().length > 10) return finalContent;
+  if (finalReasoning) {
+    const extracted = extractFromReasoning(finalReasoning);
+    if (extracted && extracted.length > 100) return extracted;
+    return finalReasoning;
+  }
   return finalData.choices?.[0]?.message?.content || finalData.choices?.[0]?.message?.reasoning_content || 'No response after tool calls.';
 }
 
@@ -256,12 +343,11 @@ async function executeWebfetch(url, reason) {
   if (VERBOSE) console.log(`    [webfetch] ${url}`);
   try {
     const headers = { 'Content-Type': 'application/json', ...AUTH_TOKEN };
-    if (WORKER_SECRET) headers['X-Worker-Secret'] = WORKER_SECRET;
-    const resp = await fetch(`${WORKER_URL}/tool/webfetch`, {
+    const resp = await fetchWithRetry(`${WORKER_URL}/tool/webfetch`, {
       method: 'POST', headers,
       body: JSON.stringify({ url, reason }),
-      signal: AbortSignal.timeout(15000)
-    });
+      _timeout: 15000,
+    }, 2);
     const data = await resp.json();
     return data.content || data.error?.message || 'No content returned';
   } catch (e) {
@@ -273,12 +359,11 @@ async function executeBraveSearch(query, count) {
   if (VERBOSE) console.log(`    [brave_search] "${query}"`);
   try {
     const headers = { 'Content-Type': 'application/json', ...AUTH_TOKEN };
-    if (WORKER_SECRET) headers['X-Worker-Secret'] = WORKER_SECRET;
-    const resp = await fetch(`${WORKER_URL}/tool/brave-search`, {
+    const resp = await fetchWithRetry(`${WORKER_URL}/tool/brave-search`, {
       method: 'POST', headers,
       body: JSON.stringify({ query, count: count || 8 }),
-      signal: AbortSignal.timeout(12000)
-    });
+      _timeout: 12000,
+    }, 2);
     const data = await resp.json();
     return data.content || 'No search results returned';
   } catch (e) {

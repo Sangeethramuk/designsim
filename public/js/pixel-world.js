@@ -1874,19 +1874,20 @@ async function getProxyResponse(agent,message,history){
   const{model,messages,maxTokens,temperature,tools}=buildAgentMessages(agent,message,history);
   let token=sbKey||'';
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
-  // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
-  const maxRounds=tools?5:2; // non-tool agents get 2 rounds for reasoning retry
+  const maxRounds=tools?5:3;
   for(let round=0;round<maxRounds;round++){
-    const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
+    const effectiveTemp=round===0?temperature:Math.max(0.1,temperature-0.3*round);
+    const body={model,max_tokens:maxTokens,temperature:effectiveTemp,messages:allMessages};
     if(tools&&round<maxRounds-1)body.tools=tools;
     else if(tools){
       allMessages.push({role:'user',content:'You have completed your research. Produce your final output now based on everything you have gathered. Do not make any more tool calls.'});
     }
-    const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+    const resp=await fetchWithRetry(sbUrl+'/functions/v1/llm-proxy',{
       method:'POST',
       headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
-      body:JSON.stringify(body)
+      body:JSON.stringify(body),
+      signal:AbortSignal.timeout(120000)
     });
     const data=await resp.json();
     if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
@@ -1897,16 +1898,21 @@ async function getProxyResponse(agent,message,history){
     if(!toolCalls||!toolCalls.length||round===maxRounds-1){
       const content=choice.message?.content||'';
       const reasoning=choice.message?.reasoning_content||'';
-      if(!content&&reasoning&&round<maxRounds-1){
-        allMessages.push({role:'assistant',content:reasoning});
-        allMessages.push({role:'user',content:'Your previous response was all reasoning with no actual output. Output your final artifact NOW. Start with ## immediately. No more thinking.'});
-        continue;
+      if(content&&content.trim().length>10)return content;
+      if(reasoning&&reasoning.length>50){
+        const extracted=extractFromReasoning(reasoning);
+        if(extracted&&extracted.length>100)return extracted;
+        if(round<maxRounds-1){
+          allMessages.push({role:'assistant',content:reasoning});
+          allMessages.push({role:'user',content:'STOP REASONING. Your entire response went into the thinking channel. I cannot see it. Output your final artifact in your RESPONSE (not your thinking). Start with ## immediately. Produce ONLY the artifact.'});
+          continue;
+        }
+        return reasoning;
       }
       const result=content||reasoning;
       if(!result&&result!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
       return result;
     }
-    // Execute tool calls locally and loop
     allMessages.push(choice.message);
     for(const tc of toolCalls){
       let args;try{args=JSON.parse(tc.function?.arguments||'{}');}catch(e){args={};}
@@ -1914,15 +1920,18 @@ async function getProxyResponse(agent,message,history){
       allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
     }
   }
-  // Last resort: one final call without tools to force a text response
-  const finalBody={model,max_tokens:maxTokens,temperature,messages:[...allMessages,{role:'user',content:'Produce your final output now. No more tool calls.'}]};
-  const finalResp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
+  const finalBody={model,max_tokens:maxTokens,temperature:0.1,messages:[...allMessages,{role:'user',content:'Produce your final output now. No more tool calls. Start with ## immediately.'}]};
+  const finalResp=await fetchWithRetry(sbUrl+'/functions/v1/llm-proxy',{
     method:'POST',
     headers:{'Authorization':'Bearer '+token,'apikey':sbKey||'','Content-Type':'application/json'},
-    body:JSON.stringify(finalBody)
+    body:JSON.stringify(finalBody),
+    signal:AbortSignal.timeout(120000)
   });
   const finalData=await finalResp.json();
-  if(finalData.choices?.[0]?.message?.content)return finalData.choices[0].message.content;
+  const fc=finalData.choices?.[0]?.message?.content||'';
+  const fr=finalData.choices?.[0]?.message?.reasoning_content||'';
+  if(fc&&fc.trim().length>10)return fc;
+  if(fr){const ex=extractFromReasoning(fr);if(ex&&ex.length>100)return ex;return fr;}
   return'No response after tool calls.';
 }
 
@@ -1952,10 +1961,39 @@ async function testProxy(){
   }catch(e){el.className='err';el.textContent='⚠ '+e.message;}
 }
 
+// ── Extract artifact from reasoning_content (GLM puts output here) ────────
+function extractFromReasoning(reasoning){
+  if(!reasoning)return null;
+  if(/^#{1,4} [A-Z]/.test(reasoning.trimStart()))return reasoning.trimStart();
+  const headingMatch=reasoning.match(/\n#{1,4} [A-Z]/);
+  if(headingMatch){
+    const extracted=reasoning.slice(headingMatch.index+1).trim();
+    if(extracted.length>100)return extracted;
+  }
+  if(reasoning.length>3000){
+    const after1000=reasoning.slice(1000);
+    const h=after1000.match(/\n#{1,4} [A-Z]/);
+    if(h)return after1000.slice(h.index+1).trim();
+  }
+  return null;
+}
+
+// ── Fetch with retry ──────────────────────────────────────────────────────
+async function fetchWithRetry(url,options,maxRetries){
+  maxRetries=maxRetries||3;
+  for(let attempt=0;attempt<maxRetries;attempt++){
+    try{
+      return await fetch(url,options);
+    }catch(e){
+      if(attempt<maxRetries-1){
+        await new Promise(r=>setTimeout(r,2000*(attempt+1)));
+      }else throw e;
+    }
+  }
+}
+
 async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   const{model,messages,maxTokens,temperature,tools}=buildAgentMessages(agent,message,history);
-  // When Cloudflare Worker is configured, use it as the LLM proxy
-  // API key stays server-side in Worker secrets — never exposed in browser
   const effectiveBase=(window._workerUrl||baseUrl).replace(/\/$/,'');
   const effectiveKey=window._workerUrl?null:apiKey;
   const headers={'content-type':'application/json'};
@@ -1964,17 +2002,16 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
     const authH=await getWorkerAuthHeader();
     Object.assign(headers,authH);
   }
-  // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
-  const maxRounds=tools?5:2; // non-tool agents get 2 rounds for reasoning retry
+  const maxRounds=tools?5:3;
   for(let round=0;round<maxRounds;round++){
-    const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
+    const effectiveTemp=round===0?temperature:Math.max(0.1,temperature-0.3*round);
+    const body={model,max_tokens:maxTokens,temperature:effectiveTemp,messages:allMessages};
     if(tools&&round<maxRounds-1)body.tools=tools;
     else if(tools){
-      // Final round: no tools, force the LLM to produce a text response
       allMessages.push({role:'user',content:'You have completed your research. Produce your final output now based on everything you have gathered. Do not make any more tool calls.'});
     }
-    const resp=await fetch(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body)});
+    const resp=await fetchWithRetry(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(body),signal:AbortSignal.timeout(120000)});
     const data=await resp.json();
     if(data.error)throw new Error(data.error.message||'API error');
     const choice=data.choices?.[0];
@@ -1983,15 +2020,19 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
     if(!toolCalls||!toolCalls.length||round===maxRounds-1){
       const content=choice.message?.content||'';
       const reasoning=choice.message?.reasoning_content||'';
-      // If content is empty but reasoning has data, retry with "output now" prompt
-      if(!content&&reasoning&&round<maxRounds-1){
-        allMessages.push({role:'assistant',content:reasoning});
-        allMessages.push({role:'user',content:'Your previous response was all reasoning with no actual output. Output your final artifact NOW. Start with ## immediately. No more thinking.'});
-        continue;
+      if(content&&content.trim().length>10)return content;
+      if(reasoning&&reasoning.length>50){
+        const extracted=extractFromReasoning(reasoning);
+        if(extracted&&extracted.length>100)return extracted;
+        if(round<maxRounds-1){
+          allMessages.push({role:'assistant',content:reasoning});
+          allMessages.push({role:'user',content:'STOP REASONING. Your entire response went into the thinking channel. I cannot see it. Output your final artifact in your RESPONSE (not your thinking). Start with ## immediately. Produce ONLY the artifact.'});
+          continue;
+        }
+        return reasoning;
       }
       return content||reasoning||'No response.';
     }
-    // Execute tool calls and loop
     allMessages.push(choice.message);
     for(const tc of toolCalls){
       let args;try{args=JSON.parse(tc.function?.arguments||'{}');}catch(e){args={};}
@@ -1999,11 +2040,13 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
       allMessages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
     }
   }
-  // Last resort: one final call without tools to force a text response
-  const finalBody={model,max_tokens:maxTokens,temperature,messages:[...allMessages,{role:'user',content:'Produce your final output now. No more tool calls.'}]};
-  const finalResp=await fetch(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(finalBody)});
+  const finalBody={model,max_tokens:maxTokens,temperature:0.1,messages:[...allMessages,{role:'user',content:'Produce your final output now. No more tool calls. Start with ## immediately.'}]};
+  const finalResp=await fetchWithRetry(effectiveBase+'/v1/chat/completions',{method:'POST',headers,body:JSON.stringify(finalBody),signal:AbortSignal.timeout(120000)});
   const finalData=await finalResp.json();
-  if(finalData.choices?.[0]?.message?.content)return finalData.choices[0].message.content;
+  const fc=finalData.choices?.[0]?.message?.content||'';
+  const fr=finalData.choices?.[0]?.message?.reasoning_content||'';
+  if(fc&&fc.trim().length>10)return fc;
+  if(fr){const ex=extractFromReasoning(fr);if(ex&&ex.length>100)return ex;return fr;}
   return'No response after tool calls.';
 }
 
