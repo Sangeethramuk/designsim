@@ -172,7 +172,7 @@ async function callLLM(agent, userMessage, history = []) {
   const { model, messages, maxTokens, temperature } = buildMessages(agent, userMessage, history);
   const allMessages = [...messages];
   const tools = (agent.tools || []).length > 0 ? agent.tools.map(t => TOOL_DEFS[t]).filter(Boolean) : null;
-  const maxRounds = tools ? 5 : 1;
+  const maxRounds = tools ? 5 : 2; // non-tool agents get 2 rounds for reasoning retry
 
   for (let round = 0; round < maxRounds; round++) {
     const body = { model, max_tokens: maxTokens, temperature, messages: allMessages };
@@ -202,8 +202,19 @@ async function callLLM(agent, userMessage, history = []) {
 
     const toolCalls = choice.message?.tool_calls;
     if (!toolCalls || !toolCalls.length || round === maxRounds - 1) {
-      const content = choice.message?.content || choice.message?.reasoning_content || 'No response.';
-      return content;
+      const content = choice.message?.content || '';
+      const reasoning = choice.message?.reasoning_content || '';
+      if (VERBOSE) {
+        console.log(`    [LLM] content: ${content.length} chars, reasoning: ${reasoning.length} chars`);
+        if (!content && reasoning) console.log(`    [LLM] content empty, reasoning starts with: ${reasoning.slice(0, 100)}`);
+      }
+      // If content is empty but reasoning has data, retry with a direct "output now" prompt
+      if (!content && reasoning && round < maxRounds - 1) {
+        allMessages.push({ role: 'assistant', content: reasoning });
+        allMessages.push({ role: 'user', content: 'Your previous response was all reasoning with no actual output. Output your final artifact NOW. Start with ## immediately. No more thinking.' });
+        continue;
+      }
+      return content || reasoning || 'No response.';
     }
 
     // Execute tool calls
@@ -279,10 +290,12 @@ async function executeBraveSearch(query, count) {
 function buildMessages(agent, userMessage, history) {
   let sys = agent.systemPrompt + '\n\nBe direct, specific, and expert. Cite prior agent outputs by name when building on them.';
   sys += '\n\n## Active Project Brief\n' + BRIEF + '\nAll outputs must serve this brief specifically.';
-  sys += '\n\n## SWARM MODE — BATCH GENERATION RULES (NON-NEGOTIABLE)\n';
-  sys += '1. START YOUR RESPONSE WITH THE ACTUAL ARTIFACT. Your very first character must be a markdown heading (##). Do not write "Let me", "I need to", "Looking at", or ANY meta-commentary.\n';
-  sys += '2. If prior agent outputs are missing or empty, note it in ONE line, then proceed with your best work.\n';
-  sys += '3. End your output cleanly at a logical section boundary.\n';
+  sys += '\n\n## OUTPUT RULES (NON-NEGOTIABLE)\n';
+  sys += '1. Your response MUST be the final artifact — not reasoning about the task.\n';
+  sys += '2. Start with a ## markdown heading immediately. No preamble, no planning, no "Let me", no "I need to".\n';
+  sys += '3. Do NOT use the reasoning/thinking channel for your output. Put your actual deliverable in the response content.\n';
+  sys += '4. If prior agent outputs are missing or empty, note it in ONE line, then proceed with your best work.\n';
+  sys += '5. End your output cleanly at a logical section boundary.\n';
 
   const maxTokens = AGENT_MAX_TOKENS[agent.id] || 800;
   const temperature = AGENT_TEMPERATURE[agent.id] ?? 0.5;

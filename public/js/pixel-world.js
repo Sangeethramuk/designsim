@@ -1876,12 +1876,11 @@ async function getProxyResponse(agent,message,history){
   try{const{data:{session}}=await window._sbClient.auth.getSession();if(session?.access_token)token=session.access_token;}catch(e){}
   // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
-  const maxRounds=tools?5:3;
+  const maxRounds=tools?5:2; // non-tool agents get 2 rounds for reasoning retry
   for(let round=0;round<maxRounds;round++){
     const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
     if(tools&&round<maxRounds-1)body.tools=tools;
     else if(tools){
-      // Final round: no tools, force the LLM to produce a text response
       allMessages.push({role:'user',content:'You have completed your research. Produce your final output now based on everything you have gathered. Do not make any more tool calls.'});
     }
     const resp=await fetch(sbUrl+'/functions/v1/llm-proxy',{
@@ -1890,16 +1889,22 @@ async function getProxyResponse(agent,message,history){
       body:JSON.stringify(body)
     });
     const data=await resp.json();
-    // Catch both {error:{message}} and Supabase's {message} JWT-error format
     if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
     if(!data.choices&&data.message)throw new Error(data.message);
     const choice=data.choices?.[0];
     if(!choice)throw new Error('Empty response from proxy (status '+resp.status+')');
     const toolCalls=choice.message?.tool_calls;
-    if(!toolCalls||!toolCalls.length){
-      const content=choice.message?.content||choice.message?.reasoning_content;
-      if(!content&&content!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
-      return content;
+    if(!toolCalls||!toolCalls.length||round===maxRounds-1){
+      const content=choice.message?.content||'';
+      const reasoning=choice.message?.reasoning_content||'';
+      if(!content&&reasoning&&round<maxRounds-1){
+        allMessages.push({role:'assistant',content:reasoning});
+        allMessages.push({role:'user',content:'Your previous response was all reasoning with no actual output. Output your final artifact NOW. Start with ## immediately. No more thinking.'});
+        continue;
+      }
+      const result=content||reasoning;
+      if(!result&&result!==0)throw new Error('Empty response from LLM (status '+resp.status+')');
+      return result;
     }
     // Execute tool calls locally and loop
     allMessages.push(choice.message);
@@ -1961,7 +1966,7 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
   }
   // Mutable message list — grows with tool results between rounds
   const allMessages=[...messages];
-  const maxRounds=tools?5:3;
+  const maxRounds=tools?5:2; // non-tool agents get 2 rounds for reasoning retry
   for(let round=0;round<maxRounds;round++){
     const body={model,max_tokens:maxTokens,temperature,messages:allMessages};
     if(tools&&round<maxRounds-1)body.tools=tools;
@@ -1975,7 +1980,17 @@ async function getAgentResponse(agent,message,history,baseUrl,apiKey){
     const choice=data.choices?.[0];
     if(!choice)throw new Error('No response');
     const toolCalls=choice.message?.tool_calls;
-    if(!toolCalls||!toolCalls.length)return choice.message?.content||choice.message?.reasoning_content||'No response.';
+    if(!toolCalls||!toolCalls.length||round===maxRounds-1){
+      const content=choice.message?.content||'';
+      const reasoning=choice.message?.reasoning_content||'';
+      // If content is empty but reasoning has data, retry with "output now" prompt
+      if(!content&&reasoning&&round<maxRounds-1){
+        allMessages.push({role:'assistant',content:reasoning});
+        allMessages.push({role:'user',content:'Your previous response was all reasoning with no actual output. Output your final artifact NOW. Start with ## immediately. No more thinking.'});
+        continue;
+      }
+      return content||reasoning||'No response.';
+    }
     // Execute tool calls and loop
     allMessages.push(choice.message);
     for(const tc of toolCalls){
