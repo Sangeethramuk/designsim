@@ -6325,14 +6325,10 @@ async function runSwarm(){
       }
     }
 
-    // ── Wave Checkpoint: pause and show summary, wait for user to continue ──
+    // ── Wave Checkpoint: auto-continue, no manual approval needed ──
+    // Plan approval at sprint start is the only manual gate; waves run automatically after that
     if(!window._swarmAbort&&waveIdx<waveQueue.length-1){
-      var checkpointResult=await showWaveCheckpoint(waveIdx,wave,completedIds.slice(),waveQueue.length);
-      if(checkpointResult==='stop'){
-        window._swarmAbort=true;
-        showToast('Sprint stopped at wave '+(waveIdx+1));
-        break;
-      }
+      if(window._sprintVizOpen)appendSprintOutput({id:'system',name:'System'},'→ Next wave...');
     }
 
     // Fire handoff animations to next wave
