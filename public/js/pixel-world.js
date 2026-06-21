@@ -5808,12 +5808,13 @@ function sanitizeSwarmResponse(text){
   //    Strategy: always find the first markdown heading (##) and strip everything before it.
   //    If no heading exists and the output starts with reasoning patterns, it's pure thinking trace.
   //    This is safe because all agent format instructions require ## headings.
-  const firstHeading=text.match(/^#{1,4} [A-Z]/m);
-  if(firstHeading){
+  // Check if text STARTS with a heading (position 0, no /m flag)
+  const startsWithHeading=/^#{1,4} [A-Z]/.test(text);
+  if(startsWithHeading){
     // Response starts with a heading — clean, no stripping needed
   }else{
     // Doesn't start with heading — look for first heading after reasoning
-    const headingMatch=text.match(/\n#{1,4} [A-Z]/m);
+    const headingMatch=text.match(/\n#{1,4} [A-Z]/);
     if(headingMatch&&headingMatch.index>0){
       // Check if the text before the heading is thinking trace (not just whitespace)
       const prefix=text.slice(0,headingMatch.index).trim();
